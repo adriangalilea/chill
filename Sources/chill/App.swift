@@ -1,17 +1,60 @@
+import AppKit
 import ChillKit
 import Foundation
-import Ink
-import Keymap
 
-/// The menu bar and the canvas: Ink + Keymap, an `ActionID` registry, `?`
-/// shows the bindings. Sends intent and presence at 1 Hz, renders the
-/// daemon's state, reads sensors through the read-only package for the
-/// canvas and never writes the SMC. In the demo world every
-/// content-bearing root is the `-demo` sibling and the daemon is
-/// `FakeDaemon` through the same `Client`.
+/// The menu bar and the canvas, what `chill` with no argument runs (Finder,
+/// the login item). An accessory app: no dock icon, a status item, the
+/// canvas on demand. In the demo world every content-bearing root is the
+/// `-demo` sibling and the daemon is `FakeDaemon` through the same
+/// `Client`; the canvas opens at once, since the demo exists to be seen.
 enum App {
-    static func run(demo: Demo) -> Never {
-        print(demo.mark("app: stage 5"))
-        exit(0)
+    @MainActor static func run(demo: Demo) -> Never {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        let delegate = Delegate(demo: demo)
+        app.delegate = delegate
+        app.run()
+        fatalError("NSApplication.run returned")
+    }
+}
+
+@MainActor
+final class Delegate: NSObject, NSApplicationDelegate {
+    let demo: Demo
+    private var model: Model!
+    private var menuBar: MenuBar!
+    private var pulse: Pulse!
+    private var signals: [DispatchSourceSignal] = []
+
+    init(demo: Demo) { self.demo = demo }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        do {
+            model = try Model(demo: demo)
+        } catch {
+            Verbs.die("\(error)")
+        }
+        menuBar = MenuBar(model: model)
+        pulse = Pulse(model: model)
+        model.startKeys()
+        // A signal is a quit like any other: the clouds land first.
+        for sig in [SIGTERM, SIGINT] {
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler { NSApp.terminate(nil) }
+            source.resume()
+            signals.append(source)
+        }
+        if demo.on { model.openCanvas() }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        model.quit()
+    }
+
+    /// A Finder double-click on the running app means "show me the canvas".
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        model.openCanvas()
+        return false
     }
 }

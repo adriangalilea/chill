@@ -4,10 +4,12 @@ import Foundation
 /// speaks, in-process, never chilld and never the SMC. Two fans with the
 /// envelope shape of a real Apple Silicon Mac, a scripted die trace, an
 /// Apple curve it plays when it holds the fans, the contract's presence
-/// rule, a boost that ends by itself, and a seeded reference cloud. No
-/// vetoes fire: there is no lid, no sleep and no thermal pressure to read.
-/// One serial queue is the actor: every verb evaluates on it and replies
-/// from it, so the reply reflects the state after the intent change.
+/// rule, a boost that ends by itself, and a reference cloud it records
+/// exactly as chilld does: every sample taken while it holds the fans as
+/// Apple. No vetoes fire: there is no lid, no sleep and no thermal
+/// pressure to read. One serial queue is the actor: every verb evaluates
+/// on it and replies from it, so the reply reflects the state after the
+/// intent change.
 public final class FakeDaemon: NSObject, ChillDaemonProtocol {
     public static let fans = [
         Fan(index: 0, min: 2317, max: 7826), Fan(index: 1, min: 2317, max: 7826),
@@ -22,6 +24,11 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
     }
     static let slewPerSecond: Double = 300
 
+    private struct Bin: Hashable {
+        let c: Int
+        let rpm: Int
+    }
+
     private let queue = DispatchQueue(label: "garden.untitled.chill.demo")
     private let clock = ContinuousClock()
     private let started: ContinuousClock.Instant
@@ -30,13 +37,14 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
     private var watcher: (name: String, deadline: ContinuousClock.Instant)?
     private var actual: [Double]
     private var reason: Reason = .apple
-    private let clouds: [Cloud]
+    /// Per fan, the samples taken while Apple held it, since start.
+    private var clouds: [[Bin: Int]]
 
     public override init() {
         started = clock.now
         ticked = started
         actual = FakeDaemon.fans.map(\.min)
-        clouds = FakeDaemon.fans.map(FakeDaemon.seedCloud)
+        clouds = FakeDaemon.fans.map { _ in [:] }
         super.init()
     }
 
@@ -131,6 +139,12 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
             let step = FakeDaemon.slewPerSecond * elapsed
             let current = actual[fan.index]
             actual[fan.index] = current + max(-step, min(step, target - current))
+            if !forced {
+                let bin = Bin(
+                    c: Int(die.rounded(.down)),
+                    rpm: Int(actual[fan.index]) / Cloud.rpmBin * Cloud.rpmBin)
+                clouds[fan.index][bin, default: 0] += 1
+            }
             fans.append(
                 FanState(
                     index: fan.index, actual: actual[fan.index].rounded(), target: target.rounded(),
@@ -153,20 +167,13 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
                 Presence(
                     pid: getpid(), name: $0.name, secondsLeft: max(0, ($0.deadline - now).seconds))
             },
-            fans: fans, die: die, lastReason: reason.description, clouds: clouds)
-    }
-
-    /// Apple's curve as a cloud: every degree from 35 to 95 C, the rpm
-    /// Apple would hold, densest around idle, a lighter bin one step up
-    /// where the servo overshoots.
-    private static func seedCloud(_ fan: Fan) -> Cloud {
-        var bins: [[Int]] = []
-        for c in 35...95 {
-            let rpm = Int(apple(at: Double(c), for: fan)) / Cloud.rpmBin * Cloud.rpmBin
-            let count = max(1, Int(240 * exp(-pow(Double(c - 52), 2) / 260)))
-            bins.append([c, rpm, count])
-            if count > 3 { bins.append([c, rpm + Cloud.rpmBin, count / 3]) }
-        }
-        return Cloud(fan: fan.index, bins: bins)
+            fans: fans, die: die, lastReason: reason.description,
+            clouds: FakeDaemon.fans.map { fan in
+                Cloud(
+                    fan: fan.index,
+                    bins: clouds[fan.index]
+                        .map { [$0.key.c, $0.key.rpm, $0.value] }
+                        .sorted { ($0[0], $0[1]) < ($1[0], $1[1]) })
+            })
     }
 }

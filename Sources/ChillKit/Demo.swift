@@ -24,6 +24,28 @@ public struct Demo: Sendable, Equatable {
     }
 
     public var curves: URL { state.appending(path: "curves") }
+    /// `{ lastCurve, updatesEnabled }`, the app's own memory.
+    public var config: URL { state.appending(path: "config.json") }
+    /// `cloud/<fan>.json`, the reference cloud the app accumulates.
+    public var cloud: URL { state.appending(path: "cloud") }
+
+    /// The curve a demo's right-click toggles to before anyone picked one.
+    public static let seedLastCurve = "quiet"
+
+    /// Apple's curve as a reference cloud, what the demo's cloud root is
+    /// seeded with so the canvas shows the reference from the first frame:
+    /// every degree from 35 to 95 C, the rpm Apple would hold, densest
+    /// around idle, a lighter bin one step up where the servo overshoots.
+    public static func seedCloud(_ fan: Fan) -> Cloud {
+        var bins: [[Int]] = []
+        for c in 35...95 {
+            let rpm = Int(FakeDaemon.apple(at: Double(c), for: fan)) / Cloud.rpmBin * Cloud.rpmBin
+            let count = max(1, Int(240 * exp(-pow(Double(c - 52), 2) / 260)))
+            bins.append([c, rpm, count])
+            if count > 3 { bins.append([c, rpm + Cloud.rpmBin, count / 3]) }
+        }
+        return Cloud(fan: fan.index, bins: bins)
+    }
 
     /// The curves a demo starts with, so `curve list` has something to
     /// list and `curve use` something to use.

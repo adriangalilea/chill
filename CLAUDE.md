@@ -105,9 +105,14 @@ Every XPC invalidation re-reads `SMAppService.status` before reporting.
    connection open for the life of a curve session.
 2. **chill.app**, menu bar and canvas (swift-utils Ink + Keymap, fully
    keyboard navigable, `?` shows bindings, an `ActionID` registry as lore's).
-   Edits curves, sends intent and presence, renders the daemon's state. It
-   reads sensors and the SMC through the read-only package for the canvas;
-   it never WRITES the SMC. Registered as a login item
+   Edits curves, sends intent and presence, renders the daemon's state
+   (`Model`, one brain every surface reads; `Pulse` sends presence at 1 Hz
+   while the session is on the console, `CGSessionCopyCurrentDictionary`,
+   and the screens are awake, `NSWorkspace.screensDid{Sleep,Wake}`, and a
+   plain `state()` otherwise, so the glyph never goes stale and no one is
+   claimed to be watching). It reads sensors and the SMC through the
+   read-only package only while no daemon answers; it never WRITES the
+   SMC. Registered as a login item
    (`SMAppService.mainApp`) by `chill daemon install`, so presence returns
    at login and the persisted intent resumes.
 3. **`chill` CLI**: the same binary as the app, argv-dispatched (no
@@ -146,9 +151,11 @@ needs and the daemon does not: `Client` (one async core behind the XPC proxy
 or the demo's `FakeDaemon`; sync helpers for the CLI, async for the app;
 `hello` once per connection, retried through an upgrade relaunch; a 10 s
 reply watchdog; every transport failure classified against
-`SMAppService.status` before it is reported), `Demo`, `CurveStore`,
-`Reason` (the status vocabulary both daemons ship as `lastReason`),
-`Wire.version` (the bundle's stamp, both ends) and `Wire.logFile`:
+`SMAppService.status` before it is reported), `Demo` (the roots `state`,
+`curves`, `config`, `cloud` and the demo's seeds: curves, a scripted cloud,
+the first last-curve), `CurveStore`, `FakeDaemon`, `Reason` (the status
+vocabulary both daemons ship as `lastReason`), `Wire.version` (the
+bundle's stamp, both ends) and `Wire.logFile`:
 
 - `hello(clientVersion) -> Hello { daemonVersion, protocol, pid, fans: [Fan {
   index, min, max }], hasLid }`. Version mismatch: the daemon logs
@@ -224,8 +231,8 @@ where sensors name it.
 | path | owner | what |
 |---|---|---|
 | `~/.local/state/chill/curves/<name>.json` | app | `{ name, points: [{ c, rpm }] }`, one curve for all fans |
-| `~/.local/state/chill/config.json` | app | `{ lastCurve, updatesEnabled }` |
-| `~/.local/state/chill/cloud/<fan>.json` | app | 2-D histogram, 1 °C × 50 rpm bins, count per bin, capped at 5k bins, counts halved monthly; written on quit and every 5 min from `State.clouds`, never raw samples. The daemon accumulates it in memory and never writes into a home directory |
+| `~/.local/state/chill/config.json` | app | `{ lastCurve, updatesEnabled }`; `lastCurve` is the right-click toggle's target and the canvas's first cursor, written on every `use`; absent = first run (the demo starts on `quiet`) |
+| `~/.local/state/chill/cloud/<fan>.json` | app | `{ fan, bins: [[c, rpm, count]], seen: { pid, bins }, lastHalved }`: a 2-D histogram, 1 °C × 50 rpm bins, capped at 5k bins (thinnest dropped), counts halved monthly; written on quit and every 5 min, never raw samples. The daemon accumulates its cloud in memory since ITS start and never writes into a home directory; the app folds each `State.clouds` shipment in as the delta since the last one from the same daemon pid (`seen`), so a daemon restart starts a fresh delta and a relaunched app never counts a sample twice. Nothing absorbed = no file, no directory |
 | `/Library/Application Support/chill/policy.json` | daemon | `{ intent, curve, boostUntil }`, the thing that survives reboot |
 | `/Library/Logs/chill/chilld.log` | daemon | every transition with reason and before/after targets; `os_log` too, numbers and reasons `.public` (nothing personal exists here) |
 
@@ -233,11 +240,23 @@ Hysteresis and slew are constants in code, not per-curve fields.
 
 ## Surfaces, house rules
 
-- **Canvas**: one window, the active curve over the reference clouds (one
-  per fan, the second a lighter alpha of the same tone), y-axis from the
-  lowest `Mn` to the highest `Mx`, live markers for the hottest die and
-  the resulting target. Arrow keys move the selected point, ⇥ cycles, `n`
-  adds, ⌫ removes, Ink.CursorScrollView for the curve list. Nothing
+- **Canvas**: one window (`CanvasWindow`, an NSWindow hosting SwiftUI),
+  the cursor's curve over the reference clouds (one per fan, the second a
+  lighter alpha of the same tone, the mark's ink `#dff3ff` at alpha
+  tiers), y-axis from the lowest `Mn` to the highest `Mx` (`hello`; the
+  SMC's own numbers when no daemon answers), live markers for the hottest
+  die (hairline) and each fan's actual (open) and target (filled) on it.
+  Every key is a `ChillAction` (`Actions.swift`): arrows move the
+  selected point (1 °C / 50 rpm), ⇥ / ⇧⇥ cycle points, `n` adds one after,
+  ⌫ removes it, `[` / `]` walk the curve list (Ink.CursorScrollView),
+  ↩ uses the cursor's curve, ⌘N draws a new one across the envelope, ⌘⌫
+  trashes one (Apple's curve first when it is the running one), ⌘1-9
+  pick by list order, `b` boost, `s` system, `t` take over, `?` the
+  cheat sheet, ⎋ closes. Every edit LANDS: validated by `Curve`, written
+  to its file, re-sent with `use` when it is the curve the daemon runs;
+  there is no save step and no draft. Without a daemon the canvas still
+  shows the machine: `LocalSensors` reads the die and the fans through
+  the read-only package; with one, `State` is the only source. Nothing
   animates indefinitely.
 - **Menu bar**: the glyph is EFFECT, read from the daemon, never intent:
   outline = Apple holds the fans · filled = a curve does · bar = boost ·
@@ -247,15 +266,26 @@ Hysteresis and slew are constants in code, not per-curve fields.
   "install chilld" (`register()`) or "approve chilld in System Settings ›
   General › Login Items & Extensions" (`openSystemSettingsLoginItems()`),
   polling `SMAppService.status` until `.enabled`. Approval is admin-only; a
-  standard user is told so.
+  standard user (not in the `admin` group, `getgrouplist`) is told so. The
+  poll IS the pulse: every failed exchange classifies against the live
+  registration, so the status line and the fixing action follow it at
+  1 Hz. A bare build's status line says it cannot reach chilld; its menu
+  offers nothing to install (`.notFound`, no plist in the bundle). An
+  NSStatusItem + NSMenu (awake's left = menu, right = toggle; MenuBarExtra
+  has no right-click), the menu rebuilt on every open, every item wearing
+  its registry key; the glyph (`Mark.swift`) is `Glyph(Link)` re-rendered
+  through observation tracking, never on a timer.
 - **`--demo` / `mise demo`**: every content-bearing root forks to a `-demo`
   sibling (`~/.local/state/chill-demo`: curves, config, cloud, seeded with a
   scripted cloud), sensors are a scripted temperature trace, the daemon is
   `FakeDaemon` (ChillKit), an in-process conformer of the same protocol
   the XPC proxy implements, never chilld: two fans with a real envelope,
   a three-minute die breath, Apple's curve when it holds the fans, the
-  presence rule, no vetoes. The CLI takes the same flag and marks its
-  headers `· demo`; the window wears a lowercase mono `demo` kicker.
+  presence rule, no vetoes, and a reference cloud it records from its own
+  samples exactly as chilld does (the seeded cloud is the demo ROOT's,
+  written by the app on first launch). The CLI takes the same flag and
+  marks its headers `· demo`; the window wears a lowercase mono `demo`
+  kicker and opens at launch, since the demo exists to be seen.
 - **Mark**: `scripts/icon.svg`, rendered by `mise icon` (rsvg-convert →
   icns + icon.png); the menu glyph is a template render of the same paths.
 - **Verbs**: `mise.toml`: `build · dev · demo · check · icon · install ·

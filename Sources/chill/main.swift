@@ -39,7 +39,8 @@ let args = rawArgs.filter { $0 != "--demo" }
 
 switch args.first {
 case nil:
-    App.run(demo: demo)
+    // The process's own main thread, before any run loop exists.
+    MainActor.assumeIsolated { App.run(demo: demo) }
 case "status":
     Verbs.status(json: args.contains("--json"), demo: demo)
 case "curve":
