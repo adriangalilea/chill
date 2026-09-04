@@ -1,0 +1,239 @@
+# chill: fan control with Apple in charge by default. The verbs (`mise <task>`
+# from the app dir; install/uninstall collide with mise builtins, so those
+# two are always `mise run install` / `mise run uninstall`):
+#   build      both binaries (release): chill (app + CLI) and chilld (the root daemon)
+#   dev        the app from source (debug), against whatever chilld is installed
+#   demo       the app in the demo world: forked -demo roots, an in-process daemon, never chilld
+#   check      format + compile everything, debug: the FAST typecheck (0 warnings)
+#   format     swift-format in place · lint: advisory
+#   icon       Resources/chill.icns + icon.png from scripts/icon.svg (rsvg-convert)
+#   install    /Applications/chill.app, Developer ID signed, chilld registered, `chill` on PATH
+#   uninstall  `chill daemon uninstall` first, then the bundle and the symlink
+#   notes      draft notes/$VERSION.md from the commits (you then rewrite it)
+#   release    signed, notarized, stapled dmg → tag → GitHub Release → publish → cask
+#   publish    dmg → R2 behind chill.untitled.garden/releases (the COUNTED url) + notes → garden
+#   cask       bump the Homebrew cask to the built dmg (release does this)
+#   clean      remove the build directory and dist
+# Every compiling task runs under scripts/locked.sh (the build mutex);
+# scripts/assemble.sh builds the .app for install AND release, one implementation.
+
+[env]
+# THE VERSION, single source of truth: it stamps Info.plist and names the tag.
+VERSION = "0.1.0"
+LABEL = "garden.untitled.chilld"
+# /Applications, never ~/Applications: launchd bootstraps the daemon at boot,
+# before any home directory exists, and the cask lands here too, so a dev
+# build never registers a second root daemon. The CLI is a symlink into the
+# bundle so app, CLI and daemon stay ONE signed bundle.
+APP = "/Applications/chill.app"
+APPBIN = "/Applications/chill.app/Contents/MacOS/chill"
+DIST = "dist"
+
+[tasks.build]
+description = "Build chill and chilld (release)"
+run = "scripts/locked.sh swift build -c release"
+
+[tasks.dev]
+description = "The app from source (debug), against the installed chilld"
+run = '''
+scripts/locked.sh swift build
+.build/debug/chill
+'''
+
+# The demo studio (the studio decree): every content-bearing root forked to
+# a -demo sibling, sensors scripted, the daemon in-process. Safe to show.
+[tasks.demo]
+description = "The app in the demo world: forked roots, scripted sensors, no chilld"
+run = '''
+scripts/locked.sh swift build
+.build/debug/chill --demo
+'''
+
+[tasks.format]
+description = "swift-format in place (the Xcode toolchain's)"
+run = "xcrun swift-format --recursive Sources/ --in-place"
+
+[tasks.lint]
+description = "swift-format lint, advisory (format-clean is the gate, not lint taste)"
+run = "xcrun swift-format lint --recursive Sources/"
+
+# Diagnostics are read, not hidden: a build that prints `warning:` fails.
+[tasks.check]
+description = "format + compile everything, debug: the FAST typecheck (must be 0 warnings)"
+run = '''
+mise run format
+out=$(scripts/locked.sh swift build 2>&1) || { echo "$out"; exit 1; }
+if echo "$out" | grep -q "warning:"; then echo "$out"; echo "chill: warnings are errors"; exit 1; fi
+echo "chill: 0 errors, 0 warnings"
+'''
+
+# One drawing, every icon file: the mark is scripts/icon.svg and rasterizing
+# is a pipeline step (rsvg-convert, librsvg). Skipped while the svg is unchanged.
+[tasks.icon]
+description = "Render Resources/chill.icns + Resources/icon.png from scripts/icon.svg"
+sources = ["scripts/icon.svg"]
+outputs = ["Resources/chill.icns", "Resources/icon.png"]
+run = '''
+command -v rsvg-convert >/dev/null 2>&1 || { echo "rsvg-convert missing: brew install librsvg"; exit 1; }
+mkdir -p Resources
+set=$(mktemp -d)/chill.iconset
+mkdir -p "$set"
+for p in 16 32 128 256 512; do
+  rsvg-convert -w "$p" -h "$p" scripts/icon.svg -o "$set/icon_${p}x${p}.png"
+  rsvg-convert -w $((p * 2)) -h $((p * 2)) scripts/icon.svg -o "$set/icon_${p}x${p}@2x.png"
+done
+iconutil -c icns "$set" -o Resources/chill.icns
+rsvg-convert -w 512 -h 512 scripts/icon.svg -o Resources/icon.png
+rm -rf "$(dirname "$set")"
+'''
+
+# A Developer ID is REQUIRED, no ad-hoc fallback: SMAppService refuses an
+# unsigned or ad-hoc bundle (kSMErrorInvalidSignature), and the daemon's
+# peer requirement is derived from that signature's Team ID. Inner Mach-Os
+# first (chilld, chill), then the bundle, whose seal covers the LaunchDaemons
+# plist. The old registration goes BEFORE the old bundle: a bundle trashed
+# first leaves a .notFound registration in Login Items.
+[tasks.install]
+description = "Build + install /Applications/chill.app (Developer ID), register chilld, `chill` on PATH"
+depends = ["icon"]
+run = '''
+set -e
+sign_id=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
+test -n "$sign_id" || { echo "chill: no 'Developer ID Application' identity in the keychain; a LaunchDaemon bundle cannot be ad-hoc signed"; exit 1; }
+mise run build
+prefix="${PREFIX:-$HOME/.local}"
+mkdir -p "$prefix/bin"
+if [ -x "$APPBIN" ]; then "$APPBIN" daemon uninstall; fi
+rm -rf "$APP"
+scripts/assemble.sh "$APP"
+codesign --force --options runtime --sign "$sign_id" "$APP/Contents/MacOS/chilld"
+codesign --force --options runtime --sign "$sign_id" "$APP/Contents/MacOS/chill"
+codesign --force --options runtime --sign "$sign_id" "$APP"
+ln -sf "$APPBIN" "$prefix/bin/chill"
+echo "installed $APP (+ chill on PATH)"
+# The binary owns the registration (SMAppService + the login item), not this
+# file: the cask's postflight lands the same one, one implementation.
+"$APPBIN" daemon install
+'''
+
+[tasks.uninstall]
+description = "chill daemon uninstall, then remove the bundle and the symlink"
+run = '''
+set -e
+prefix="${PREFIX:-$HOME/.local}"
+if [ -x "$APPBIN" ]; then "$APPBIN" daemon uninstall; fi
+rm -rf "$APP"
+rm -f "$prefix/bin/chill"
+echo "removed $APP and $prefix/bin/chill"
+'''
+
+[tasks.clean]
+run = 'rm -rf .build "$DIST"'
+
+# THE WORDS GATE: a release exists only once a human has written what changed.
+# git-cliff DRAFTS from the commits; the draft is raw material, not prose users
+# read. Rewrite it, commit it, and that file is the release notes forever.
+[tasks.notes]
+description = "Draft notes/$VERSION.md from the commits with git-cliff (then REWRITE it for humans)"
+run = '''
+command -v git-cliff >/dev/null || { echo "git-cliff missing: brew install git-cliff"; exit 1; }
+notes="notes/$VERSION.md"
+test ! -f "$notes" || { echo "$notes exists already: edit it"; exit 1; }
+mkdir -p notes
+git-cliff --config .github/cliff.toml --unreleased --tag "$VERSION" -o "$notes"
+echo "drafted $notes: REWRITE it for humans, then commit it"
+'''
+
+# Notarization is a credentialed act, so releasing is a LOCAL command: the
+# certificate is in this keychain and the notary key is in ~/.appstoreconnect,
+# neither of which belongs in CI. CI's job is the 0-warning gate, nothing more.
+# A keychain profile, so no notary identifier and no key path exists in this
+# repo or in any file. Create it once:
+#   xcrun notarytool store-credentials chill \
+#     --key ~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8 \
+#     --key-id <KEYID> --issuer <ISSUER-UUID>
+[tasks.release]
+description = "Signed, notarized, stapled dmg → tag → GitHub Release → publish → cask (LOCAL: needs the Developer ID + notary profile)"
+depends = ["icon"]
+run = '''
+set -e
+mise run check
+mise run build
+notes="notes/$VERSION.md"
+dmg="$DIST/chill-$VERSION.dmg"
+release_app="$DIST/chill.app"
+notary="${NOTARY_PROFILE:-chill}"
+test -z "$(git status --porcelain)" || { echo "working tree is dirty"; exit 1; }
+! git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null || { echo "tag $VERSION exists: bump VERSION in mise.toml"; exit 1; }
+test -f "$notes" || { echo "no $notes: run 'mise notes', then write it"; exit 1; }
+# The grammar, checked HERE rather than by whoever renders it later: notes
+# publish as DESIGNED releases (a glyph per group), so a body without groups
+# and items renders as a dated heading with nothing underneath.
+grep -q '^### ' "$notes" && grep -q '^- ' "$notes" || \
+  { echo "$notes needs '### Added|Fixed|Changed|Performance|Polish' sections with '- ' items"; exit 1; }
+sign_id=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
+test -n "$sign_id" || { echo "no 'Developer ID Application' certificate in the keychain"; exit 1; }
+xcrun notarytool history --keychain-profile "$notary" >/dev/null 2>&1 || \
+  { echo "no notary keychain profile '$notary': see the header of mise.toml"; exit 1; }
+rm -rf "$DIST" && mkdir -p "$DIST/stage"
+scripts/assemble.sh "$release_app"
+# Hardened runtime + secure timestamp: notarization rejects anything less.
+codesign --force --options runtime --timestamp --sign "$sign_id" "$release_app/Contents/MacOS/chilld"
+codesign --force --options runtime --timestamp --sign "$sign_id" "$release_app/Contents/MacOS/chill"
+codesign --force --options runtime --timestamp --sign "$sign_id" "$release_app"
+ditto -c -k --keepParent "$release_app" "$DIST/chill.zip"
+xcrun notarytool submit "$DIST/chill.zip" --keychain-profile "$notary" --wait
+# The REAL verdict: stapling fails unless a ticket was actually issued, so
+# this is the check, not notarytool's exit status.
+xcrun stapler staple "$release_app"
+cp -R "$release_app" "$DIST/stage/" && ln -sf /Applications "$DIST/stage/Applications"
+rm -f "$dmg"
+diskutil image create from --format UDZO --volumeName chill "$DIST/stage" "$dmg"
+git tag -a "$VERSION" -m "$VERSION" && git push origin "$VERSION"
+gh release create "$VERSION" --title "$VERSION" --notes-file "$notes" "$dmg"
+mise run publish
+mise run cask
+echo "released $VERSION: $dmg"
+'''
+
+# The garden half of a release: the dmg behind the counted download URL, the
+# notes on the surface. Publish BEFORE the cask bump: the cask's URL is this
+# one, and brew fetches it the moment the tap updates. The untitled garden
+# monorepo's release tool is the ONE writer to the R2 bucket behind
+# <slug>.untitled.garden/releases/<file>, the download URL that is COUNTED
+# (garden KPI `download`), and `pnpm garden notes` syncs notes/<v>.md to the
+# surface's release rows. A fork without the checkout skips both and its
+# downloads simply go unmeasured. GARDEN overrides the checkout path.
+[tasks.publish]
+description = "dmg → R2 behind chill.untitled.garden/releases (the counted url) + notes → garden"
+run = '''
+dmg="$DIST/chill-$VERSION.dmg"
+garden="${GARDEN:-$HOME/Developer/untitled}"
+test -f "$dmg" || { echo "no $dmg: run 'mise release'"; exit 1; }
+if [ ! -d "$garden/tools/release" ]; then echo "no garden at $garden, skipping publish (downloads uncounted)"; exit 0; fi
+url=$(pnpm --dir "$garden/tools/release" exec tsx dmg.ts chill "$PWD/$dmg") && echo "published $url"
+cd "$garden" && pnpm --silent garden notes chill
+'''
+
+# The cask points at the release asset by URL + sha256, so it can only be bumped
+# once the dmg is public. The Homebrew tap holding the recipe is a separate repo
+# because Homebrew only discovers taps by the `homebrew-` name prefix, so it can
+# never live here; TAP overrides its path. A fork without the tap checked out
+# just skips it.
+[tasks.cask]
+description = "Bump the Homebrew cask (adriangalilea/homebrew-tap) to the built dmg"
+run = '''
+dmg="$DIST/chill-$VERSION.dmg"
+tap="${TAP:-$HOME/Developer/homebrew-tap}"
+test -f "$dmg" || { echo "no $dmg: run 'mise release'"; exit 1; }
+if [ ! -d "$tap/.git" ]; then echo "no tap at $tap, skipping cask bump"; exit 0; fi
+sha=$(shasum -a 256 "$dmg" | cut -d' ' -f1)
+sed -i '' \
+  -e "s|^  version .*|  version \"$VERSION\"|" \
+  -e "s|^  sha256 .*|  sha256 \"$sha\"|" \
+  "$tap/Casks/chill.rb"
+git -C "$tap" add Casks/chill.rb
+git -C "$tap" commit -q -m "chill $VERSION"
+git -C "$tap" push -q origin main
+echo "cask bumped to $VERSION ($sha)"
+'''

@@ -1,0 +1,7 @@
+{
+  "name": "chill",
+  "private": true,
+  "scripts": {
+    "check": "mise run check"
+  }
+}

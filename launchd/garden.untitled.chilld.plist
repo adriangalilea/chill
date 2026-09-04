@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>garden.untitled.chilld</string>
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/chilld</string>
+	<key>MachServices</key>
+	<dict>
+		<key>garden.untitled.chilld</key>
+		<true/>
+	</dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>1</integer>
+	<key>StandardOutPath</key>
+	<string>/Library/Logs/chill/chilld.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Library/Logs/chill/chilld.log</string>
+</dict>
+</plist>

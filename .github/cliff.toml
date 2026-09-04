@@ -1,0 +1,36 @@
+# The shape these notes must keep: the studio DESIGNS releases rather than
+# dumping markdown, so a body needs `### heading` lines with `- ` items. Prose
+# parses to zero groups and renders as a dated heading with nothing underneath.
+# The group NAMES below are the soft half: Added/Fixed/Changed/Performance/
+# Polish earn a designed glyph and colour, anything else still renders plainly.
+# git-cliff drafts into the shape (`mise notes`), a human rewrites the items,
+# and `mise run release` refuses anything that lost it.
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+{% for commit in commits %}- {{ commit.message | upper_first }}
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+tag_pattern = "[0-9]+\\.[0-9]+\\.[0-9]+"
+
+commit_parsers = [
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^style", group = "Polish" },
+  { message = "^docs", skip = true },
+  { message = "^release", skip = true },
+  { message = "^chore", skip = true },
+  { message = "^ci", skip = true },
+  { message = "^build", skip = true },
+  { message = "^test", skip = true },
+]

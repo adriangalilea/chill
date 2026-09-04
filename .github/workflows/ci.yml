@@ -1,0 +1,22 @@
+# The only thing CI does. Releasing needs a signing certificate and a notary
+# key, so it happens locally (`mise run release`); nothing here touches a secret.
+# The gate: format-clean (swift-format changes nothing) + 0 warnings.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v3
+      - run: mise run check
+      - run: git diff --exit-code
