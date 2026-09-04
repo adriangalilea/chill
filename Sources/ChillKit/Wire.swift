@@ -117,10 +117,37 @@ public struct Hello: Codable, Sendable {
 }
 
 /// What the daemon was asked to do; persisted in policy.json.
-public enum Intent: Codable, Sendable, Hashable {
+public enum Intent: Codable, Sendable, Hashable, CustomStringConvertible {
     case system
     case curve(Curve)
     case boost(until: Date)
+
+    public var description: String {
+        switch self {
+        case .system: return "system"
+        case .curve(let curve): return "curve \"\(curve.name)\""
+        case .boost(let until): return "boost until \(until.formatted(.iso8601))"
+        }
+    }
+}
+
+/// Apple's curve, observed: every (celsius, rpm) sample taken while Apple
+/// held a fan (mode 0 or 3), binned 1 C x `rpmBin` rpm. Each entry is
+/// `[celsius, rpm, count]` with celsius and rpm the bin floors. The daemon
+/// accumulates it in memory and ships it in every `State`; the app is the
+/// one that persists it (`~/.local/state/chill/cloud/<fan>.json`), so
+/// nothing running as root ever writes into a home directory.
+public struct Cloud: Codable, Sendable, Hashable {
+    public static let rpmBin = 50
+    public static let maxBins = 5000
+
+    public let fan: Int
+    public let bins: [[Int]]
+
+    public init(fan: Int, bins: [[Int]]) {
+        self.fan = fan
+        self.bins = bins
+    }
 }
 
 /// Who holds a fan, READ BACK from the mode key, never inferred from the
@@ -182,11 +209,13 @@ public struct State: Codable, Sendable {
     public let die: Double?
     /// Why the last transition happened, as the log recorded it.
     public let lastReason: String
+    /// The reference clouds, one per fan, in fan order.
+    public let clouds: [Cloud]
     public let protocolVersion: Int
 
     public init(
         intent: Intent, holder: Holder, vetoes: [Veto], presence: Presence?, fans: [FanState],
-        die: Double?, lastReason: String
+        die: Double?, lastReason: String, clouds: [Cloud]
     ) {
         self.intent = intent
         self.holder = holder
@@ -195,6 +224,7 @@ public struct State: Codable, Sendable {
         self.fans = fans
         self.die = die
         self.lastReason = lastReason
+        self.clouds = clouds
         self.protocolVersion = Wire.protocolVersion
     }
 }

@@ -145,8 +145,10 @@ payloads, `Codable` + `NSSecureCoding`:
   State` · `presence() -> State` · `state() -> State` · `take() -> State`.
 - `State { intent, holder: apple | chill(curve) | acquiring | foreign,
   vetoes: [Veto], presence: Presence?, fans: [FanState { actual, target,
-  mode }], die: Double?, lastReason, protocolVersion }`. `State` IS the
-  `status --json` document.
+  mode }], die: Double?, lastReason, clouds: [Cloud { fan, bins: [[c,
+  rpm, count]] }], protocolVersion }`. `State` IS the `status --json`
+  document. `clouds` is the reference cloud as the daemon accumulates it
+  in memory (fans Apple holds only); the app is the one that persists it.
 
 ONE presence holder at a time, keyed by the client's audit-token pid; a
 second client's `use`/`boost` is refused with `heldBy(pid, name)` unless it
@@ -210,7 +212,7 @@ where sensors name it.
 |---|---|---|
 | `~/.local/state/chill/curves/<name>.json` | app | `{ name, points: [{ c, rpm }] }`, one curve for all fans |
 | `~/.local/state/chill/config.json` | app | `{ lastCurve, updatesEnabled }` |
-| `~/.local/state/chill/cloud/<fan>.json` | app | 2-D histogram, 1 °C × 50 rpm bins, count per bin, capped at 5k bins, counts halved monthly; written on quit and every 5 min, never raw samples |
+| `~/.local/state/chill/cloud/<fan>.json` | app | 2-D histogram, 1 °C × 50 rpm bins, count per bin, capped at 5k bins, counts halved monthly; written on quit and every 5 min from `State.clouds`, never raw samples. The daemon accumulates it in memory and never writes into a home directory |
 | `/Library/Application Support/chill/policy.json` | daemon | `{ intent, curve, boostUntil }`, the thing that survives reboot |
 | `/Library/Logs/chill/chilld.log` | daemon | every transition with reason and before/after targets; `os_log` too, numbers and reasons `.public` (nothing personal exists here) |
 
