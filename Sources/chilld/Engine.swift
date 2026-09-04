@@ -22,47 +22,6 @@ struct Peer: Sendable {
     let name: String
 }
 
-/// Why the fans are where they are, in the words `chill status` prints
-/// after the intent. Derived from the read-back on every evaluation and
-/// logged when it changes.
-enum Reason: CustomStringConvertible, Equatable {
-    case apple
-    case foreign
-    case vetoed(Veto)
-    case noOneWatching
-    case acquiring
-    case curve(String)
-    case boost(Double)
-    case noFans
-
-    var description: String {
-        switch self {
-        case .apple: return "Apple's curve"
-        case .foreign: return "forced by someone else · `chill system` reclaims"
-        case .vetoed(let veto): return "vetoed: \(veto.spelled) · Apple holds the fans"
-        case .noOneWatching: return "no one watching → Apple holds the fans"
-        case .acquiring: return "acquiring"
-        case .curve(let name): return "curve \"\(name)\""
-        case .boost(let rpm): return "\(Int(rpm)) rpm"
-        case .noFans: return "this Mac has no fans"
-        }
-    }
-}
-
-extension Veto {
-    /// Status order: the veto named first is the one that explains the most.
-    static let order: [Veto] = [.lid, .sleep, .thermal, .noReading]
-
-    var spelled: String {
-        switch self {
-        case .lid: return "lid closed"
-        case .sleep: return "sleep"
-        case .thermal: return "thermal pressure"
-        case .noReading: return "no reading"
-        }
-    }
-}
-
 /// The contract, evaluated once a second: a fan is forced iff intent is
 /// not system AND a watcher spoke within the window AND no veto is set.
 /// Everything the daemon knows lives here, on one actor: the intent (and

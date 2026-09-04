@@ -36,11 +36,3 @@ func refuse(_ error: Error) -> Never {
     FileHandle.standardError.write(Data("chilld: \(error)\n".utf8))
     exit(1)
 }
-
-extension Duration {
-    /// Whole and fractional seconds, for a log line or a payload.
-    var seconds: Double {
-        let (s, attos) = components
-        return ((Double(s) + Double(attos) / 1e18) * 1000).rounded() / 1000
-    }
-}

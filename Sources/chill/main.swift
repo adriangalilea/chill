@@ -16,43 +16,44 @@ let usage = """
     is Apple's curve.
 
       chill                          the app (menu bar + canvas)
-      chill status [--json]          who holds the fans and why, in one line
+      chill status [--json]          who holds the fans and why, in one line (--json: the State document)
       chill curve list               the curves in ~/.local/state/chill/curves
       chill curve show <name>        its points
-      chill curve use <name> [--watch]   intent = this curve; --watch holds presence (Ctrl-C hands back)
-      chill boost [minutes] [--watch]    max rpm for N minutes (default 5), ends by itself
-      chill system                   intent = Apple's curve
+      chill curve use <name> [--watch] [--take]   intent = this curve
+      chill boost [minutes] [--watch] [--take]    max rpm for N minutes (default 5), ends by itself
+      chill system                   intent = Apple's curve; reclaims a fan someone else forced
       chill daemon install           register chilld (SMAppService) and the login item
-      chill daemon uninstall         auto over XPC, read back, then unregister
+      chill daemon uninstall         Apple's curve over XPC, read back, then unregister
       chill daemon status            registration, pid, signature check
-      chill log [-f]                 /Library/Logs/chill/chilld.log
-      chill --demo ...               the demo world, never chilld
+      chill log [-f]                 /Library/Logs/chill/chilld.log (-f follows)
+      chill --demo ...               the demo world: -demo roots, an in-process daemon, never chilld
 
-    `use` and `boost` need presence: with no app running and no --watch they
-    refuse with exit 2 instead of forcing a fan nobody is watching.
+    `use` and `boost` need presence: --watch holds it at 1 Hz until Ctrl-C,
+    which hands the fans back; without --watch they refuse with exit 2 when
+    no one is watching. One watcher at a time: --take overrides another.
     """
 
 let rawArgs = Array(CommandLine.arguments.dropFirst())
-let demo = rawArgs.contains("--demo")
+let demo = Demo(on: rawArgs.contains("--demo"))
 let args = rawArgs.filter { $0 != "--demo" }
 
 switch args.first {
 case nil:
     App.run(demo: demo)
 case "status":
-    Client.status(json: args.contains("--json"), demo: demo)
+    Verbs.status(json: args.contains("--json"), demo: demo)
 case "curve":
-    Client.curve(Array(args.dropFirst()), demo: demo)
+    Verbs.curve(Array(args.dropFirst()), demo: demo)
 case "boost":
-    Client.boost(Array(args.dropFirst()), demo: demo)
+    Verbs.boost(Array(args.dropFirst()), demo: demo)
 case "system":
-    Client.system(demo: demo)
+    Verbs.system(demo: demo)
 case "daemon":
-    DaemonControl.run(Array(args.dropFirst()))
+    DaemonControl.run(Array(args.dropFirst()), demo: demo)
 case "log":
-    Client.log(follow: args.contains("-f"))
+    Verbs.log(follow: args.contains("-f"), demo: demo)
 case "help", "-h", "--help":
     print(usage)
 default:
-    Client.die("unknown verb '\(args[0])'; see chill help")
+    Verbs.die("unknown verb '\(args[0])'; see chill help")
 }

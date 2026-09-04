@@ -113,9 +113,15 @@ Every XPC invalidation re-reads `SMAppService.status` before reporting.
 3. **`chill` CLI**: the same binary as the app, argv-dispatched (no
    arguments = the app; that is what Finder and the login item launch, so a
    double click is never a silent death). Symlinked into `~/.local/bin` by
-   install. Verbs: `status [--json]`, `curve list|show|use <name> [--watch]`,
-   `boost [minutes] [--watch]`, `system`, `daemon install|uninstall|status`,
-   `log [-f]`. `use` and `boost` need presence; the rest do not.
+   install. Verbs: `status [--json]`, `curve list|show|use <name> [--watch]
+   [--take]`, `boost [minutes] [--watch] [--take]`, `system`, `daemon
+   install|uninstall|status`, `log [-f]`. `use` and `boost` need presence;
+   the rest do not. Without `--watch` and with no one watching they exit 2
+   (`no one watching: run with --watch or open chill.app`); with another
+   watcher the daemon refuses `heldBy` unless `--take`. `status` exits 1
+   when it prints a `daemon:` line (the fans' state is unknown). A bare
+   build (ad-hoc signed) cannot derive a peer requirement and says so
+   instead of connecting; only the installed bundle talks to chilld.
 
 ### Wire
 
@@ -135,9 +141,16 @@ requirement derived from the daemon's OWN code (`SecCodeCopySelf` →
 signed bundle, one Team ID, no hardcoded string.
 
 `ChillKit` (a library target shared by all three) holds the protocol and the
-payloads, `Codable` + `NSSecureCoding`:
+payloads (`Codable`, crossing XPC as JSON `Data`), plus everything a client
+needs and the daemon does not: `Client` (one async core behind the XPC proxy
+or the demo's `FakeDaemon`; sync helpers for the CLI, async for the app;
+`hello` once per connection, retried through an upgrade relaunch; a 10 s
+reply watchdog; every transport failure classified against
+`SMAppService.status` before it is reported), `Demo`, `CurveStore`,
+`Reason` (the status vocabulary both daemons ship as `lastReason`),
+`Wire.version` (the bundle's stamp, both ends) and `Wire.logFile`:
 
-- `hello(clientVersion) -> Hello { daemonVersion, protocol, fans: [Fan {
+- `hello(clientVersion) -> Hello { daemonVersion, protocol, pid, fans: [Fan {
   index, min, max }], hasLid }`. Version mismatch: the daemon logs
   `upgrade: old → new` and exits 0; KeepAlive relaunches the new image and
   its first act is auto.
@@ -152,7 +165,7 @@ payloads, `Codable` + `NSSecureCoding`:
 
 ONE presence holder at a time, keyed by the client's audit-token pid; a
 second client's `use`/`boost` is refused with `heldBy(pid, name)` unless it
-calls `take`. Fast user switching is out of scope.
+calls `take` (`--take` on the CLI). Fast user switching is out of scope.
 
 ### The SMC writer
 
@@ -238,9 +251,11 @@ Hysteresis and slew are constants in code, not per-curve fields.
 - **`--demo` / `mise demo`**: every content-bearing root forks to a `-demo`
   sibling (`~/.local/state/chill-demo`: curves, config, cloud, seeded with a
   scripted cloud), sensors are a scripted temperature trace, the daemon is
-  an in-process conformer of the same protocol the XPC proxy implements,
-  never chilld. The CLI takes the same flag and marks its headers `· demo`;
-  the window wears a lowercase mono `demo` kicker.
+  `FakeDaemon` (ChillKit), an in-process conformer of the same protocol
+  the XPC proxy implements, never chilld: two fans with a real envelope,
+  a three-minute die breath, Apple's curve when it holds the fans, the
+  presence rule, no vetoes. The CLI takes the same flag and marks its
+  headers `· demo`; the window wears a lowercase mono `demo` kicker.
 - **Mark**: `scripts/icon.svg`, rendered by `mise icon` (rsvg-convert →
   icns + icon.png); the menu glyph is a template render of the same paths.
 - **Verbs**: `mise.toml`: `build · dev · demo · check · icon · install ·

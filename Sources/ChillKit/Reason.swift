@@ -1,0 +1,44 @@
+import Foundation
+
+/// Why the fans are where they are, in the words `chill status` prints
+/// after the intent. Every daemon (chilld and the demo's in-process one)
+/// derives it from the read-back on every evaluation and ships it as
+/// `State.lastReason`; the CLI prints it as is and appends what the
+/// reason itself cannot know (the boost's remaining time).
+public enum Reason: CustomStringConvertible, Equatable, Sendable {
+    case apple
+    case foreign
+    case vetoed(Veto)
+    case noOneWatching
+    case acquiring
+    case curve(String)
+    case boost(Double)
+    case noFans
+
+    public var description: String {
+        switch self {
+        case .apple: return "Apple's curve"
+        case .foreign: return "forced by someone else · `chill system` reclaims"
+        case .vetoed(let veto): return "vetoed: \(veto.spelled) · Apple holds the fans"
+        case .noOneWatching: return "no one watching → Apple holds the fans"
+        case .acquiring: return "acquiring"
+        case .curve(let name): return "curve \"\(name)\""
+        case .boost(let rpm): return "\(Int(rpm)) rpm"
+        case .noFans: return "this Mac has no fans"
+        }
+    }
+}
+
+extension Veto {
+    /// Status order: the veto named first is the one that explains the most.
+    public static let order: [Veto] = [.lid, .sleep, .thermal, .noReading]
+
+    public var spelled: String {
+        switch self {
+        case .lid: return "lid closed"
+        case .sleep: return "sleep"
+        case .thermal: return "thermal pressure"
+        case .noReading: return "no reading"
+        }
+    }
+}

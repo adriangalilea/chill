@@ -13,9 +13,16 @@ public enum Wire {
     /// `SMAppService.daemon(plistName:)` registers it.
     public static let machService = "garden.untitled.chilld"
     public static let plistName = "garden.untitled.chilld.plist"
+    /// Where launchd sends the daemon's stdout and stderr, per the plist's
+    /// StandardOutPath/StandardErrorPath; `chill log` reads it.
+    public static let logFile = "/Library/Logs/chill/chilld.log"
     /// A client that has not spoken within this window is gone; the daemon
     /// hands the fans back to Apple on the next evaluation.
     public static let presenceWindow: Duration = .seconds(10)
+    /// This image's version as the bundle stamps it, "dev" for a bare
+    /// build. `hello` carries the client's, the daemon compares its own.
+    public static let version =
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
 
     /// Payloads cross XPC as JSON `Data`, not as `NSSecureCoding` objects:
     /// the payloads are Swift value types, and NSSecureCoding wants an
@@ -24,10 +31,10 @@ public enum Wire {
     /// the one class the interface whitelists; the shape is enforced by
     /// `Codable` on both ends, and `State` encoded this way IS the
     /// `status --json` document.
-    public static func encode<T: Encodable>(_ value: T) -> Data {
+    public static func encode<T: Encodable>(_ value: T, pretty: Bool = false) -> Data {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = pretty ? [.sortedKeys, .prettyPrinted] : [.sortedKeys]
         return try! encoder.encode(value)
     }
 
@@ -104,13 +111,17 @@ public struct Fan: Codable, Sendable, Hashable {
 public struct Hello: Codable, Sendable {
     public let daemonVersion: String
     public let protocolVersion: Int
+    /// The daemon's pid, what `chill daemon status` reports.
+    public let pid: Int32
     /// Empty on a Mac without fans.
     public let fans: [Fan]
     public let hasLid: Bool
 
-    public init(daemonVersion: String, protocolVersion: Int, fans: [Fan], hasLid: Bool) {
+    public init(daemonVersion: String, protocolVersion: Int, pid: Int32, fans: [Fan], hasLid: Bool)
+    {
         self.daemonVersion = daemonVersion
         self.protocolVersion = protocolVersion
+        self.pid = pid
         self.fans = fans
         self.hasLid = hasLid
     }

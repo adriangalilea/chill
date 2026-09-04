@@ -1,0 +1,266 @@
+import ChillKit
+import Foundation
+
+/// The CLI verbs: each one a `Client` conversation rendered as the one
+/// honest status line. `use` and `boost` need presence and hold it
+/// themselves with `--watch`; the rest do not.
+enum Verbs {
+    static func die(_ message: String, exit code: Int32 = 1) -> Never {
+        FileHandle.standardError.write(Data("chill: \(message)\n".utf8))
+        exit(code)
+    }
+
+    static func note(_ message: String) {
+        FileHandle.standardError.write(Data("\(message)\n".utf8))
+    }
+
+    /// A client for this world, or the reason none can exist here.
+    static func connect(_ demo: Demo) -> Client {
+        do {
+            return try Client(demo: demo)
+        } catch {
+            die("\(error); a bare build cannot reach chilld, run the installed chill")
+        }
+    }
+
+    // MARK: - status
+
+    static func status(json: Bool, demo: Demo) {
+        let client = connect(demo)
+        do {
+            let state = try client.state()
+            if json {
+                print(String(decoding: Wire.encode(state, pretty: true), as: UTF8.self))
+            } else {
+                print(demo.mark(Status.line(state)))
+            }
+        } catch let error as ClientError {
+            // The daemon states ARE the status: on stdout, exit 1 because
+            // the fans' state is unknown.
+            print(demo.mark(error.description))
+            exit(1)
+        } catch {
+            die("\(error)")
+        }
+    }
+
+    // MARK: - curves
+
+    static func curve(_ args: [String], demo: Demo) {
+        let store: CurveStore
+        do {
+            store = try CurveStore(demo: demo)
+        } catch {
+            die("\(error)")
+        }
+        switch args.first {
+        case "list":
+            do {
+                let curves = try store.list()
+                print(demo.mark("curves in \(store.directory.path)"))
+                for curve in curves { print("  \(curve.name): \(Status.points(curve))") }
+                if curves.isEmpty { print("  none: draw one in chill.app") }
+            } catch {
+                die("\(error)")
+            }
+        case "show":
+            guard args.count == 2 else { die("usage: chill curve show <name>") }
+            do {
+                let curve = try store.load(args[1])
+                print(demo.mark(curve.name))
+                for point in curve.points {
+                    print("  \(Status.degrees(point.c))  \(Int(point.rpm)) rpm")
+                }
+            } catch {
+                die("\(error)")
+            }
+        case "use":
+            let flags = Flags(args.dropFirst(2))
+            guard args.count >= 2, flags.rest.isEmpty else {
+                die("usage: chill curve use <name> [--watch] [--take]")
+            }
+            let curve: Curve
+            do {
+                curve = try store.load(args[1])
+            } catch {
+                die("\(error)")
+            }
+            engage(demo, flags) { try $0.use(curve) }
+        default:
+            die("usage: chill curve list|show <name>|use <name> [--watch] [--take]")
+        }
+    }
+
+    // MARK: - boost, system
+
+    static func boost(_ args: [String], demo: Demo) {
+        let flags = Flags(args[...])
+        var minutes = 5
+        if let word = flags.rest.first {
+            guard flags.rest.count == 1, let n = Int(word), n > 0 else {
+                die("usage: chill boost [minutes] [--watch] [--take]")
+            }
+            minutes = n
+        }
+        engage(demo, flags) { try $0.boost(minutes: minutes) }
+    }
+
+    static func system(demo: Demo) {
+        let client = connect(demo)
+        do {
+            print(demo.mark(Status.line(try client.system())))
+        } catch {
+            die("\(error)")
+        }
+    }
+
+    // MARK: - presence
+
+    struct Flags {
+        let watch: Bool
+        let take: Bool
+        let rest: [String]
+
+        init(_ args: ArraySlice<String>) {
+            watch = args.contains("--watch")
+            take = args.contains("--take")
+            rest = args.filter { $0 != "--watch" && $0 != "--take" }
+        }
+    }
+
+    /// The presence rule for `use` and `boost`: without `--watch` and
+    /// with no one watching, refuse (exit 2) rather than force a fan
+    /// nobody is watching; with another watcher, `--take` overrides it
+    /// (the daemon refuses otherwise). With `--watch`, hold presence at
+    /// 1 Hz until Ctrl-C, which hands the fans back.
+    private static func engage(_ demo: Demo, _ flags: Flags, _ act: (Client) throws -> State) {
+        let client = connect(demo)
+        do {
+            let before = try client.state()
+            if !flags.watch && before.presence == nil {
+                die("no one watching: run with --watch or open chill.app", exit: 2)
+            }
+            if flags.take { _ = try client.take() }
+            print(demo.mark(Status.line(try act(client))))
+        } catch {
+            die("\(error)")
+        }
+        if flags.watch { Watch.run(client, demo: demo) }
+    }
+
+    // MARK: - log
+
+    static func log(follow: Bool, demo: Demo) {
+        if demo.on {
+            print(demo.mark("log"))
+            print("  the demo daemon runs in-process; nothing is written to \(Wire.logFile)")
+            return
+        }
+        let fd = open(Wire.logFile, O_RDONLY)
+        guard fd >= 0 else {
+            die("no \(Wire.logFile): chilld has never run here (chill daemon install)")
+        }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        FileHandle.standardOutput.write(handle.readDataToEndOfFile())
+        guard follow else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd, eventMask: [.extend, .write, .delete, .rename],
+            queue: DispatchQueue(label: "garden.untitled.chill.log"))
+        source.setEventHandler {
+            if !source.data.isDisjoint(with: [.delete, .rename]) {
+                die("\(Wire.logFile) was replaced; run chill log -f again")
+            }
+            FileHandle.standardOutput.write(handle.readDataToEndOfFile())
+        }
+        source.resume()
+        dispatchMain()
+    }
+}
+
+/// `--watch`: presence at 1 Hz, the status line reprinted when it
+/// changes, SIGINT or SIGTERM = `system()` then exit. The connection
+/// dying with this process is the other exit: the daemon drops the
+/// presence on invalidation and Apple is back within a second.
+enum Watch {
+    static func run(_ client: Client, demo: Demo) -> Never {
+        let queue = DispatchQueue(label: "garden.untitled.chill.watch")
+        var last = ""
+        var sources: [DispatchSourceProtocol] = []
+        for sig in [SIGINT, SIGTERM] {
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: queue)
+            source.setEventHandler {
+                do {
+                    print(demo.mark(Status.line(try client.system())))
+                } catch {
+                    Verbs.die("\(error)")
+                }
+                exit(0)
+            }
+            source.resume()
+            sources.append(source)
+        }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + .seconds(1), repeating: .seconds(1))
+        timer.setEventHandler {
+            do {
+                let line = demo.mark(Status.line(try client.presence()))
+                if line != last {
+                    print(line)
+                    last = line
+                }
+            } catch {
+                Verbs.die("\(error)")
+            }
+        }
+        timer.resume()
+        sources.append(timer)
+        Verbs.note("watching · Ctrl-C hands the fans back")
+        dispatchMain()
+    }
+}
+
+/// The one honest status line, from `State` alone.
+enum Status {
+    static func line(_ s: State) -> String {
+        if s.fans.isEmpty { return "daemon: this Mac has no fans" }
+        let head: String
+        switch s.intent {
+        case .system: head = s.holder == .foreign ? "foreign" : "system"
+        case .curve(let curve): head = curve.name
+        case .boost: head = "boost"
+        }
+        var parts = [head, s.lastReason]
+        switch (s.intent, s.holder) {
+        case (.system, .apple):
+            if let die = s.die { parts.append("die \(degrees(die))") }
+            parts.append(rpm(s.fans))
+        case (.curve(let curve), .chill):
+            if let die = s.die {
+                parts.append("\(degrees(die)) → \(Int(curve.rpm(at: die).rounded())) rpm")
+            }
+            if let presence = s.presence { parts.append("watching: \(presence.name)") }
+            parts.append(rpm(s.fans))
+        case (.boost(let until), .chill):
+            parts[1] += " for \(remaining(until)) more"
+        default:
+            break
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    static func degrees(_ c: Double) -> String { "\(Int(c.rounded()))°C" }
+
+    static func rpm(_ fans: [FanState]) -> String {
+        fans.map { String(Int($0.actual.rounded())) }.joined(separator: " · ") + " rpm"
+    }
+
+    static func points(_ curve: Curve) -> String {
+        curve.points.map { "\(degrees($0.c)) \(Int($0.rpm))" }.joined(separator: " · ")
+    }
+
+    static func remaining(_ until: Date) -> String {
+        let total = max(0, Int(until.timeIntervalSinceNow.rounded()))
+        return total >= 60 ? "\(total / 60)m\(total % 60)s" : "\(total)s"
+    }
+}

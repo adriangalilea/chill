@@ -9,9 +9,8 @@ import MachSensors
 // reconcile, load the policy, arm the nets, run the loop, listen, and hand
 // the fans back on every exit that runs code.
 
-/// The daemon's version as the bundle stamps it; "dev" for a bare build.
-let daemonVersion =
-    Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+/// The daemon's version, the bundle's stamp (`Wire.version`).
+let daemonVersion = Wire.version
 
 /// The XPC face of the engine: one object owns the listener and turns
 /// every verb into an engine call, tagged with the peer of the message.
@@ -97,7 +96,7 @@ final class Daemon: NSObject, NSXPCListenerDelegate, ChillDaemonProtocol {
                 Reply<Hello>.ok(
                     Hello(
                         daemonVersion: daemonVersion, protocolVersion: Wire.protocolVersion,
-                        fans: writer.fans, hasLid: power.hasLid))))
+                        pid: getpid(), fans: writer.fans, hasLid: power.hasLid))))
     }
 
     func use(curve: Data, reply: @escaping (Data) -> Void) {

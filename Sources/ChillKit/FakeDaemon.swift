@@ -1,0 +1,172 @@
+import Foundation
+
+/// The demo world's daemon: the same `ChillDaemonProtocol` the XPC proxy
+/// speaks, in-process, never chilld and never the SMC. Two fans with the
+/// envelope shape of a real Apple Silicon Mac, a scripted die trace, an
+/// Apple curve it plays when it holds the fans, the contract's presence
+/// rule, a boost that ends by itself, and a seeded reference cloud. No
+/// vetoes fire: there is no lid, no sleep and no thermal pressure to read.
+/// One serial queue is the actor: every verb evaluates on it and replies
+/// from it, so the reply reflects the state after the intent change.
+public final class FakeDaemon: NSObject, ChillDaemonProtocol {
+    public static let fans = [
+        Fan(index: 0, min: 2317, max: 7826), Fan(index: 1, min: 2317, max: 7826),
+    ]
+    /// A three-minute breath: the hottest die from 42 to 82 C and back.
+    public static func trace(at seconds: Double) -> Double {
+        62 - 20 * cos(seconds * 2 * .pi / 180)
+    }
+    /// Apple's curve as the demo plays it: idle to 60 C, max at 100 C.
+    public static func apple(at celsius: Double, for fan: Fan) -> Double {
+        fan.clamp(fan.min + (fan.max - fan.min) * (celsius - 60) / 40)
+    }
+    static let slewPerSecond: Double = 300
+
+    private let queue = DispatchQueue(label: "garden.untitled.chill.demo")
+    private let clock = ContinuousClock()
+    private let started: ContinuousClock.Instant
+    private var ticked: ContinuousClock.Instant
+    private var intent: Intent = .system
+    private var watcher: (name: String, deadline: ContinuousClock.Instant)?
+    private var actual: [Double]
+    private var reason: Reason = .apple
+    private let clouds: [Cloud]
+
+    public override init() {
+        started = clock.now
+        ticked = started
+        actual = FakeDaemon.fans.map(\.min)
+        clouds = FakeDaemon.fans.map(FakeDaemon.seedCloud)
+        super.init()
+    }
+
+    // MARK: - the protocol
+
+    public func hello(clientVersion: String, reply: @escaping (Data) -> Void) {
+        queue.async {
+            reply(
+                Wire.encode(
+                    Reply<Hello>.ok(
+                        Hello(
+                            daemonVersion: Wire.version, protocolVersion: Wire.protocolVersion,
+                            pid: getpid(), fans: FakeDaemon.fans, hasLid: true))))
+        }
+    }
+
+    public func use(curve: Data, reply: @escaping (Data) -> Void) {
+        queue.async {
+            let decoded: Curve
+            do {
+                decoded = try Wire.decode(Curve.self, from: curve)
+            } catch {
+                reply(Wire.encode(Reply<State>.refused(.badCurve("\(error)"))))
+                return
+            }
+            self.claim()
+            self.intent = .curve(decoded)
+            reply(Wire.encode(Reply<State>.ok(self.evaluate())))
+        }
+    }
+
+    public func boost(minutes: Int, reply: @escaping (Data) -> Void) {
+        queue.async {
+            guard minutes > 0 else {
+                reply(
+                    Wire.encode(
+                        Reply<State>.refused(
+                            .unavailable("boost: minutes must be positive, got \(minutes)"))))
+                return
+            }
+            self.claim()
+            self.intent = .boost(until: Date.now.addingTimeInterval(Double(minutes) * 60))
+            reply(Wire.encode(Reply<State>.ok(self.evaluate())))
+        }
+    }
+
+    public func system(reply: @escaping (Data) -> Void) {
+        queue.async {
+            self.intent = .system
+            reply(Wire.encode(Reply<State>.ok(self.evaluate())))
+        }
+    }
+
+    public func presence(reply: @escaping (Data) -> Void) {
+        queue.async {
+            self.claim()
+            reply(Wire.encode(Reply<State>.ok(self.evaluate())))
+        }
+    }
+
+    public func state(reply: @escaping (Data) -> Void) {
+        queue.async { reply(Wire.encode(Reply<State>.ok(self.evaluate()))) }
+    }
+
+    public func take(reply: @escaping (Data) -> Void) {
+        presence(reply: reply)
+    }
+
+    // MARK: - the world
+
+    /// The one client is this process; heldBy never happens in the demo.
+    private func claim() {
+        watcher = (ProcessInfo.processInfo.processName, clock.now + Wire.presenceWindow)
+    }
+
+    private func evaluate() -> State {
+        let now = clock.now
+        let elapsed = (now - ticked).seconds
+        ticked = now
+        let die = FakeDaemon.trace(at: (now - started).seconds)
+        if case .boost(let until) = intent, until <= Date.now { intent = .system }
+        if let current = watcher, current.deadline <= now { watcher = nil }
+        let forced = intent != .system && watcher != nil
+        var fans: [FanState] = []
+        for fan in FakeDaemon.fans {
+            let target: Double
+            switch intent {
+            case .curve(let curve) where forced: target = curve.target(at: die, for: fan)
+            case .boost where forced: target = fan.max
+            default: target = FakeDaemon.apple(at: die, for: fan)
+            }
+            let step = FakeDaemon.slewPerSecond * elapsed
+            let current = actual[fan.index]
+            actual[fan.index] = current + max(-step, min(step, target - current))
+            fans.append(
+                FanState(
+                    index: fan.index, actual: actual[fan.index].rounded(), target: target.rounded(),
+                    mode: forced ? 1 : 3))
+        }
+        let holder: Holder
+        switch intent {
+        case .curve(let curve) where forced: holder = .chill(curve: curve.name)
+        case .boost where forced: holder = .chill(curve: "boost")
+        default: holder = .apple
+        }
+        switch intent {
+        case .system: reason = .apple
+        case .curve(let curve): reason = forced ? .curve(curve.name) : .noOneWatching
+        case .boost: reason = forced ? .boost(FakeDaemon.fans.map(\.max).max()!) : .noOneWatching
+        }
+        return State(
+            intent: intent, holder: holder, vetoes: [],
+            presence: watcher.map {
+                Presence(
+                    pid: getpid(), name: $0.name, secondsLeft: max(0, ($0.deadline - now).seconds))
+            },
+            fans: fans, die: die, lastReason: reason.description, clouds: clouds)
+    }
+
+    /// Apple's curve as a cloud: every degree from 35 to 95 C, the rpm
+    /// Apple would hold, densest around idle, a lighter bin one step up
+    /// where the servo overshoots.
+    private static func seedCloud(_ fan: Fan) -> Cloud {
+        var bins: [[Int]] = []
+        for c in 35...95 {
+            let rpm = Int(apple(at: Double(c), for: fan)) / Cloud.rpmBin * Cloud.rpmBin
+            let count = max(1, Int(240 * exp(-pow(Double(c - 52), 2) / 260)))
+            bins.append([c, rpm, count])
+            if count > 3 { bins.append([c, rpm + Cloud.rpmBin, count / 3]) }
+        }
+        return Cloud(fan: fan.index, bins: bins)
+    }
+}
