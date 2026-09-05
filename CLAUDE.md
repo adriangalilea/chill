@@ -86,13 +86,17 @@ system · Apple's curve · die 51°C (hottest of 14) · 2318 · 2318 rpm
 quiet · curve "quiet" · 51°C → 2600 rpm · watching: chill.app · 2603 · 2598 rpm
 quiet · vetoed: lid closed · Apple holds the fans
 quiet · no one watching → Apple holds the fans
-boost · 7817 rpm for 2m40s more
+boost · max rpm for 2m40s more · 7817 · 7811 rpm
 foreign · forced by someone else · `chill system` reclaims
 daemon: not installed | awaiting approval | unreachable | this Mac has no fans
 ```
 
 The status that lies by omission is the bug this product exists to kill.
-Every XPC invalidation re-reads `SMAppService.status` before reporting.
+The head is the holder whenever it is someone else: a persisted curve
+with no watcher, or under a veto, still reads `foreign` while another
+writer forces the fans. The rpm on any holder line is the read-back,
+never the cached envelope. Every XPC invalidation re-reads
+`SMAppService.status` before reporting.
 
 ## Three processes
 
@@ -140,7 +144,9 @@ is copied verbatim by `assemble.sh` to `Contents/Library/LaunchDaemons/`:
 Label `garden.untitled.chilld`, `BundleProgram Contents/MacOS/chilld`,
 `MachServices { garden.untitled.chilld: true }`, `KeepAlive true`,
 `ThrottleInterval 1`, `StandardOutPath`/`StandardErrorPath`
-`/Library/Logs/chill/chilld.log`. No `AssociatedBundleIdentifiers`
+`/Library/Logs/chill/chilld.log` (launchd creates no parent directory, so
+chilld's first act makes `/Library/Logs/chill` and points its own fds 1
+and 2 at the file, appending; `Log.open`). No `AssociatedBundleIdentifiers`
 (in-bundle plists self-associate). The app registers with
 `SMAppService.daemon(plistName: "garden.untitled.chilld.plist")`; the daemon
 listens on `NSXPCListener(machServiceName:)`; clients connect with
@@ -155,17 +161,26 @@ payloads (`Codable`, crossing XPC as JSON `Data`), plus everything a client
 needs and the daemon does not: `Client` (one async core behind the XPC proxy
 or the demo's `FakeDaemon`; sync helpers for the CLI, async for the app;
 `hello` once per connection, retried through an upgrade relaunch; a 10 s
-reply watchdog; every transport failure classified against
-`SMAppService.status` before it is reported), `Demo` (the roots `state`,
+reply watchdog that fails the pending call and leaves the connection up,
+so a retry reaches a daemon that is merely slow; every transport failure
+classified against `SMAppService.status` before it is reported), `Demo`
+(the roots `state`,
 `curves`, `config`, `cloud` and the demo's seeds: curves, a scripted cloud,
 the first last-curve), `CurveStore`, `FakeDaemon`, `Reason` (the status
 vocabulary both daemons ship as `lastReason`), `Wire.version` (the
 bundle's stamp, both ends) and `Wire.logFile`:
 
-- `hello(clientVersion) -> Hello { daemonVersion, protocol, pid, fans: [Fan {
-  index, min, max }], hasLid }`. Version mismatch: the daemon logs
-  `upgrade: old → new` and exits 0; KeepAlive relaunches the new image and
-  its first act is auto.
+- `hello(clientVersion, role) -> Hello { daemonVersion, protocol, pid,
+  fans: [Fan { index, min, max }], hasLid }`. `role` is what the client IS
+  (`Role`: `chill.app`, `chill`, `chill --watch`; the app and the CLI are
+  one executable, so the process name cannot tell them apart), kept per
+  connection by the daemon and worn as the watcher's name in status and
+  `heldBy`. Version mismatch: the daemon re-reads the bundle's Info.plist
+  from disk; when THAT differs from its own image it logs `upgrade: old →
+  new` and exits 0, KeepAlive relaunches the new image and its first act
+  is auto. When the disk still carries the daemon's version the client is
+  the stale one and is refused (`relaunch chill.app`) without an exit, so
+  an old process left running cannot bounce the daemon at its pulse rate.
 - `use(curve: Curve) -> State` · `boost(minutes) -> State` · `system() ->
   State` · `presence() -> State` · `state() -> State` · `take() -> State`.
 - `State { intent, holder: apple | chill(curve) | acquiring | foreign,

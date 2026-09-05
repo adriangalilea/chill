@@ -45,7 +45,6 @@ enum Link: Equatable {
 final class Model {
     nonisolated static let rpmStep = Double(Cloud.rpmBin)
     nonisolated static let celsiusStep = 1.0
-    nonisolated static let boostMinutes = 5
 
     let demo: Demo
     let store = KeymapStore<ChillAction>(families: [ChillAction.curveFamily])
@@ -61,7 +60,9 @@ final class Model {
     /// A refusal or an error from the last verb, cleared by the next good
     /// exchange.
     var notice: String?
-    /// The pulse's verdict: on the console with the screens awake.
+    /// The pulse's verdict: on the console with the screens awake, so this
+    /// app claims presence. `aside` explains the fans being Apple's when
+    /// it is false and no one else watches.
     var watching = false
     var curves: [Curve] = []
     /// The curve under the list cursor, by name.
@@ -123,13 +124,18 @@ final class Model {
 
     /// What the status line cannot say: another watcher holds the fans
     /// (and the key that takes over), else the last verb's refusal or
-    /// error. Both clear on the next good exchange.
+    /// error (both clear on the next good exchange), else why this app,
+    /// open as it is, claims no presence.
     var aside: String? {
         if let held = heldBy {
             return
                 "held by \(held.name) (pid \(held.pid)) · \(store.displayPrimary(for: .takeOver)) takes over"
         }
-        return notice
+        if let notice { return notice }
+        if !watching, let state, state.presence == nil {
+            return "not watching: off the console or screens asleep"
+        }
+        return nil
     }
 
     var actuals: [Double] { state?.fans.map(\.actual) ?? local?.fans.map(\.actual) ?? [] }
@@ -190,7 +196,7 @@ final class Model {
     private func connect() -> Client? {
         if let client { return client }
         do {
-            client = try Client(demo: demo)
+            client = try Client(demo: demo, role: .app)
             return client
         } catch {
             link = .bare("\(error)")
@@ -218,7 +224,7 @@ final class Model {
         call { try await $0.use(curve) }
     }
 
-    func boost() { call { try await $0.boost(minutes: Model.boostMinutes) } }
+    func boost() { call { try await $0.boost(minutes: Wire.boostMinutes) } }
 
     func system() { call { try await $0.system() } }
 

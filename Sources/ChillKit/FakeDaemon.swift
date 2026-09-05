@@ -9,8 +9,9 @@ import Foundation
 /// Apple. No vetoes fire: there is no lid, no sleep and no thermal
 /// pressure to read. One serial queue is the actor: every verb evaluates
 /// on it and replies from it, so the reply reflects the state after the
-/// intent change.
-public final class FakeDaemon: NSObject, ChillDaemonProtocol {
+/// intent change. `@unchecked Sendable` because `queue` is the
+/// confinement: every stored property is read and written on it alone.
+public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendable {
     public static let fans = [
         Fan(index: 0, min: 2317, max: 7826), Fan(index: 1, min: 2317, max: 7826),
     ]
@@ -36,6 +37,8 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
     private let started: ContinuousClock.Instant
     private var ticked: ContinuousClock.Instant
     private var intent: Intent = .system
+    /// The one client's declared role, from `hello`; the watcher's name.
+    private var role = "?"
     private var watcher: (name: String, deadline: ContinuousClock.Instant)?
     private var actual: [Double]
     private var reason: Reason = .apple
@@ -52,8 +55,11 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
 
     // MARK: - the protocol
 
-    public func hello(clientVersion: String, reply: @escaping (Data) -> Void) {
+    public func hello(
+        clientVersion: String, role: String, reply: @escaping @Sendable (Data) -> Void
+    ) {
         queue.async {
+            self.role = role
             reply(
                 Wire.encode(
                     Reply<Hello>.ok(
@@ -63,7 +69,7 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
         }
     }
 
-    public func use(curve: Data, reply: @escaping (Data) -> Void) {
+    public func use(curve: Data, reply: @escaping @Sendable (Data) -> Void) {
         queue.async {
             let decoded: Curve
             do {
@@ -77,7 +83,7 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
         }
     }
 
-    public func boost(minutes: Int, reply: @escaping (Data) -> Void) {
+    public func boost(minutes: Int, reply: @escaping @Sendable (Data) -> Void) {
         queue.async {
             guard minutes > 0 else {
                 reply(
@@ -91,25 +97,25 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
         }
     }
 
-    public func system(reply: @escaping (Data) -> Void) {
+    public func system(reply: @escaping @Sendable (Data) -> Void) {
         queue.async {
             self.intent = .system
             reply(Wire.encode(Reply<State>.ok(self.evaluate())))
         }
     }
 
-    public func presence(reply: @escaping (Data) -> Void) {
+    public func presence(reply: @escaping @Sendable (Data) -> Void) {
         queue.async {
             self.claim()
             reply(Wire.encode(Reply<State>.ok(self.evaluate())))
         }
     }
 
-    public func state(reply: @escaping (Data) -> Void) {
+    public func state(reply: @escaping @Sendable (Data) -> Void) {
         queue.async { reply(Wire.encode(Reply<State>.ok(self.evaluate()))) }
     }
 
-    public func take(reply: @escaping (Data) -> Void) {
+    public func take(reply: @escaping @Sendable (Data) -> Void) {
         presence(reply: reply)
     }
 
@@ -119,7 +125,7 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
     /// Only `presence` and `take` claim, as in chilld: `use` and `boost`
     /// set intent and leave the watching to whoever watches.
     private func claim() {
-        watcher = (ProcessInfo.processInfo.processName, clock.now + Wire.presenceWindow)
+        watcher = (role, clock.now + Wire.presenceWindow)
     }
 
     private func evaluate() -> State {
@@ -161,7 +167,7 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
         switch intent {
         case .system: reason = .apple
         case .curve(let curve): reason = forced ? .curve(curve.name) : .noOneWatching
-        case .boost: reason = forced ? .boost(FakeDaemon.fans.map(\.max).max()!) : .noOneWatching
+        case .boost: reason = forced ? .boost : .noOneWatching
         }
         return State(
             intent: intent, holder: holder, vetoes: [],

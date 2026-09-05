@@ -37,16 +37,21 @@ public enum ClientError: Error, CustomStringConvertible {
 /// verbs share one instance from concurrent tasks, and `greeted` is
 /// written by whichever `hello` lands first.
 public actor Client {
-    /// A daemon that has not replied within this window is wedged, not
-    /// slow: the connection is invalidated so the pending call fails
-    /// instead of hanging the CLI.
+    /// A reply that has not landed within this window fails THAT call as
+    /// `unreachable`; the connection stays up, so the next call (a retry
+    /// through a relaunch, the app's next pulse) reaches the daemon.
     public static let replyTimeout: Duration = .seconds(10)
     /// How long `hello` retries after the daemon steps aside for an
     /// upgrade (KeepAlive relaunches the new image within a second).
     public static let relaunchWindow: Duration = .seconds(10)
 
     public nonisolated let demo: Demo
-    private let connection: NSXPCConnection?
+    /// What this client declares itself in `hello`; the daemon names the
+    /// watcher by it.
+    public nonisolated let role: Role
+    /// NSXPCConnection is thread-safe; only `invalidate()` (deinit) and
+    /// proxy creation touch it off the actor.
+    private nonisolated(unsafe) let connection: NSXPCConnection?
     private let fake: FakeDaemon?
     private var greeted: Hello?
 
@@ -58,8 +63,9 @@ public actor Client {
     /// Throws when this process cannot derive a code-signing requirement
     /// from its own signature (unsigned, ad-hoc): such a client could not
     /// tell chilld from anything else, and chilld would refuse it anyway.
-    public init(demo: Demo) throws {
+    public init(demo: Demo, role: Role) throws {
         self.demo = demo
+        self.role = role
         if demo.on {
             fake = FakeDaemon()
             connection = nil
@@ -82,16 +88,19 @@ public actor Client {
         if let greeted { return greeted }
         let deadline = ContinuousClock.now + Client.relaunchWindow
         while true {
+            let role = role.rawValue
             let reply: Reply<Hello> = try await exchange("hello") { daemon, reply in
-                daemon.hello(clientVersion: Wire.version, reply: reply)
+                daemon.hello(clientVersion: Wire.version, role: role, reply: reply)
             }
             switch reply {
             case .ok(let hello):
                 greeted = hello
                 return hello
             case .refused(let refusal):
-                // The daemon is stepping aside for this newer image; its
-                // replacement answers on the same mach service.
+                // Either the daemon is stepping aside for a newer bundle,
+                // and its replacement answers on the same mach service
+                // within the window, or this client is the stale one and
+                // the refusal is the answer once the window closes.
                 guard ContinuousClock.now < deadline else { throw ClientError.refused(refusal) }
                 try await Task.sleep(for: .seconds(1))
             }
@@ -141,7 +150,9 @@ public actor Client {
 
     // MARK: - the core
 
-    private typealias Send = (ChillDaemonProtocol, @escaping (Data) -> Void) -> Void
+    private typealias Send =
+        @Sendable (ChillDaemonProtocol, @escaping @Sendable (Data) -> Void) ->
+        Void
 
     /// hello first, then the verb; a refusal is an error to the caller.
     private func verb(_ name: String, _ send: @escaping Send) async throws -> State {
@@ -166,6 +177,9 @@ public actor Client {
         }
     }
 
+    /// The reply, the proxy's error handler and the watchdog race for one
+    /// continuation; `Settle` lets exactly one of them resume it and drops
+    /// the rest (a reply after the timeout, an error after the reply).
     private func transport(_ send: @escaping Send) async throws -> Data {
         if let fake {
             return await withCheckedContinuation { k in
@@ -173,25 +187,25 @@ public actor Client {
             }
         }
         let connection = connection!
-        let timedOut = Flag()
-        let watchdog = Task {
-            try await Task.sleep(for: Client.replyTimeout)
-            timedOut.set()
-            connection.invalidate()
-        }
-        defer { watchdog.cancel() }
         return try await withCheckedThrowingContinuation { k in
-            let proxy = connection.remoteObjectProxyWithErrorHandler { error in
-                k.resume(throwing: Client.classify(error, timedOut: timedOut.isSet))
+            let settle = Settle(k)
+            let watchdog = Task {
+                try await Task.sleep(for: Client.replyTimeout)
+                settle.resume(
+                    .failure(.unreachable("no reply in \(Client.replyTimeout.seconds) s")))
             }
-            send(proxy as! ChillDaemonProtocol) { data in k.resume(returning: data) }
+            let proxy = connection.remoteObjectProxyWithErrorHandler { error in
+                watchdog.cancel()
+                settle.resume(.failure(Client.classify(error)))
+            }
+            send(proxy as! ChillDaemonProtocol) { data in
+                watchdog.cancel()
+                settle.resume(.success(data))
+            }
         }
     }
 
-    private static func classify(_ error: Error, timedOut: Bool) -> ClientError {
-        if timedOut {
-            return .unreachable("no reply in \(Client.replyTimeout.seconds) s")
-        }
+    private static func classify(_ error: Error) -> ClientError {
         switch registration {
         case .notRegistered, .notFound: return .notInstalled
         case .requiresApproval: return .awaitingApproval
@@ -201,29 +215,25 @@ public actor Client {
     }
 }
 
-/// Run one async job to completion from a synchronous thread that is not
-/// serving the XPC replies (the CLI's main thread qualifies: replies land
-/// on the connection's own queue).
-private func blocking<T: Sendable>(_ job: @escaping @Sendable () async throws -> T) throws -> T {
-    let done = DispatchSemaphore(value: 0)
-    let box = Box<T>()
-    Task.detached {
-        do { box.outcome = .success(try await job()) } catch { box.outcome = .failure(error) }
-        done.signal()
-    }
-    done.wait()
-    return try box.outcome!.get()
-}
-
-private final class Box<T>: @unchecked Sendable {
-    var outcome: Result<T, Error>?
-}
-
-private final class Flag: @unchecked Sendable {
+/// One continuation, resumed once: whichever of the reply, the error
+/// handler and the watchdog gets here first wins, the others find it gone.
+private final class Settle: @unchecked Sendable {
     private let lock = NSLock()
-    private var value = false
-    func set() { lock.withLock { value = true } }
-    var isSet: Bool { lock.withLock { value } }
+    private var pending: CheckedContinuation<Data, Error>?
+
+    init(_ k: CheckedContinuation<Data, Error>) { pending = k }
+
+    func resume(_ outcome: Result<Data, ClientError>) {
+        let k: CheckedContinuation<Data, Error>? = lock.withLock {
+            defer { pending = nil }
+            return pending
+        }
+        guard let k else { return }
+        switch outcome {
+        case .success(let data): k.resume(returning: data)
+        case .failure(let error): k.resume(throwing: error)
+        }
+    }
 }
 
 extension Duration {

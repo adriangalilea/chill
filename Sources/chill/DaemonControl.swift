@@ -51,7 +51,7 @@ enum DaemonControl {
             Verbs.die(
                 "chilld still awaits approval; approve it under \(Wire.approvalPath), then rerun")
         }
-        let client = Verbs.connect(Demo(on: false))
+        let client = Verbs.connect(Demo(on: false), role: .cli)
         let hello = greet(client)
         if hello.fans.isEmpty {
             unregister(daemon, "chilld")
@@ -68,7 +68,7 @@ enum DaemonControl {
     /// SIGTERM, which is why `system()` has to land before it.
     static func uninstall() {
         if daemon.status == .enabled {
-            let client = Verbs.connect(Demo(on: false))
+            let client = Verbs.connect(Demo(on: false), role: .cli)
             do {
                 let state = try client.system()
                 print(Status.line(state))
@@ -100,7 +100,7 @@ enum DaemonControl {
         }
         guard registration == .enabled else { exit(1) }
         do {
-            let hello = try Client(demo: Demo(on: false)).hello()
+            let hello = try Client(demo: Demo(on: false), role: .cli).hello()
             print(
                 "chilld \(hello.daemonVersion) · pid \(hello.pid) · \(hello.fans.count) fans · lid: \(hello.hasLid ? "yes" : "no")"
             )

@@ -12,7 +12,9 @@ public enum Reason: CustomStringConvertible, Equatable, Sendable {
     case noOneWatching
     case acquiring
     case curve(String)
-    case boost(Double)
+    /// Carries no number: the rpm printed after it is the read-back, never
+    /// the cached envelope max.
+    case boost
     case noFans
     /// A fan the last pass could not read or write; the log has the error.
     case unreadable(fan: Int)
@@ -25,7 +27,7 @@ public enum Reason: CustomStringConvertible, Equatable, Sendable {
         case .noOneWatching: return "no one watching → Apple holds the fans"
         case .acquiring: return "acquiring"
         case .curve(let name): return "curve \"\(name)\""
-        case .boost(let rpm): return "\(Int(rpm)) rpm"
+        case .boost: return "max rpm"
         case .noFans: return "this Mac has no fans"
         case .unreadable(let fan): return "smc: fan \(fan) unreadable · see chilld.log"
         }

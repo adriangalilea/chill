@@ -55,6 +55,15 @@ actor Engine {
     /// The world moved under a forced pass between its read and its write.
     private struct Moved: Error {}
 
+    /// One fan's verdict from `govern`.
+    private struct Governed {
+        let state: FanState
+        let holder: Holder
+        /// This pass wrote auto on the fan, so `Ftst` may have changed
+        /// under the fans still to be judged.
+        let released: Bool
+    }
+
     private let writer: SMCWriter
     private let hid: Result<HIDSensors, Error>
     private let clock = ContinuousClock()
@@ -95,9 +104,9 @@ actor Engine {
 
     // MARK: - life
 
-    /// Latch the initial lid state, watch thermal pressure, run the loop.
-    func start(lidClosed: Bool?) {
-        if let lidClosed { lid(closed: lidClosed) }
+    /// Watch thermal pressure and run the loop. The lid is latched by the
+    /// caller on the power queue once its notification is armed.
+    func start() {
         Log.notice("thermal: \(thermal.spelled)")
         thermalObserver = NotificationCenter.default.addObserver(
             forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: nil
@@ -319,18 +328,21 @@ actor Engine {
         }
         let plan = intent
         let forced = stillForced(plan)
-        let ftst = await readFtst()
+        // One `Ftst` read per pass, re-read after any hand-back in it: a
+        // fan judged after another's auto is judged on the post-write value.
+        var ftst = await readFtst()
         var fans: [FanState] = []
         var holders: [Holder] = []
         var unread: [Int] = []
         for fan in writer.fans {
             do {
-                let (state, holder) = try await govern(
+                let verdict = try await govern(
                     fan, plan: plan, forced: forced, die: die, ftst: ftst)
-                fans.append(state)
-                holders.append(holder)
-                if let die, state.mode == 0 || state.mode == 3 {
-                    clouds[fan.index]!.add(celsius: die, rpm: state.actual)
+                if verdict.released { ftst = await readFtst() }
+                fans.append(verdict.state)
+                holders.append(verdict.holder)
+                if let die, verdict.state.mode == 0 || verdict.state.mode == 3 {
+                    clouds[fan.index]!.add(celsius: die, rpm: verdict.state.actual)
                 }
             } catch is Moved {
                 Log.notice("pass abandoned: the world moved under it")
@@ -354,7 +366,7 @@ actor Engine {
     /// the world is re-read after every suspension and a move abandons
     /// the pass before any write.
     private func govern(_ fan: Fan, plan: Intent, forced: Bool, die: Double?, ftst: UInt8?)
-        async throws -> (FanState, Holder)
+        async throws -> Governed
     {
         let n = fan.index
         let state = try await writer.read(fan: n)
@@ -366,11 +378,12 @@ actor Engine {
                     Log.notice("fan \(n): mode \(state.mode), acquiring")
                     await writer.beginAcquire(fan: n)
                 }
-                return (state, .acquiring)
+                return Governed(state: state, holder: .acquiring, released: false)
             }
             held.insert(n)
             if let die { try await writer.target(fan: n, rpm: wanted(fan, die: die, under: plan)) }
-            return (state, .chill(curve: intentName(of: plan)))
+            return Governed(
+                state: state, holder: .chill(curve: intentName(of: plan)), released: false)
         }
         let forcedByAnyone = state.mode == 1 || ftst == 1
         let acquiring = await writer.isAcquiring(fan: n)
@@ -378,10 +391,11 @@ actor Engine {
             try await writer.auto(fan: n)
             held.remove(n)
             let after = try await writer.read(fan: n)
-            return (after, after.mode == 1 ? .foreign : .apple)
+            return Governed(
+                state: after, holder: after.mode == 1 ? .foreign : .apple, released: true)
         }
         held.remove(n)
-        return (state, forcedByAnyone ? .foreign : .apple)
+        return Governed(state: state, holder: forcedByAnyone ? .foreign : .apple, released: false)
     }
 
     private func wanted(_ fan: Fan, die: Double, under plan: Intent) -> Double {
@@ -400,21 +414,23 @@ actor Engine {
         }
     }
 
+    /// A fan someone else forced is `foreign` under ANY intent, before a
+    /// veto or a missing watcher gets to say "Apple holds the fans".
     private func currentReason(plan: Intent, forced: Bool) -> Reason {
         if writer.fans.isEmpty { return .noFans }
         if let fan = sample.unread.first { return .unreadable(fan: fan) }
+        if sample.holder == .foreign { return .foreign }
         switch plan {
         case .system:
-            return sample.holder == .foreign ? .foreign : .apple
+            return .apple
         case .curve, .boost:
             if let veto = Veto.order.first(where: vetoes.contains) { return .vetoed(veto) }
             if watcher == nil { return .noOneWatching }
             switch sample.holder {
-            case .foreign: return .foreign
-            case .apple, .acquiring: return .acquiring
+            case .foreign, .apple, .acquiring: return .acquiring
             case .chill:
                 if case .curve(let curve) = plan { return .curve(curve.name) }
-                return .boost(writer.fans.map(\.max).max()!)
+                return .boost
             }
         }
     }

@@ -1,3 +1,4 @@
+import ChillKit
 import Foundation
 import IOKit
 import IOKit.pwr_mgt

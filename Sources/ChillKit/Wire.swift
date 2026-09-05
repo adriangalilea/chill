@@ -3,24 +3,27 @@ import Foundation
 /// The contract every process shares: the mach service, the protocol
 /// version, and the codec every payload crosses the wire in.
 public enum Wire {
-    /// Bumped on any change to `ChillDaemonProtocol` or a payload. A
-    /// client whose version differs from the daemon's makes the daemon
-    /// log `upgrade: old -> new` and exit 0; KeepAlive relaunches the new
-    /// image and its first act is auto.
-    public static let protocolVersion = 2
+    /// Bumped on any change to `ChillDaemonProtocol` or a payload; shipped
+    /// in `hello` and in every `State` so a mismatch is visible.
+    public static let protocolVersion = 3
     /// The launchd label, the mach service and the plist name are ONE
     /// string: `launchd/garden.untitled.chilld.plist` advertises it and
     /// `SMAppService.daemon(plistName:)` registers it.
     public static let machService = "garden.untitled.chilld"
     public static let plistName = "garden.untitled.chilld.plist"
-    /// Where launchd sends the daemon's stdout and stderr, per the plist's
-    /// StandardOutPath/StandardErrorPath; `chill log` reads it.
+    /// The daemon's log. chilld creates the directory and reopens its
+    /// stdout and stderr onto this file as its first act (launchd opens the
+    /// plist's StandardOutPath before exec and makes no parent directory,
+    /// so it cannot); `chill log` reads it.
     public static let logFile = "/Library/Logs/chill/chilld.log"
     /// Where a LaunchDaemon is approved, as every surface names it.
     public static let approvalPath = "System Settings › General › Login Items & Extensions"
     /// A client that has not spoken within this window is gone; the daemon
     /// hands the fans back to Apple on the next evaluation.
     public static let presenceWindow: Duration = .seconds(10)
+    /// How long a boost runs when no length is given: the app's `b`, the
+    /// CLI's bare `chill boost`, and the usage line all read this one.
+    public static let boostMinutes = 5
     /// This image's version as the bundle stamps it, "dev" for a bare
     /// build. `hello` carries the client's, the daemon compares its own.
     public static let version =
@@ -47,26 +50,38 @@ public enum Wire {
     }
 }
 
+/// What a client IS, declared in `hello` and worn as its watcher name: the
+/// app and the CLI are one executable, so the process name cannot tell
+/// them apart, and "held by chill (pid N)" would name neither.
+public enum Role: String, Sendable {
+    case app = "chill.app"
+    case cli = "chill"
+    case watch = "chill --watch"
+}
+
 /// The daemon's verbs. Every reply block carries one `Wire.encode`d
 /// `Reply<...>`: `Reply<Hello>` for `hello`, `Reply<State>` for the rest.
+/// Reply blocks are `@Sendable`: XPC invokes them from its own queue and
+/// the daemon calls them from a task.
 @objc public protocol ChillDaemonProtocol {
-    /// First message on every connection: versions and the fan envelopes.
-    func hello(clientVersion: String, reply: @escaping (Data) -> Void)
+    /// First message on every connection: versions, the client's `Role`
+    /// (its `rawValue`), and the fan envelopes back.
+    func hello(clientVersion: String, role: String, reply: @escaping @Sendable (Data) -> Void)
     /// Intent = this curve (a `Wire.encode`d `Curve`). Applied only while
     /// someone watches; the caller does not become the watcher by asking.
-    func use(curve: Data, reply: @escaping (Data) -> Void)
+    func use(curve: Data, reply: @escaping @Sendable (Data) -> Void)
     /// Intent = max rpm for `minutes`, self-ending in the daemon. Applied
     /// only while someone watches.
-    func boost(minutes: Int, reply: @escaping (Data) -> Void)
+    func boost(minutes: Int, reply: @escaping @Sendable (Data) -> Void)
     /// Intent = Apple's curve.
-    func system(reply: @escaping (Data) -> Void)
+    func system(reply: @escaping @Sendable (Data) -> Void)
     /// "I am watching": claims presence, or renews it; refused `heldBy`
     /// while another live client holds it.
-    func presence(reply: @escaping (Data) -> Void)
+    func presence(reply: @escaping @Sendable (Data) -> Void)
     /// Who holds the fans and why, without touching anything.
-    func state(reply: @escaping (Data) -> Void)
+    func state(reply: @escaping @Sendable (Data) -> Void)
     /// Become the presence holder over another client.
-    func take(reply: @escaping (Data) -> Void)
+    func take(reply: @escaping @Sendable (Data) -> Void)
 }
 
 /// Every verb answers with one of these: the payload, or why not.
@@ -77,7 +92,7 @@ public enum Reply<Payload: Codable & Sendable>: Codable, Sendable {
 
 /// The daemon's reasons for saying no; each renders as a status line.
 public enum Refusal: Error, Codable, Sendable, Hashable, CustomStringConvertible {
-    /// Another client holds presence; `take` overrides it.
+    /// Another client holds presence; `take` (`--watch --take`) overrides it.
     case heldBy(pid: Int32, name: String)
     /// The curve did not validate (`CurveError` text).
     case badCurve(String)
@@ -87,7 +102,7 @@ public enum Refusal: Error, Codable, Sendable, Hashable, CustomStringConvertible
     public var description: String {
         switch self {
         case .heldBy(let pid, let name):
-            return "held by \(name) (pid \(pid)), `chill take` overrides"
+            return "held by \(name) (pid \(pid)); rerun with --watch --take to take over"
         case .badCurve(let reason): return "bad curve: \(reason)"
         case .unavailable(let reason): return reason
         }

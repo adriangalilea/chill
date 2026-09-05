@@ -71,8 +71,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
         switch model.link {
         case .live?: break
-        case .bare?: menu.addItem(.separator())
-        case .down?, nil:
+        case .bare?, .down?, nil:
             menu.addItem(.separator())
             fixer()
         }
@@ -97,7 +96,9 @@ final class MenuBar: NSObject, NSMenuDelegate {
         add(.quit, #selector(quit))
     }
 
-    /// The one action that gets a daemon answering, first.
+    /// The one action that gets a daemon answering, first. A bare build
+    /// reads `.notFound` (no LaunchDaemons plist beside its executable)
+    /// and is told what installs one.
     private func fixer() {
         switch model.registration {
         case .notRegistered:

@@ -24,7 +24,7 @@ let usage = """
       chill curve list               the curves in \(demo.curves.path)
       chill curve show <name>        its points
       chill curve use <name> [--watch] [--take]   intent = this curve
-      chill boost [minutes] [--watch] [--take]    max rpm for N minutes (default 5), ends by itself
+      chill boost [minutes] [--watch] [--take]    max rpm for N minutes (default \(Wire.boostMinutes)), ends by itself
       chill system                   intent = Apple's curve; reclaims a fan someone else forced
       chill daemon install           register chilld (SMAppService) and the login item
       chill daemon uninstall         Apple's curve over XPC, read back, then unregister

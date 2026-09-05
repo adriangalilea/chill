@@ -14,10 +14,11 @@ enum Verbs {
         FileHandle.standardError.write(Data("\(message)\n".utf8))
     }
 
-    /// A client for this world, or the reason none can exist here.
-    static func connect(_ demo: Demo) -> Client {
+    /// A client for this world, declared as `role`, or the reason none can
+    /// exist here.
+    static func connect(_ demo: Demo, role: Role) -> Client {
         do {
-            return try Client(demo: demo)
+            return try Client(demo: demo, role: role)
         } catch {
             die("\(error); a bare build cannot reach chilld, run the installed chill")
         }
@@ -26,7 +27,7 @@ enum Verbs {
     // MARK: - status
 
     static func status(json: Bool, demo: Demo) {
-        let client = connect(demo)
+        let client = connect(demo, role: .cli)
         do {
             let state = try client.state()
             if json {
@@ -98,7 +99,7 @@ enum Verbs {
 
     static func boost(_ args: [String], demo: Demo) {
         let flags = Flags(args[...])
-        var minutes = 5
+        var minutes = Wire.boostMinutes
         if let word = flags.rest.first {
             guard flags.rest.count == 1, let n = Int(word), n > 0 else {
                 die("usage: chill boost [minutes] [--watch] [--take]")
@@ -109,7 +110,7 @@ enum Verbs {
     }
 
     static func system(demo: Demo) {
-        let client = connect(demo)
+        let client = connect(demo, role: .cli)
         do {
             print(demo.mark(Status.line(try client.system())))
         } catch {
@@ -139,7 +140,7 @@ enum Verbs {
     /// refuses `heldBy` while another is live unless `--take`; then
     /// presence at 1 Hz until Ctrl-C hands the fans back.
     private static func engage(_ demo: Demo, _ flags: Flags, _ act: (Client) throws -> State) {
-        let client = connect(demo)
+        let client = connect(demo, role: flags.watch ? .watch : .cli)
         do {
             if flags.take {
                 guard flags.watch else { die("--take needs --watch: only a watcher takes over") }
@@ -240,11 +241,15 @@ enum Status {
         s.lastReason == Reason.noFans.description ? "daemon: \(Reason.noFans)" : nil
     }
 
+    /// The head is the HOLDER when it is someone else, whatever the intent
+    /// says: a persisted curve with no watcher still reads `foreign` while
+    /// another writer forces the fans.
     static func line(_ s: State) -> String {
         if let unknown = unknown(s) { return unknown }
         let head: String
         switch s.intent {
-        case .system: head = s.holder == .foreign ? "foreign" : "system"
+        case _ where s.holder == .foreign: head = "foreign"
+        case .system: head = "system"
         case .curve(let curve): head = curve.name
         case .boost: head = "boost"
         }
@@ -261,6 +266,7 @@ enum Status {
             parts.append(rpm(s.fans))
         case (.boost(let until), .chill):
             parts[1] += " for \(remaining(until)) more"
+            parts.append(rpm(s.fans))
         default:
             break
         }

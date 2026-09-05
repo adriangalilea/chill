@@ -25,7 +25,7 @@ final class CanvasWindow {
     }
 
     func open() {
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         window.makeKeyAndOrderFront(nil)
     }
 

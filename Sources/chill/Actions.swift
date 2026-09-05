@@ -1,3 +1,4 @@
+import ChillKit
 import Keymap
 import SwiftUI
 
@@ -59,7 +60,7 @@ enum ChillAction: String, CaseIterable, ActionSet {
                 title: "trash this curve", symbol: "trash", local: [KeyCombo("delete", .command)])
         case .boost:
             return Spec(
-                title: "boost: max rpm for \(Model.boostMinutes) min", symbol: "wind",
+                title: "boost: max rpm for \(Wire.boostMinutes) min", symbol: "wind",
                 local: [KeyCombo("b")])
         case .system:
             return Spec(
@@ -95,8 +96,9 @@ enum ChillAction: String, CaseIterable, ActionSet {
     }
 
     /// ⌘1 to ⌘9 pick the Nth curve in list order; the digits are the
-    /// targets, only the modifier remaps.
+    /// targets, only the modifier remaps. No global plane: the app installs
+    /// no system-wide hotkeys, so an empty modifier reserves nothing.
     static let curveFamily = ComboFamily(
         id: "curve", name: "the numbered curve picks", keys: (1...9).map(String.init),
-        localModifier: .command, globalModifier: [.command, .option])
+        localModifier: .command, globalModifier: [])
 }

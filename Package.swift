@@ -23,7 +23,7 @@ let package = Package(
     targets: [
         .target(
             name: "ChillKit",
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [.swiftLanguageMode(.v5), .enableUpcomingFeature("StrictConcurrency")]
         ),
         .executableTarget(
             name: "chilld",
@@ -31,7 +31,7 @@ let package = Package(
                 "ChillKit",
                 .product(name: "MachSensors", package: "mach"),
             ],
-            swiftSettings: [.swiftLanguageMode(.v5)],
+            swiftSettings: [.swiftLanguageMode(.v5), .enableUpcomingFeature("StrictConcurrency")],
             linkerSettings: [.linkedFramework("IOKit")]
         ),
         .executableTarget(
@@ -42,7 +42,7 @@ let package = Package(
                 .product(name: "Ink", package: "swift-utils"),
                 .product(name: "Keymap", package: "swift-utils"),
             ],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [.swiftLanguageMode(.v5), .enableUpcomingFeature("StrictConcurrency")]
         ),
     ]
 )
