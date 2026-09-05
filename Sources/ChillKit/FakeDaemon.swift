@@ -18,6 +18,8 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
     public static func trace(at seconds: Double) -> Double {
         62 - 20 * cos(seconds * 2 * .pi / 180)
     }
+    /// The die count the trace stands for: a 14-die chip, as status says.
+    public static let dieSensors = 14
     /// Apple's curve as the demo plays it: idle to 60 C, max at 100 C.
     public static func apple(at celsius: Double, for fan: Fan) -> Double {
         fan.clamp(fan.min + (fan.max - fan.min) * (celsius - 60) / 40)
@@ -70,7 +72,6 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
                 reply(Wire.encode(Reply<State>.refused(.badCurve("\(error)"))))
                 return
             }
-            self.claim()
             self.intent = .curve(decoded)
             reply(Wire.encode(Reply<State>.ok(self.evaluate())))
         }
@@ -85,7 +86,6 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
                             .unavailable("boost: minutes must be positive, got \(minutes)"))))
                 return
             }
-            self.claim()
             self.intent = .boost(until: Date.now.addingTimeInterval(Double(minutes) * 60))
             reply(Wire.encode(Reply<State>.ok(self.evaluate())))
         }
@@ -116,6 +116,8 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
     // MARK: - the world
 
     /// The one client is this process; heldBy never happens in the demo.
+    /// Only `presence` and `take` claim, as in chilld: `use` and `boost`
+    /// set intent and leave the watching to whoever watches.
     private func claim() {
         watcher = (ProcessInfo.processInfo.processName, clock.now + Wire.presenceWindow)
     }
@@ -167,7 +169,8 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol {
                 Presence(
                     pid: getpid(), name: $0.name, secondsLeft: max(0, ($0.deadline - now).seconds))
             },
-            fans: fans, die: die, lastReason: reason.description,
+            fans: fans, die: die, dieSensors: FakeDaemon.dieSensors,
+            lastReason: reason.description,
             clouds: FakeDaemon.fans.map { fan in
                 Cloud(
                     fan: fan.index,

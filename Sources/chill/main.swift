@@ -7,6 +7,10 @@ import Foundation
 // content-bearing root to a -demo sibling and swaps the daemon for an
 // in-process one.
 
+let rawArgs = Array(CommandLine.arguments.dropFirst())
+let demo = Demo(on: rawArgs.contains("--demo"))
+let args = rawArgs.filter { $0 != "--demo" }
+
 let usage = """
     chill: fan control for the Mac, with Apple in charge by default.
 
@@ -17,7 +21,7 @@ let usage = """
 
       chill                          the app (menu bar + canvas)
       chill status [--json]          who holds the fans and why, in one line (--json: the State document)
-      chill curve list               the curves in ~/.local/state/chill/curves
+      chill curve list               the curves in \(demo.curves.path)
       chill curve show <name>        its points
       chill curve use <name> [--watch] [--take]   intent = this curve
       chill boost [minutes] [--watch] [--take]    max rpm for N minutes (default 5), ends by itself
@@ -25,17 +29,14 @@ let usage = """
       chill daemon install           register chilld (SMAppService) and the login item
       chill daemon uninstall         Apple's curve over XPC, read back, then unregister
       chill daemon status            registration, pid, signature check
-      chill log [-f]                 /Library/Logs/chill/chilld.log (-f follows)
+      chill log [-f]                 \(Wire.logFile) (-f follows)
       chill --demo ...               the demo world: -demo roots, an in-process daemon, never chilld
 
-    `use` and `boost` need presence: --watch holds it at 1 Hz until Ctrl-C,
-    which hands the fans back; without --watch they refuse with exit 2 when
-    no one is watching. One watcher at a time: --take overrides another.
+    `use` and `boost` set the intent; a fan is forced only while someone
+    watches. --watch makes this process the watcher, at 1 Hz until Ctrl-C
+    hands the fans back; without it they need chill.app watching and exit
+    2 otherwise. One watcher at a time: --take (with --watch) overrides.
     """
-
-let rawArgs = Array(CommandLine.arguments.dropFirst())
-let demo = Demo(on: rawArgs.contains("--demo"))
-let args = rawArgs.filter { $0 != "--demo" }
 
 switch args.first {
 case nil:

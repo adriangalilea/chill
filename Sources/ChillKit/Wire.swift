@@ -7,7 +7,7 @@ public enum Wire {
     /// client whose version differs from the daemon's makes the daemon
     /// log `upgrade: old -> new` and exit 0; KeepAlive relaunches the new
     /// image and its first act is auto.
-    public static let protocolVersion = 1
+    public static let protocolVersion = 2
     /// The launchd label, the mach service and the plist name are ONE
     /// string: `launchd/garden.untitled.chilld.plist` advertises it and
     /// `SMAppService.daemon(plistName:)` registers it.
@@ -16,6 +16,8 @@ public enum Wire {
     /// Where launchd sends the daemon's stdout and stderr, per the plist's
     /// StandardOutPath/StandardErrorPath; `chill log` reads it.
     public static let logFile = "/Library/Logs/chill/chilld.log"
+    /// Where a LaunchDaemon is approved, as every surface names it.
+    public static let approvalPath = "System Settings › General › Login Items & Extensions"
     /// A client that has not spoken within this window is gone; the daemon
     /// hands the fans back to Apple on the next evaluation.
     public static let presenceWindow: Duration = .seconds(10)
@@ -50,13 +52,16 @@ public enum Wire {
 @objc public protocol ChillDaemonProtocol {
     /// First message on every connection: versions and the fan envelopes.
     func hello(clientVersion: String, reply: @escaping (Data) -> Void)
-    /// Intent = this curve (a `Wire.encode`d `Curve`). Needs presence.
+    /// Intent = this curve (a `Wire.encode`d `Curve`). Applied only while
+    /// someone watches; the caller does not become the watcher by asking.
     func use(curve: Data, reply: @escaping (Data) -> Void)
-    /// Intent = max rpm for `minutes`, self-ending in the daemon. Needs presence.
+    /// Intent = max rpm for `minutes`, self-ending in the daemon. Applied
+    /// only while someone watches.
     func boost(minutes: Int, reply: @escaping (Data) -> Void)
     /// Intent = Apple's curve.
     func system(reply: @escaping (Data) -> Void)
-    /// "I am still watching": renews the caller's presence window.
+    /// "I am watching": claims presence, or renews it; refused `heldBy`
+    /// while another live client holds it.
     func presence(reply: @escaping (Data) -> Void)
     /// Who holds the fans and why, without touching anything.
     func state(reply: @escaping (Data) -> Void)
@@ -180,7 +185,10 @@ public enum Veto: String, Codable, Sendable, Hashable {
     case noReading
 }
 
-/// The one client currently watching, keyed by its audit-token pid.
+/// The one client currently watching, keyed by its connection's pid
+/// (`NSXPCConnection.processIdentifier`); the code-signing requirement on
+/// the listener is the gate, the pid only tells two of chill's own clients
+/// apart.
 public struct Presence: Codable, Sendable, Hashable {
     public let pid: Int32
     public let name: String
@@ -218,6 +226,8 @@ public struct State: Codable, Sendable {
     public let fans: [FanState]
     /// The hottest die, nil while no sensor answers.
     public let die: Double?
+    /// How many die sensors answered this sample; `die` is their max.
+    public let dieSensors: Int
     /// Why the last transition happened, as the log recorded it.
     public let lastReason: String
     /// The reference clouds, one per fan, in fan order.
@@ -226,7 +236,7 @@ public struct State: Codable, Sendable {
 
     public init(
         intent: Intent, holder: Holder, vetoes: [Veto], presence: Presence?, fans: [FanState],
-        die: Double?, lastReason: String, clouds: [Cloud]
+        die: Double?, dieSensors: Int, lastReason: String, clouds: [Cloud]
     ) {
         self.intent = intent
         self.holder = holder
@@ -234,6 +244,7 @@ public struct State: Codable, Sendable {
         self.presence = presence
         self.fans = fans
         self.die = die
+        self.dieSensors = dieSensors
         self.lastReason = lastReason
         self.clouds = clouds
         self.protocolVersion = Wire.protocolVersion

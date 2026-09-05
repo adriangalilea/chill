@@ -12,9 +12,9 @@ brew install --cask adriangalilea/tap/chill
 
 Or the dmg on GitHub Releases. The daemon is a root LaunchDaemon registered by the app; macOS asks you to approve it once under System Settings, General, Login Items & Extensions.
 
-## Update check
+## Network
 
-The app asks `chill.untitled.garden` once a day whether a newer version exists; that request doubles as the active-install count. `chill updates off` disables it. No other network, no telemetry; the logs hold fan and temperature numbers only.
+None. The daemon and the app never touch the network; the logs hold fan and temperature numbers only.
 
 ## Build
 
@@ -27,6 +27,6 @@ An unsigned or ad-hoc bundle cannot register a LaunchDaemon; that is the platfor
 
 ## Prior art
 
-SoloFan's Swift app (MIT, github.com/SoloTeamDev/solofan, six PRs by Adrian: M4/M5 control, real die temperatures, off-main-thread writes) is the prior art, credited here and in About. SoloFan's `smc-helper` is GPL-derived (smcFanControl) and is NOT a source: chilld's writer is written from the IOKit AppleSMC user-client protocol and the key names. The `Ftst` unlock is credited to agoodkind/macos-smc-fan (MIT). Sensors come from the same read-only package as mach.
+SoloFan's Swift app (MIT, github.com/SoloTeamDev/solofan, six PRs by Adrian: M4/M5 control, real die temperatures, off-main-thread writes) is the prior art, credited here. SoloFan's `smc-helper` is GPL-derived (smcFanControl) and is NOT a source: chilld's writer is written from the IOKit AppleSMC user-client protocol and the key names. The `Ftst` unlock is credited to agoodkind/macos-smc-fan (MIT). Sensors come from the same read-only package as mach.
 
 MIT, see LICENSE.

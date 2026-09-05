@@ -7,7 +7,6 @@ import ServiceManagement
 /// `mise run install`, the cask's postflight and a human land the same
 /// registration for the same image.
 enum DaemonControl {
-    static let approvalPath = "System Settings › General › Login Items & Extensions"
     /// Status polls at 0.5 s; approval is a human act, so a minute.
     static let approvalPolls = 120
 
@@ -37,7 +36,7 @@ enum DaemonControl {
                 break poll
             case .requiresApproval:
                 if !told {
-                    print("approve chilld under \(approvalPath) (an admin's act)")
+                    print("approve chilld under \(Wire.approvalPath) (an admin's act)")
                     SMAppService.openSystemSettingsLoginItems()
                     told = true
                 }
@@ -49,12 +48,13 @@ enum DaemonControl {
             }
         }
         guard daemon.status == .enabled else {
-            Verbs.die("chilld still awaits approval; approve it under \(approvalPath), then rerun")
+            Verbs.die(
+                "chilld still awaits approval; approve it under \(Wire.approvalPath), then rerun")
         }
         let client = Verbs.connect(Demo(on: false))
         let hello = greet(client)
         if hello.fans.isEmpty {
-            try? daemon.unregister()
+            unregister(daemon, "chilld")
             Verbs.die("this Mac has no fans; chilld unregistered")
         }
         register(SMAppService.mainApp, "the login item")
@@ -150,7 +150,7 @@ enum DaemonControl {
     static func spell(_ status: SMAppService.Status) -> String {
         switch status {
         case .enabled: return "enabled"
-        case .requiresApproval: return "awaiting approval (\(approvalPath))"
+        case .requiresApproval: return "awaiting approval (\(Wire.approvalPath))"
         case .notRegistered: return "not installed"
         case .notFound: return "not found (no \(Wire.plistName) in this bundle)"
         @unknown default: return "status \(status.rawValue)"

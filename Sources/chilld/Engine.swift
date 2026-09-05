@@ -28,6 +28,13 @@ struct Peer: Sendable {
 /// its file), the watcher, the latched veto set, which fans chill put in
 /// mode 1, the reference clouds and the last sample. `State` is built
 /// from the read-back of the last evaluation, never from the last write.
+///
+/// Two things touch the SMC through this actor, a pass of the evaluator
+/// and a hand-back, and they are SERIALIZED through `inFlight`: whoever
+/// comes second waits for the first to finish. A pass snapshots the intent
+/// once and re-reads the world after every suspension before it writes;
+/// a world that moved under it (a verb, a veto, a shutdown) abandons the
+/// pass, and the mover's own hand-back or evaluation runs next.
 actor Engine {
     /// How long the thermal state must stay at `.fair` or below before the
     /// thermal veto lifts; without it the veto oscillates with the load.
@@ -39,8 +46,14 @@ actor Engine {
     private struct Sample {
         var fans: [FanState] = []
         var die: Double?
+        var dieSensors = 0
         var holder: Holder = .apple
+        /// Fans whose pass threw; they are missing from `fans`.
+        var unread: [Int] = []
     }
+
+    /// The world moved under a forced pass between its read and its write.
+    private struct Moved: Error {}
 
     private let writer: SMCWriter
     private let hid: Result<HIDSensors, Error>
@@ -55,6 +68,8 @@ actor Engine {
     /// `kIOMessageSystemHasPoweredOn` arrived while the sleep veto is set;
     /// the next watcher message lifts it. A dark wake sends none.
     private var wokeSinceSleep = false
+    /// This process is on its way out: nothing is forced from here on.
+    private var halting = false
     /// Fans chill put in mode 1 and has not handed back. What separates
     /// "chill holds it" from `foreign` when the read-back says mode 1.
     private var held: Set<Int> = []
@@ -87,8 +102,7 @@ actor Engine {
         thermalObserver = NotificationCenter.default.addObserver(
             forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: nil
         ) { _ in
-            let now = ProcessInfo.processInfo.thermalState
-            Task { await self.thermal(now) }
+            Task { await self.thermalChanged() }
         }
         Task {
             while true {
@@ -98,14 +112,20 @@ actor Engine {
         }
     }
 
-    /// Every fan back to Apple, on the way out of this process.
+    /// Every fan back to Apple, on the way out of this process: nothing
+    /// is forced from here on, the pass in flight drains, then the
+    /// hand-back runs to completion before the caller exits.
     func shutdown(_ why: String) async {
         Log.notice("\(why): handing the fans back")
+        halting = true
         await handBack()
     }
 
     // MARK: - verbs
 
+    /// Intent = this curve. Presence is not claimed here: whoever watches
+    /// (the app, a `--watch` CLI) carries it, so a CLI without `--watch`
+    /// sets the intent and leaves while the app's presence keeps it.
     func use(_ data: Data, from peer: Peer) async -> Reply<State> {
         let curve: Curve
         do {
@@ -113,7 +133,6 @@ actor Engine {
         } catch {
             return .refused(.badCurve("\(error)"))
         }
-        if let refusal = claim(peer) { return .refused(refusal) }
         transition(to: .curve(curve), by: peer)
         await evaluate()
         return .ok(render())
@@ -123,7 +142,6 @@ actor Engine {
         guard minutes > 0 else {
             return .refused(.unavailable("boost: minutes must be positive, got \(minutes)"))
         }
-        if let refusal = claim(peer) { return .refused(refusal) }
         transition(to: .boost(until: Date.now.addingTimeInterval(Double(minutes) * 60)), by: peer)
         await evaluate()
         return .ok(render())
@@ -188,10 +206,14 @@ actor Engine {
         if let lidClosed { lid(closed: lidClosed) }
     }
 
-    func thermal(_ state: ProcessInfo.ThermalState) {
-        guard state != thermal else { return }
-        Log.notice("thermal: \(thermal.spelled) -> \(state.spelled)")
-        thermal = state
+    /// The thermal state as ProcessInfo reads it NOW, not as the
+    /// notification captured it: deliveries are unordered tasks, so a
+    /// burst settles on the live value whichever lands last.
+    func thermalChanged() {
+        let now = ProcessInfo.processInfo.thermalState
+        guard now != thermal else { return }
+        Log.notice("thermal: \(thermal.spelled) -> \(now.spelled)")
+        thermal = now
     }
 
     private func set(_ veto: Veto, _ on: Bool) {
@@ -232,36 +254,55 @@ actor Engine {
     }
 
     /// Every fan chill holds back to Apple; `foreign` ones too, since auto
-    /// is the same write. Errors are logged, never fatal: the next
-    /// evaluation reads the truth back.
+    /// is the same write. Serialized behind the pass in flight, so no
+    /// `govern` is mid-write when the writes land. A fan whose release
+    /// failed stays `held`, so the next pass retries it instead of
+    /// relabelling chill's own write as someone else's.
     private func handBack() async {
+        await serialized { await self.reconcile() }
+    }
+
+    private func reconcile() async {
         do {
             try await writer.reconcile()
+            held = []
+        } catch WriterError.reconcile(let failures) {
+            Log.error("hand back: \(WriterError.reconcile(failures))")
+            held.formIntersection(failures.map(\.fan))
         } catch {
             Log.error("hand back: \(error)")
         }
-        held = []
     }
 
     // MARK: - the evaluator
 
-    /// One pass, serialized: a caller that arrives while a pass is in
+    /// One pass: a caller that arrives while a pass or a hand-back is in
     /// flight waits for it and then runs its own, so a verb's reply always
     /// reflects a read-back taken after its intent change.
     func evaluate() async {
+        await serialized { await self.step() }
+    }
+
+    private func serialized(_ job: @escaping @Sendable () async -> Void) async {
         while let running = inFlight {
             await running.value
             if inFlight == running { inFlight = nil }
         }
-        let pass = Task { await step() }
-        inFlight = pass
-        await pass.value
-        if inFlight == pass { inFlight = nil }
+        let mine = Task { await job() }
+        inFlight = mine
+        await mine.value
+        if inFlight == mine { inFlight = nil }
+    }
+
+    /// Whether `plan` is still what the world wants forced, read fresh
+    /// after a suspension.
+    private func stillForced(_ plan: Intent) -> Bool {
+        !halting && intent == plan && plan != .system && watcher != nil && vetoes.isEmpty
     }
 
     private func step() async {
         let now = clock.now
-        let die = readDie()
+        let (die, dieSensors) = readDie()
         misses = die == nil ? misses + 1 : 0
         set(.noReading, misses >= Engine.missesBeforeVeto)
         applyThermal(now)
@@ -276,47 +317,60 @@ actor Engine {
             )
             watcher = nil
         }
-        let forced = intent != .system && watcher != nil && vetoes.isEmpty
+        let plan = intent
+        let forced = stillForced(plan)
         let ftst = await readFtst()
         var fans: [FanState] = []
         var holders: [Holder] = []
+        var unread: [Int] = []
         for fan in writer.fans {
             do {
-                let (state, holder) = try await govern(fan, forced: forced, die: die, ftst: ftst)
+                let (state, holder) = try await govern(
+                    fan, plan: plan, forced: forced, die: die, ftst: ftst)
                 fans.append(state)
                 holders.append(holder)
                 if let die, state.mode == 0 || state.mode == 3 {
                     clouds[fan.index]!.add(celsius: die, rpm: state.actual)
                 }
+            } catch is Moved {
+                Log.notice("pass abandoned: the world moved under it")
+                return
             } catch {
                 Log.error("fan \(fan.index): \(error)")
+                unread.append(fan.index)
             }
         }
-        sample = Sample(fans: fans, die: die, holder: Engine.aggregate(holders))
-        let next = currentReason(forced: forced)
+        sample = Sample(
+            fans: fans, die: die, dieSensors: dieSensors, holder: Engine.aggregate(holders),
+            unread: unread)
+        let next = currentReason(plan: plan, forced: forced)
         if next != reason {
-            Log.notice("\(intent) · \(next)")
+            Log.notice("\(plan) · \(next)")
             reason = next
         }
     }
 
-    /// One fan: read it back, then act on what it says.
-    private func govern(_ fan: Fan, forced: Bool, die: Double?, ftst: UInt8?) async throws
-        -> (FanState, Holder)
+    /// One fan: read it back, then act on what it says. Under `forced`,
+    /// the world is re-read after every suspension and a move abandons
+    /// the pass before any write.
+    private func govern(_ fan: Fan, plan: Intent, forced: Bool, die: Double?, ftst: UInt8?)
+        async throws -> (FanState, Holder)
     {
         let n = fan.index
         let state = try await writer.read(fan: n)
         if forced {
+            guard stillForced(plan) else { throw Moved() }
             guard state.mode == 1 else {
                 if await !writer.isAcquiring(fan: n) {
+                    guard stillForced(plan) else { throw Moved() }
                     Log.notice("fan \(n): mode \(state.mode), acquiring")
                     await writer.beginAcquire(fan: n)
                 }
                 return (state, .acquiring)
             }
             held.insert(n)
-            if let die { try await writer.target(fan: n, rpm: wanted(fan, die: die)) }
-            return (state, .chill(curve: intentName))
+            if let die { try await writer.target(fan: n, rpm: wanted(fan, die: die, under: plan)) }
+            return (state, .chill(curve: intentName(of: plan)))
         }
         let forcedByAnyone = state.mode == 1 || ftst == 1
         let acquiring = await writer.isAcquiring(fan: n)
@@ -330,25 +384,26 @@ actor Engine {
         return (state, forcedByAnyone ? .foreign : .apple)
     }
 
-    private func wanted(_ fan: Fan, die: Double) -> Double {
-        switch intent {
+    private func wanted(_ fan: Fan, die: Double, under plan: Intent) -> Double {
+        switch plan {
         case .curve(let curve): return curve.target(at: die, for: fan)
         case .boost: return fan.max
-        case .system: preconditionFailure("wanted() with intent system")
+        case .system: preconditionFailure("wanted() under intent system")
         }
     }
 
-    private var intentName: String {
-        switch intent {
+    private func intentName(of plan: Intent) -> String {
+        switch plan {
         case .curve(let curve): return curve.name
         case .boost: return "boost"
-        case .system: preconditionFailure("intentName with intent system")
+        case .system: preconditionFailure("intentName under intent system")
         }
     }
 
-    private func currentReason(forced: Bool) -> Reason {
+    private func currentReason(plan: Intent, forced: Bool) -> Reason {
         if writer.fans.isEmpty { return .noFans }
-        switch intent {
+        if let fan = sample.unread.first { return .unreadable(fan: fan) }
+        switch plan {
         case .system:
             return sample.holder == .foreign ? .foreign : .apple
         case .curve, .boost:
@@ -358,7 +413,7 @@ actor Engine {
             case .foreign: return .foreign
             case .apple, .acquiring: return .acquiring
             case .chill:
-                if case .curve(let curve) = intent { return .curve(curve.name) }
+                if case .curve(let curve) = plan { return .curve(curve.name) }
                 return .boost(writer.fans.map(\.max).max()!)
             }
         }
@@ -386,9 +441,11 @@ actor Engine {
         }
     }
 
-    private func readDie() -> Double? {
-        guard case .success(let sensors) = hid else { return nil }
-        return sensors.hottest()?.celsius
+    /// The hottest die and how many die sensors answered; never a mean.
+    private func readDie() -> (celsius: Double?, sensors: Int) {
+        guard case .success(let sensors) = hid else { return (nil, 0) }
+        let dies = sensors.readings().filter { $0.block != .other }
+        return (dies.map(\.celsius).max(), dies.count)
     }
 
     private func readFtst() async -> UInt8? {
@@ -415,6 +472,7 @@ actor Engine {
             },
             fans: sample.fans,
             die: sample.die,
+            dieSensors: sample.dieSensors,
             lastReason: reason.description,
             clouds: clouds.keys.sorted().map { clouds[$0]!.render() })
     }

@@ -3,18 +3,16 @@ import Foundation
 
 /// `~/.local/state/chill/config.json`: what the app remembers between
 /// launches and the daemon has no business knowing. `lastCurve` is the
-/// right-click toggle's target and the canvas's first cursor;
-/// `updatesEnabled` is the appcast check's switch.
+/// right-click toggle's target and the canvas's first cursor.
 struct Config: Codable, Equatable {
     var lastCurve: String?
-    var updatesEnabled: Bool
 
     /// The file, or the first-run value (the demo world starts on its
     /// seed curve). A file that does not parse is an error, not a reset:
     /// the app wrote it, the app can read it.
     static func load(_ demo: Demo) throws -> Config {
         guard FileManager.default.fileExists(atPath: demo.config.path) else {
-            return Config(lastCurve: demo.on ? Demo.seedLastCurve : nil, updatesEnabled: true)
+            return Config(lastCurve: demo.on ? Demo.seedLastCurve : nil)
         }
         return try Wire.decode(Config.self, from: Data(contentsOf: demo.config))
     }

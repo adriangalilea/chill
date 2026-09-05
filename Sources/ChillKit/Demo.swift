@@ -24,7 +24,7 @@ public struct Demo: Sendable, Equatable {
     }
 
     public var curves: URL { state.appending(path: "curves") }
-    /// `{ lastCurve, updatesEnabled }`, the app's own memory.
+    /// `{ lastCurve }`, the app's own memory.
     public var config: URL { state.appending(path: "config.json") }
     /// `cloud/<fan>.json`, the reference cloud the app accumulates.
     public var cloud: URL { state.appending(path: "cloud") }

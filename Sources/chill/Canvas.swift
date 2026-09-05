@@ -59,6 +59,13 @@ struct CanvasView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
+            if let aside = model.aside {
+                Text(aside)
+                    .font(.meta)
+                    .foregroundStyle(tone.opacity(0.8))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
             HStack(alignment: .top, spacing: .inkBlock) {
                 CurveList(model: model)
                     .frame(width: 200)
@@ -143,7 +150,8 @@ struct CurveList: View {
 /// What one frame of the plot draws, snapshotted from the model so the
 /// renderer closure reads values, not observables.
 private struct Frame {
-    let envelope: ClosedRange<Double>
+    /// nil while nothing reported one: the y-axis is not drawn.
+    let envelope: ClosedRange<Double>?
     let clouds: [Int: [Bin: Int]]
     let curve: Curve?
     let point: Int
@@ -178,10 +186,10 @@ struct Plot: View {
             x: Plot.inset.leading, y: Plot.inset.top,
             width: size.width - Plot.inset.leading - Plot.inset.trailing,
             height: size.height - Plot.inset.top - Plot.inset.bottom)
-        guard plot.width > 0, plot.height > 0 else { return }
-        let ySpan = f.envelope.upperBound - f.envelope.lowerBound
-        let yLo = f.envelope.lowerBound - ySpan * 0.05
-        let yHi = f.envelope.upperBound + ySpan * 0.05
+        guard plot.width > 0, plot.height > 0, let envelope = f.envelope else { return }
+        let ySpan = envelope.upperBound - envelope.lowerBound
+        let yLo = envelope.lowerBound - ySpan * 0.05
+        let yHi = envelope.upperBound + ySpan * 0.05
         func x(_ c: Double) -> CGFloat {
             plot.minX + plot.width * (c - Frame.celsius.lowerBound)
                 / (Frame.celsius.upperBound - Frame.celsius.lowerBound)

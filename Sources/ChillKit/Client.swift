@@ -19,9 +19,7 @@ public enum ClientError: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .notInstalled: return "daemon: not installed"
-        case .awaitingApproval:
-            return
-                "daemon: awaiting approval (System Settings › General › Login Items & Extensions)"
+        case .awaitingApproval: return "daemon: awaiting approval (\(Wire.approvalPath))"
         case .unreachable(let why): return "daemon: unreachable (\(why))"
         case .refused(let refusal): return refusal.description
         case .malformed(let verb, let error):
@@ -35,8 +33,10 @@ public enum ClientError: Error, CustomStringConvertible {
 /// first message on a real connection is `hello`, once, so the version
 /// handshake (and the daemon stepping aside for an upgrade) happens
 /// before any verb. Synchronous helpers serve the CLI, async ones the
-/// app; both are the one async core.
-public final class Client {
+/// app; both are the one async core. An actor: the app's pulse and its
+/// verbs share one instance from concurrent tasks, and `greeted` is
+/// written by whichever `hello` lands first.
+public actor Client {
     /// A daemon that has not replied within this window is wedged, not
     /// slow: the connection is invalidated so the pending call fails
     /// instead of hanging the CLI.
@@ -45,7 +45,7 @@ public final class Client {
     /// upgrade (KeepAlive relaunches the new image within a second).
     public static let relaunchWindow: Duration = .seconds(10)
 
-    public let demo: Demo
+    public nonisolated let demo: Demo
     private let connection: NSXPCConnection?
     private let fake: FakeDaemon?
     private var greeted: Hello?
@@ -125,15 +125,19 @@ public final class Client {
 
     // MARK: - verbs, synchronous (the CLI)
 
-    public func hello() throws -> Hello { try blocking { try await self.hello() } }
-    public func state() throws -> State { try blocking { try await self.state() } }
-    public func use(_ curve: Curve) throws -> State { try blocking { try await self.use(curve) } }
-    public func boost(minutes: Int) throws -> State {
+    public nonisolated func hello() throws -> Hello { try blocking { try await self.hello() } }
+    public nonisolated func state() throws -> State { try blocking { try await self.state() } }
+    public nonisolated func use(_ curve: Curve) throws -> State {
+        try blocking { try await self.use(curve) }
+    }
+    public nonisolated func boost(minutes: Int) throws -> State {
         try blocking { try await self.boost(minutes: minutes) }
     }
-    public func system() throws -> State { try blocking { try await self.system() } }
-    public func presence() throws -> State { try blocking { try await self.presence() } }
-    public func take() throws -> State { try blocking { try await self.take() } }
+    public nonisolated func system() throws -> State { try blocking { try await self.system() } }
+    public nonisolated func presence() throws -> State {
+        try blocking { try await self.presence() }
+    }
+    public nonisolated func take() throws -> State { try blocking { try await self.take() } }
 
     // MARK: - the core
 

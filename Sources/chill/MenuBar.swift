@@ -104,12 +104,10 @@ final class MenuBar: NSObject, NSMenuDelegate {
             add("install chilld", #selector(install))
         case .requiresApproval:
             if MenuBar.isAdmin {
-                add(
-                    "approve chilld in \(DaemonControl.approvalPath)",
-                    #selector(approve))
+                add("approve chilld in \(Wire.approvalPath)", #selector(approve))
             } else {
                 add("approval is an admin's act: ask one to allow chilld", enabled: false)
-                add("open \(DaemonControl.approvalPath)", #selector(approve))
+                add("open \(Wire.approvalPath)", #selector(approve))
             }
         case .notFound:
             add("no chilld in this bundle (a bare build): mise run install", enabled: false)
@@ -169,9 +167,12 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func approve() { model.approveDaemon() }
 
     /// Membership of the `admin` group, the one that can approve a
-    /// LaunchDaemon in System Settings.
+    /// LaunchDaemon in System Settings. The group and the current user
+    /// always exist on macOS; a lookup that fails is a broken world, not
+    /// a standard user.
     static var isAdmin: Bool {
-        guard let admin = getgrnam("admin"), let user = getpwuid(getuid()) else { return false }
+        guard let admin = getgrnam("admin") else { preconditionFailure("no admin group") }
+        guard let user = getpwuid(getuid()) else { preconditionFailure("no passwd entry for uid") }
         var count: Int32 = 64
         var groups = [gid_t](repeating: 0, count: Int(count))
         let rc = groups.withUnsafeMutableBufferPointer { buffer in

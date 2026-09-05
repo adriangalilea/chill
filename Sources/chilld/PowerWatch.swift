@@ -40,7 +40,11 @@ enum PowerMessage {
 /// tells the engine. Lid: a general-interest notification on the same
 /// service delivers `kIOPMMessageClamshellStateChange`, bit 0 = closed;
 /// the initial value is the `AppleClamshellState` property, absent on a
-/// Mac without a lid.
+/// Mac without a lid. Every delivery reaches the engine through
+/// `blocking` on this queue, so the engine sees them in the order IOKit
+/// sent them: unstructured tasks aimed at one actor keep no order, and a
+/// wake with the lid closed followed by the clamshell opening must not
+/// land reversed.
 final class PowerWatch {
     let hasLid: Bool
     private let engine: Engine
@@ -88,7 +92,7 @@ final class PowerWatch {
             allow(argument)
         case PowerMessage.systemHasPoweredOn:
             let closed = lidClosed
-            Task { [engine] in await engine.poweredOn(lidClosed: closed) }
+            blocking { [engine] in await engine.poweredOn(lidClosed: closed) }
         default:
             break
         }
@@ -98,7 +102,7 @@ final class PowerWatch {
         guard message == PowerMessage.clamshellStateChange else { return }
         let closed = UInt(bitPattern: argument) & UInt(kClamshellStateBit) != 0
         Log.notice("lid: \(closed ? "closed" : "open")")
-        Task { [engine] in await engine.lid(closed: closed) }
+        blocking { [engine] in await engine.lid(closed: closed) }
     }
 
     private func allow(_ argument: UnsafeMutableRawPointer?) {

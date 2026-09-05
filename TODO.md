@@ -61,6 +61,8 @@ nothing below starts before the one above is green.
       daemon.
 - [ ] `status --json` = `State`; foreign detection from the read-back;
       `take` for a second client.
+- [ ] Refine `SMCWriter.slewPerSample` (300 rpm/s today) from the `F{n}Ac`
+      slew the reference cloud records.
 - [ ] Measure the field on one M-series Mac (Macs Fan Control, TG Pro,
       iStat Menus): `kill -9`, sleep, lid close; record whether the forced
       target survives. The strategy table and the pitch cite these numbers.
@@ -77,6 +79,10 @@ nothing below starts before the one above is green.
       persisted intent resumes at login.
 - [ ] `--demo`: forked `chill-demo` roots, scripted trace, in-process fake
       daemon, `demo` kicker, CLI `· demo` headers.
+- [ ] Update check: a daily appcast GET from the app (awake's model), a
+      `config.json` switch, `chill updates on|off` in main.swift and the
+      verb list; the README's Network section then declares it. Until it
+      exists nothing claims it.
 - [ ] `mise check` at 0 warnings, format-clean.
 
 ## 4 · ship

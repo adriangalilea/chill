@@ -2,7 +2,7 @@
 # from the app dir; install/uninstall collide with mise builtins, so those
 # two are always `mise run install` / `mise run uninstall`):
 #   build      both binaries (release): chill (app + CLI) and chilld (the root daemon)
-#   dev        the app from source (debug), against whatever chilld is installed
+#   dev        the app from source (debug): ad-hoc signed, so no daemon is reachable, local sensors only
 #   demo       the app in the demo world: forked -demo roots, an in-process daemon, never chilld
 #   check      format + compile everything, debug: the FAST typecheck (0 warnings)
 #   format     swift-format in place · lint: advisory
@@ -20,7 +20,6 @@
 [env]
 # THE VERSION, single source of truth: it stamps Info.plist and names the tag.
 VERSION = "0.1.0"
-LABEL = "garden.untitled.chilld"
 # /Applications, never ~/Applications: launchd bootstraps the daemon at boot,
 # before any home directory exists, and the cask lands here too, so a dev
 # build never registers a second root daemon. The CLI is a symlink into the
@@ -34,7 +33,7 @@ description = "Build chill and chilld (release)"
 run = "scripts/locked.sh swift build -c release"
 
 [tasks.dev]
-description = "The app from source (debug), against the installed chilld"
+description = "The app from source (debug): no daemon reachable from a bare build, local sensors only; `mise run install` for the real daemon"
 run = '''
 scripts/locked.sh swift build
 .build/debug/chill
@@ -157,6 +156,9 @@ description = "Signed, notarized, stapled dmg → tag → GitHub Release → pub
 depends = ["icon"]
 run = '''
 set -e
+# The tag and the push land in whatever repo holds this directory: chill's
+# own, never the studio checkout that vendors it.
+test "$(git rev-parse --show-toplevel)" = "$PWD" || { echo "release runs from chill's own repo, not the studio checkout"; exit 1; }
 mise run check
 mise run build
 notes="notes/$VERSION.md"

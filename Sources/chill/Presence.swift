@@ -30,9 +30,15 @@ final class Pulse {
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.screensAwake = true }
             })
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        // Common modes: the status menu and a live resize run the loop in
+        // event tracking, where a default-mode timer never fires, and a
+        // menu held open past the presence window would hand the fans
+        // back mid-look.
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
         tick()
     }
 

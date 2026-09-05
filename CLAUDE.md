@@ -2,11 +2,10 @@
 
 Fan control for the Mac, with Apple in charge by default. Named for what you
 want from the machine, not for the mechanism. macOS 26, Apple Silicon only.
-Not built yet: TODO.md is the build order, strategy/CLAUDE.md the why. This
-file is the architecture chill is built to; nothing below is optional once
-code exists.
+TODO.md is the build order, strategy/CLAUDE.md the why. This file is the
+architecture chill is built to; nothing below is optional.
 
-Prior art, credited in README and About: SoloFan's Swift app (MIT,
+Prior art, credited in README: SoloFan's Swift app (MIT,
 github.com/SoloTeamDev/solofan, six PRs by Adrian: M4/M5 control, real die
 temperatures, off-main-thread writes). SoloFan's `smc-helper` is GPL-derived
 (smcFanControl) and is NOT a source: chilld's writer is written from the
@@ -120,11 +119,17 @@ Every XPC invalidation re-reads `SMAppService.status` before reporting.
    double click is never a silent death). Symlinked into `~/.local/bin` by
    install. Verbs: `status [--json]`, `curve list|show|use <name> [--watch]
    [--take]`, `boost [minutes] [--watch] [--take]`, `system`, `daemon
-   install|uninstall|status`, `log [-f]`. `use` and `boost` need presence;
-   the rest do not. Without `--watch` and with no one watching they exit 2
-   (`no one watching: run with --watch or open chill.app`); with another
-   watcher the daemon refuses `heldBy` unless `--take`. `status` exits 1
-   when it prints a `daemon:` line (the fans' state is unknown). A bare
+   install|uninstall|status`, `log [-f]`. `use` and `boost` set the intent
+   and never claim presence themselves: a fan is forced only while someone
+   watches, and whoever watches carries the intent. Without `--watch` they
+   need another live watcher (chill.app) and exit 2 otherwise (`no one
+   watching: run with --watch or open chill.app`); with `--watch` the CLI
+   claims presence FIRST, which the daemon refuses `heldBy` while another
+   watcher is live unless `--take` (only meaningful with `--watch`). The
+   app's own `use` while a `--watch` CLI holds presence lands the same
+   way: intent set, the CLI carries it, the app's pulse reads `heldBy`
+   until `t` takes over. `status` exits 1 when it prints a `daemon:` line
+   (the fans' state is unknown, a fanless Mac included). A bare
    build (ad-hoc signed) cannot derive a peer requirement and says so
    instead of connecting; only the installed bundle talks to chilld.
 
@@ -165,14 +170,19 @@ bundle's stamp, both ends) and `Wire.logFile`:
   State` · `presence() -> State` · `state() -> State` · `take() -> State`.
 - `State { intent, holder: apple | chill(curve) | acquiring | foreign,
   vetoes: [Veto], presence: Presence?, fans: [FanState { actual, target,
-  mode }], die: Double?, lastReason, clouds: [Cloud { fan, bins: [[c,
-  rpm, count]] }], protocolVersion }`. `State` IS the `status --json`
-  document. `clouds` is the reference cloud as the daemon accumulates it
-  in memory (fans Apple holds only); the app is the one that persists it.
+  mode }], die: Double?, dieSensors: Int, lastReason, clouds: [Cloud {
+  fan, bins: [[c, rpm, count]] }], protocolVersion }`. `State` IS the
+  `status --json` document. `dieSensors` counts the die readings `die` is
+  the max of, so status can say `(hottest of 14)`. `clouds` is the
+  reference cloud as the daemon accumulates it in memory (fans Apple
+  holds only); the app is the one that persists it.
 
-ONE presence holder at a time, keyed by the client's audit-token pid; a
-second client's `use`/`boost` is refused with `heldBy(pid, name)` unless it
-calls `take` (`--take` on the CLI). Fast user switching is out of scope.
+ONE presence holder at a time, keyed by the connection's pid
+(`NSXPCConnection.processIdentifier`): the listener's code-signing
+requirement is the gate, the pid only tells two of chill's own clients
+apart. Only `presence` and `take` claim it; a second client's `presence` is
+refused with `heldBy(pid, name)` unless it calls `take` (`--take` on the
+CLI). Fast user switching is out of scope.
 
 ### The SMC writer
 
@@ -231,7 +241,7 @@ where sensors name it.
 | path | owner | what |
 |---|---|---|
 | `~/.local/state/chill/curves/<name>.json` | app | `{ name, points: [{ c, rpm }] }`, one curve for all fans |
-| `~/.local/state/chill/config.json` | app | `{ lastCurve, updatesEnabled }`; `lastCurve` is the right-click toggle's target and the canvas's first cursor, written on every `use`; absent = first run (the demo starts on `quiet`) |
+| `~/.local/state/chill/config.json` | app | `{ lastCurve }`: the right-click toggle's target and the canvas's first cursor, written on every `use`; absent = first run (the demo starts on `quiet`) |
 | `~/.local/state/chill/cloud/<fan>.json` | app | `{ fan, bins: [[c, rpm, count]], seen: { pid, bins }, lastHalved }`: a 2-D histogram, 1 °C × 50 rpm bins, capped at 5k bins (thinnest dropped), counts halved monthly; written on quit and every 5 min, never raw samples. The daemon accumulates its cloud in memory since ITS start and never writes into a home directory; the app folds each `State.clouds` shipment in as the delta since the last one from the same daemon pid (`seen`), so a daemon restart starts a fresh delta and a relaunched app never counts a sample twice. Nothing absorbed = no file, no directory |
 | `/Library/Application Support/chill/policy.json` | daemon | `{ intent, curve, boostUntil }`, the thing that survives reboot |
 | `/Library/Logs/chill/chilld.log` | daemon | every transition with reason and before/after targets; `os_log` too, numbers and reasons `.public` (nothing personal exists here) |
@@ -288,8 +298,9 @@ Hysteresis and slew are constants in code, not per-curve fields.
   kicker and opens at launch, since the demo exists to be seen.
 - **Mark**: `scripts/icon.svg`, rendered by `mise icon` (rsvg-convert →
   icns + icon.png); the menu glyph is a template render of the same paths.
-- **Verbs**: `mise.toml`: `build · dev · demo · check · icon · install ·
-  uninstall · notes · release · publish · cask`, awake's `assemble.sh`,
+- **Verbs**: `mise.toml`: `build · dev · demo · check · format · lint
+  (advisory) · icon · install · uninstall · clean · notes · release ·
+  publish · cask`, awake's `assemble.sh`,
   `locked.sh` and `.github/cliff.toml` as the model. `VERSION` in
   mise.toml is truth; `notes/<version>.md` in the `### Added|Fixed|Changed|
   Performance|Polish` + `- ` grammar the release task checks is the
@@ -317,7 +328,7 @@ Hysteresis and slew are constants in code, not per-curve fields.
   mount, never from the vendored dir. CI runs `mise check` + `git diff
   --exit-code` only.
 
-## Gotchas known before the first line
+## Gotchas
 
 - `F{n}Md` vs `F{n}md`: probe, never hardcode. `Ftst` absent on M5 (0x84).
 - A mode write "succeeds" at the IOKit layer and does nothing: read the

@@ -13,6 +13,9 @@ enum WriterError: Error, CustomStringConvertible {
     case acquireTimedOut(fan: Int, mode: UInt8)
     /// Mode never read 0 or 3 within `SMCWriter.releaseTimeout`.
     case releaseTimedOut(fan: Int, mode: UInt8)
+    /// `reconcile` ran `auto` on EVERY fan and these refused; the others
+    /// are Apple's.
+    case reconcile([(fan: Int, error: Error)])
 
     var description: String {
         switch self {
@@ -24,6 +27,9 @@ enum WriterError: Error, CustomStringConvertible {
             return "smc: fan \(fan) would not leave mode \(mode) for mode 1"
         case .releaseTimedOut(let fan, let mode):
             return "smc: fan \(fan) still reads mode \(mode) after auto"
+        case .reconcile(let failures):
+            return "smc: reconcile: "
+                + failures.map { "fan \($0.fan): \($0.error)" }.joined(separator: "; ")
         }
     }
 }
@@ -42,8 +48,7 @@ actor SMCWriter {
     /// Targets closer than this to the current target are not written.
     static let hysteresis: Double = 50
     /// The most a target moves per 1 Hz sample toward the curve value; the
-    /// physical ramp is the firmware's. 300 rpm/s is the starting value,
-    /// to refine from the F{n}Ac slew the reference cloud records.
+    /// physical ramp is the firmware's.
     static let slewPerSample: Double = 300
     static let acquireTimeout: Duration = .seconds(10)
     static let acquireRetry: Duration = .milliseconds(100)
@@ -67,13 +72,16 @@ actor SMCWriter {
         var fans: [Fan] = []
         var modeKeys: [String] = []
         for n in 0..<count {
+            // The first rpm key touched per fan goes through `expect`, so
+            // an Intel `fpe2` surfaces as `WriterError.intel`, not as a
+            // type mismatch on the envelope read.
+            try SMCWriter.expect(smc, "F\(n)Tg", is: "flt ", size: 4)
             let min = Double(try smc.float("F\(n)Mn"))
             let max = Double(try smc.float("F\(n)Mx"))
             guard min > 0, min < max else { throw WriterError.envelope(fan: n, min: min, max: max) }
             fans.append(Fan(index: n, min: min, max: max))
             let modeKey = try smc.modeKey(fan: n)
             try SMCWriter.expect(smc, modeKey, is: "ui8 ", size: 1)
-            try SMCWriter.expect(smc, "F\(n)Tg", is: "flt ", size: 4)
             modeKeys.append(modeKey)
         }
         let hasFtst: Bool
@@ -137,8 +145,13 @@ actor SMCWriter {
     /// Write mode 1 and read it back. If it did not stick and `Ftst`
     /// exists: `Ftst = 1`, then mode 1 every 100 ms for up to 10 s. `Ftst`
     /// stays 1 for the session so later target writes are single calls;
-    /// `auto` clears it.
+    /// `auto` clears it. Cancellation (only `auto` cancels) is honoured
+    /// before every mode write, so a cancelled acquire never re-forces a
+    /// fan `auto` is releasing; `auto` then owns `Ftst`. Any other failure
+    /// after the `Ftst = 1` write clears it on the way out: a raised `Ftst`
+    /// with no session behind it mutes Apple's servo.
     func acquire(fan n: Int) async throws {
+        try Task.checkCancellation()
         let key = modeKeys[n]
         let before = try smc.uint8(key)
         if try force(key) == 1 {
@@ -151,18 +164,31 @@ actor SMCWriter {
         }
         try write("Ftst", uint8: 1)
         Log.notice("fan \(n): mode 1 did not hold, Ftst 1, retrying")
-        let clock = ContinuousClock()
-        let started = clock.now
-        while clock.now - started < SMCWriter.acquireTimeout {
-            try await Task.sleep(for: SMCWriter.acquireRetry)
-            if try force(key) == 1 {
-                let took = (clock.now - started).seconds
-                Log.notice("fan \(n): acquired, mode \(before) -> 1 after \(took) s with Ftst")
-                return
+        do {
+            let clock = ContinuousClock()
+            let started = clock.now
+            while clock.now - started < SMCWriter.acquireTimeout {
+                try await Task.sleep(for: SMCWriter.acquireRetry)
+                try Task.checkCancellation()
+                if try force(key) == 1 {
+                    let took = (clock.now - started).seconds
+                    Log.notice("fan \(n): acquired, mode \(before) -> 1 after \(took) s with Ftst")
+                    return
+                }
             }
+            let stuck = try smc.uint8(key)
+            throw WriterError.acquireTimedOut(fan: n, mode: stuck)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            do {
+                try write("Ftst", uint8: 0)
+                Log.notice("fan \(n): Ftst 1 -> 0 after a failed acquire")
+            } catch let clearing {
+                Log.error("fan \(n): Ftst 1 -> 0 after a failed acquire: \(clearing)")
+            }
+            throw error
         }
-        let stuck = try smc.uint8(key)
-        throw WriterError.acquireTimedOut(fan: n, mode: stuck)
     }
 
     /// Mode 1 written, mode read back. A 0x82 is "did not stick", not an
@@ -211,18 +237,33 @@ actor SMCWriter {
                 + (ftstBefore == 1 ? ", Ftst 1 -> 0" : ""))
     }
 
-    /// The daemon's first act: every fan back to Apple, then read back.
+    /// The daemon's first act and every exit path's last: `auto` on EVERY
+    /// fan, one that refuses never shielding the next, then the read-back
+    /// logged for all. Throws `reconcile` naming the fans that refused.
     func reconcile() async throws {
         guard !fans.isEmpty else {
             Log.notice("this Mac has no fans")
             return
         }
-        for fan in fans { try await auto(fan: fan.index) }
-        let states = try fans.map { try read(fan: $0.index) }
+        var failures: [(fan: Int, error: Error)] = []
+        for fan in fans {
+            do {
+                try await auto(fan: fan.index)
+            } catch {
+                failures.append((fan.index, error))
+            }
+        }
         Log.notice(
             "reconciled: "
-                + states.map { "fan \($0.index) mode \($0.mode) target \(Int($0.target))" }
-                .joined(separator: ", "))
+                + fans.map { fan in
+                    do {
+                        let state = try read(fan: fan.index)
+                        return "fan \(fan.index) mode \(state.mode) target \(Int(state.target))"
+                    } catch {
+                        return "fan \(fan.index) unreadable (\(error))"
+                    }
+                }.joined(separator: ", "))
+        if !failures.isEmpty { throw WriterError.reconcile(failures) }
     }
 
     // MARK: - target

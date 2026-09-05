@@ -14,6 +14,8 @@ public enum Reason: CustomStringConvertible, Equatable, Sendable {
     case curve(String)
     case boost(Double)
     case noFans
+    /// A fan the last pass could not read or write; the log has the error.
+    case unreadable(fan: Int)
 
     public var description: String {
         switch self {
@@ -25,6 +27,7 @@ public enum Reason: CustomStringConvertible, Equatable, Sendable {
         case .curve(let name): return "curve \"\(name)\""
         case .boost(let rpm): return "\(Int(rpm)) rpm"
         case .noFans: return "this Mac has no fans"
+        case .unreadable(let fan): return "smc: fan \(fan) unreadable · see chilld.log"
         }
     }
 }

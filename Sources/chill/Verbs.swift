@@ -33,6 +33,9 @@ enum Verbs {
                 print(String(decoding: Wire.encode(state, pretty: true), as: UTF8.self))
             } else {
                 print(demo.mark(Status.line(state)))
+                // A `daemon:` line from the daemon itself (a fanless Mac)
+                // exits 1 like the others: the fans' state is unknown.
+                if Status.unknown(state) != nil { exit(1) }
             }
         } catch let error as ClientError {
             // The daemon states ARE the status: on stdout, exit 1 because
@@ -128,19 +131,27 @@ enum Verbs {
         }
     }
 
-    /// The presence rule for `use` and `boost`: without `--watch` and
-    /// with no one watching, refuse (exit 2) rather than force a fan
-    /// nobody is watching; with another watcher, `--take` overrides it
-    /// (the daemon refuses otherwise). With `--watch`, hold presence at
-    /// 1 Hz until Ctrl-C, which hands the fans back.
+    /// The presence rule for `use` and `boost`: the intent is set either
+    /// way, a fan is forced only while someone watches. Without `--watch`
+    /// another LIVE watcher (chill.app) must exist, exit 2 otherwise; its
+    /// presence carries the intent after this process exits. With
+    /// `--watch` this process becomes the watcher FIRST, which the daemon
+    /// refuses `heldBy` while another is live unless `--take`; then
+    /// presence at 1 Hz until Ctrl-C hands the fans back.
     private static func engage(_ demo: Demo, _ flags: Flags, _ act: (Client) throws -> State) {
         let client = connect(demo)
         do {
-            let before = try client.state()
-            if !flags.watch && before.presence == nil {
-                die("no one watching: run with --watch or open chill.app", exit: 2)
+            if flags.take {
+                guard flags.watch else { die("--take needs --watch: only a watcher takes over") }
+                _ = try client.take()
+            } else if flags.watch {
+                _ = try client.presence()
+            } else {
+                let before = try client.state()
+                guard let other = before.presence, other.secondsLeft > 0 else {
+                    die("no one watching: run with --watch or open chill.app", exit: 2)
+                }
             }
-            if flags.take { _ = try client.take() }
             print(demo.mark(Status.line(try act(client))))
         } catch {
             die("\(error)")
@@ -222,8 +233,15 @@ enum Watch {
 
 /// The one honest status line, from `State` alone.
 enum Status {
+    /// The `daemon:` line a daemon ships when the fans' state is unknown
+    /// to it: this Mac has none. Keyed on the daemon's own reason, never
+    /// on an empty sample (a pass whose reads failed has its own reason).
+    static func unknown(_ s: State) -> String? {
+        s.lastReason == Reason.noFans.description ? "daemon: \(Reason.noFans)" : nil
+    }
+
     static func line(_ s: State) -> String {
-        if s.fans.isEmpty { return "daemon: this Mac has no fans" }
+        if let unknown = unknown(s) { return unknown }
         let head: String
         switch s.intent {
         case .system: head = s.holder == .foreign ? "foreign" : "system"
@@ -233,7 +251,7 @@ enum Status {
         var parts = [head, s.lastReason]
         switch (s.intent, s.holder) {
         case (.system, .apple):
-            if let die = s.die { parts.append("die \(degrees(die))") }
+            if let die = s.die { parts.append("die \(degrees(die))\(hottest(of: s.dieSensors))") }
             parts.append(rpm(s.fans))
         case (.curve(let curve), .chill):
             if let die = s.die {
@@ -250,6 +268,11 @@ enum Status {
     }
 
     static func degrees(_ c: Double) -> String { "\(Int(c.rounded()))°C" }
+
+    /// Says the die is a max over N sensors, never a mean; silent for one.
+    static func hottest(of sensors: Int) -> String {
+        sensors > 1 ? " (hottest of \(sensors))" : ""
+    }
 
     static func rpm(_ fans: [FanState]) -> String {
         fans.map { String(Int($0.actual.rounded())) }.joined(separator: " · ") + " rpm"

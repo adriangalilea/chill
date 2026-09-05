@@ -85,11 +85,13 @@ final class Model {
         config = try Config.load(demo)
         curves = try curveStore.list()
         cursor = config.lastCurve.flatMap { name in curves.first { $0.name == name }?.name }
-        cloudTimer = Timer.scheduledTimer(
-            withTimeInterval: CloudStore.writePeriod, repeats: true
-        ) { [weak self] _ in
+        // Common modes: a timer on the default mode alone stalls while a
+        // menu is open or a window resizes.
+        let timer = Timer(timeInterval: CloudStore.writePeriod, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.writeClouds() }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        cloudTimer = timer
     }
 
     // MARK: - reads
@@ -105,18 +107,30 @@ final class Model {
     }
 
     /// The fans' reported envelope, lowest Mn to highest Mx: from `hello`
-    /// with a daemon, the SMC without one, a plausible span with neither.
-    var envelope: ClosedRange<Double> {
+    /// with a daemon, the SMC without one, nil with neither (the status
+    /// line says why there is no daemon; nothing is invented).
+    var envelope: ClosedRange<Double>? {
         if let fans = hello?.fans, !fans.isEmpty {
             return fans.map(\.min).min()!...fans.map(\.max).max()!
         }
         if let fans = local?.fans, !fans.isEmpty {
             return fans.map(\.min).min()!...fans.map(\.max).max()!
         }
-        return 1000...8000
+        return nil
     }
 
     var die: Double? { state?.die ?? local?.die }
+
+    /// What the status line cannot say: another watcher holds the fans
+    /// (and the key that takes over), else the last verb's refusal or
+    /// error. Both clear on the next good exchange.
+    var aside: String? {
+        if let held = heldBy {
+            return
+                "held by \(held.name) (pid \(held.pid)) · \(store.displayPrimary(for: .takeOver)) takes over"
+        }
+        return notice
+    }
 
     var actuals: [Double] { state?.fans.map(\.actual) ?? local?.fans.map(\.actual) ?? [] }
 
@@ -336,13 +350,16 @@ final class Model {
     }
 
     func newCurve() {
+        guard let span = envelope else {
+            notice = "no fan envelope yet: no daemon and no SMC"
+            return
+        }
         var name = "curve"
         var n = 1
         while curves.contains(where: { $0.name == name }) {
             n += 1
             name = "curve-\(n)"
         }
-        let span = envelope
         let fresh = Curve.Point(c: 50, rpm: span.lowerBound)
         commit(name, [fresh, Curve.Point(c: 90, rpm: span.upperBound)], select: fresh)
         cursor = name
