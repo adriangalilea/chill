@@ -55,13 +55,12 @@ the M4's `Ftst` gates, the lid gate below.
       from the ack delays in `pmset -g log`; `chill daemon uninstall` →
       system, then launchd's SIGTERM → "handing the fans back", Apple's
       targets within 90 ms, registration gone, reinstall approved without
-      a second prompt.
+      a second prompt; `sudo launchctl kill TERM` with a curve forced →
+      Apple's targets within 500 ms, launchd's restart greeted by the app
+      and the curve back within a second.
 - [ ] The lid gate: close the lid on an external display → status shows
       the veto and stays Apple for as long as the lid is closed, presence
       notwithstanding. Needs the display.
-- [ ] `sudo launchctl kill TERM system/garden.untitled.chilld` while a
-      curve is forced: the handler is proven only with intent already at
-      system.
 - [x] `chill status`, `system`, `daemon install|uninstall|status`, `log`.
 
 ## 2 · curves and the CLI

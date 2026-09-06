@@ -30,9 +30,10 @@ public enum ClientError: Error, CustomStringConvertible {
 
 /// One conversation with a daemon: chilld over XPC, or the demo's
 /// in-process `FakeDaemon`, behind the same `ChillDaemonProtocol`. The
-/// first message on a real connection is `hello`, once, so the version
-/// handshake (and the daemon stepping aside for an upgrade) happens
-/// before any verb. Synchronous helpers serve the CLI, async ones the
+/// first message to a daemon is `hello`, once per daemon (again after
+/// the connection is interrupted), so the version handshake (and the
+/// daemon stepping aside for an upgrade) happens before any verb.
+/// Synchronous helpers serve the CLI, async ones the
 /// app; both are the one async core. An actor: the app's pulse and its
 /// verbs share one instance from concurrent tasks, and `greeted` is
 /// written by whichever `hello` lands first.
@@ -79,9 +80,20 @@ public actor Client {
         c.setCodeSigningRequirement(requirement)
         c.resume()
         connection = c
+        c.interruptionHandler = { [weak self] in
+            guard let self else { return }
+            Task { await self.interrupted() }
+        }
     }
 
     deinit { connection?.invalidate() }
+
+    /// The daemon went away under a live connection (launchd restarted
+    /// it after a signal, an upgrade stepped aside): the next message
+    /// reconnects to a daemon that has never heard this client, and a
+    /// verb before `hello` is refused there. Forget the greeting so the
+    /// next verb greets first.
+    private func interrupted() { greeted = nil }
 
     // MARK: - verbs, async
 

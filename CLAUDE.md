@@ -477,6 +477,14 @@ Hysteresis is a constant in code, not a per-curve field.
   message.
 - Dark wake cannot be detected with public API (`IOPMConnection`
   capabilities are private): the presence rule covers it.
+- An `NSXPCConnection` to a mach service survives the daemon: launchd
+  restarts chilld and the next message reaches a daemon that never heard
+  this client, which refuses a verb before `hello`. The client's
+  `interruptionHandler` forgets the greeting, so the next verb greets
+  first; a client that caches `hello` for its lifetime loses presence
+  for good after every daemon restart.
+- `SMAppService.register` right after `unregister` can fail with EPERM;
+  a retry a second later registers, with no second approval prompt.
 - Mac App Store is not a channel: SMC writes and a root daemon are
   impossible in the sandbox. Monitoring-only would be allowed and is not
   the product.
