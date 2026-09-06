@@ -151,9 +151,10 @@ final class MenuBar: NSObject {
 /// The popover. Tabs across the top ARE the intents: `apple`, `chill`
 /// (the built-in curve and its knob), one per custom curve, `+` beside
 /// the rail for a new one; picking a tab sends it, the selected tab is
-/// what the daemon runs. Under them a notice when there is one, the
-/// fixer when no daemon answers, the tab's plot, and a foot of one
-/// height with the toggle's key cap at its bottom right on every tab.
+/// what the daemon runs; hovering a tab says what it means, and the
+/// shortcut on the tab the toggle would press. Under them a notice when
+/// there is one, the fixer when no daemon answers, the tab's plot, and
+/// a foot of one height.
 struct PopoverView: View {
     let model: Model
 
@@ -277,22 +278,23 @@ struct Foot: View {
 struct Tabs: View {
     let model: Model
     @Namespace private var rail
+    /// The one tip: what the tab under the pointer means, and the
+    /// shortcut when that tab is the one the toggle would press.
+    @SwiftUI.State private var tip: Tip?
 
     var body: some View {
         HStack(spacing: .inkGap) {
             HStack(spacing: 2) {
                 // The house's two, each with its glyph, then a hairline,
                 // then yours by name.
-                TabCell(model: model, name: "apple", tab: .apple, glyph: "apple.logo", rail: rail)
-                TabCell(model: model, name: "chill", tab: .tuned, glyph: "snowflake", rail: rail)
+                cell("apple", .apple, glyph: "apple.logo")
+                cell("chill", .tuned, glyph: "snowflake")
                 Rectangle()
                     .fill(Color.primary.opacity(0.12))
                     .frame(width: 1, height: 16)
                     .padding(.horizontal, 3)
                 ForEach(model.customCurves, id: \.name) { curve in
-                    TabCell(
-                        model: model, name: curve.name, tab: .custom(curve.name),
-                        glyph: "hand.draw", rail: rail)
+                    cell(curve.name, .custom(curve.name), glyph: "hand.draw")
                 }
             }
             .padding(Tabs.railPadding)
@@ -303,7 +305,15 @@ struct Tabs: View {
             // `+` beside the rail, not in it: the rail holds what runs,
             // this makes a new one. The rail's height, so the two align.
             if model.customCurves.count < Model.maxCustom {
-                RailButton(help: "a new curve, born as a copy of chill, yours to draw") {
+                RailButton(
+                    hover: { on, at in
+                        tip =
+                            on
+                            ? Tip(
+                                text: "a new curve, born as a copy of chill, yours to draw", at: at)
+                            : nil
+                    }
+                ) {
                     model.newCurveTab()
                 } label: {
                     Text("+").font(.system(size: 15, weight: .medium))
@@ -314,18 +324,52 @@ struct Tabs: View {
             }
             Spacer(minLength: 0)
         }
+        .coordinateSpace(.named(Tabs.space))
+        // The tip: one view for the whole rail, on the pinboard so it
+        // stays inside the popover's width whatever it says, below the
+        // tab it is about, instant, gone when the pointer leaves.
+        .overlay(alignment: .topLeading) {
+            GeometryReader { proxy in
+                Pinboard {
+                    if let tip {
+                        TipView(tip: tip)
+                            .pinned { _ in CGPoint(x: tip.at.minX, y: Tabs.railHeight + .inkGap) }
+                            .transition(.opacity)
+                    }
+                }
+                .frame(width: proxy.size.width, height: Tabs.railHeight + 120)
+                .allowsHitTesting(false)
+            }
+        }
+        .zIndex(1)
         .disabled(model.state == nil)
         .onChange(of: model.state == nil) { _, off in
             log.info("tabs \(off ? "disabled: link not live" : "enabled", privacy: .public)")
         }
         .animation(.inkSettle, value: model.tab)
+        .animation(.inkSettle, value: tip)
     }
 
-    static let cellHeight: CGFloat = 26
-    static let railPadding: CGFloat = 3
+    private func cell(_ name: String, _ tab: Model.Tab, glyph: String) -> some View {
+        TabCell(model: model, name: name, tab: tab, glyph: glyph, rail: rail) { on, at in
+            guard on else {
+                if tip?.at == at { tip = nil }
+                return
+            }
+            let key = model.store.displayPrimary(for: .toggle)
+            tip = Tip(
+                text: Tabs.about(tab, name),
+                key: model.toggleTarget == tab && !key.isEmpty ? key : nil, at: at)
+        }
+    }
+
+    nonisolated static let cellHeight: CGFloat = 26
+    nonisolated static let railPadding: CGFloat = 3
     /// A cell plus the rail's padding: what stands beside the rail is
     /// this tall.
-    static var railHeight: CGFloat { cellHeight + railPadding * 2 }
+    nonisolated static var railHeight: CGFloat { cellHeight + railPadding * 2 }
+    /// The rail's coordinate space, the one cells report their frames in.
+    nonisolated static let space = "rail"
 
     /// What a tab means, on hover: the one place this is said.
     static func about(_ tab: Model.Tab, _ name: String) -> String {
@@ -343,27 +387,62 @@ struct Tabs: View {
     }
 }
 
+/// What the rail says under the pointer: the tab's meaning, the
+/// shortcut when that tab is the one the toggle would press, and where
+/// (the cell's frame in the rail's space, the tip's anchor).
+struct Tip: Equatable {
+    let text: String
+    var key: String? = nil
+    let at: CGRect
+}
+
+/// The tip itself: a plate in the window's background, meta type, the
+/// text wrapping past 300 pt, the combo as a key cap on its own line.
+struct TipView: View {
+    let tip: Tip
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: .inkGap) {
+            Text(tip.text)
+                .font(.meta)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 300, alignment: .leading)
+            if let key = tip.key {
+                HStack(spacing: .inkGap) {
+                    ShortcutBadge(key)
+                    Text("from any app").font(.meta).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.inkLane)
+        .background(
+            Color(nsColor: .windowBackgroundColor).opacity(0.95),
+            in: RoundedRectangle(cornerRadius: .inkRow)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: .inkRow)
+                .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1))
+    }
+}
+
 /// One tab: glyph and name, the dune plate under the one that runs
 /// (matched across the rail, so it slides), a wash under the pointer,
 /// the text stepping up from secondary to primary on hover and to dune
-/// when selected, and a small give on press. Alive, never loud.
-///
-/// The shortcut lives on the tab it would press: the toggle's target
-/// (`Model.toggleTarget`) wears a small key mark in its corner, and
-/// under the pointer shows the combo as a key cap in a callout below
-/// the rail, an overlay, so nothing shifts. The tooltip says it too.
+/// when selected, and a small give on press. Alive, never loud. Hover
+/// is reported up with the cell's frame; the rail draws the one tip.
 struct TabCell: View {
     let model: Model
     let name: String
     let tab: Model.Tab
     let glyph: String
     let rail: Namespace.ID
+    let hover: (Bool, CGRect) -> Void
     @SwiftUI.State private var hovering = false
+    @SwiftUI.State private var frame = CGRect.zero
 
     var body: some View {
         let selected = model.tab == tab
-        let target = model.toggleTarget == tab
-        let key = model.store.displayPrimary(for: .toggle)
         Button {
             model.select(tab)
         } label: {
@@ -384,51 +463,31 @@ struct TabCell: View {
                         .fill(Color.primary.opacity(0.07))
                 }
             }
-            .overlay(alignment: .topTrailing) {
-                if target, !key.isEmpty {
-                    Image(systemName: "keyboard")
-                        .font(.system(size: 7, weight: .semibold))
-                        .foregroundStyle(Palette.dune.opacity(hovering ? 1 : 0.6))
-                        .padding(.top, 3)
-                        .padding(.trailing, 4)
-                }
-            }
             .contentShape(Rectangle())
         }
         .buttonStyle(Give())
         .foregroundStyle(selected ? Palette.dune : hovering ? .primary : .secondary)
-        .overlay(alignment: .bottom) {
-            if target, hovering, !key.isEmpty {
-                HStack(spacing: .inkGap) {
-                    ShortcutBadge(key)
-                    Text("from any app").font(.meta).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, .inkLane)
-                .padding(.vertical, .inkGap)
-                .background(
-                    Color(nsColor: .windowBackgroundColor).opacity(0.92),
-                    in: RoundedRectangle(cornerRadius: .inkRow)
-                )
-                .fixedSize()
-                .offset(y: Tabs.cellHeight + Tabs.railPadding + .inkGap)
-                .transition(.opacity)
-                .allowsHitTesting(false)
-            }
+        .onGeometryChange(for: CGRect.self) {
+            $0.frame(in: .named(Tabs.space))
+        } action: {
+            frame = $0
         }
-        .zIndex(target && hovering ? 1 : 0)
-        .onHover { hovering = $0 }
+        .onHover { on in
+            hovering = on
+            hover(on, frame)
+        }
         .animation(.inkSettle, value: hovering)
-        .help(Tabs.about(tab, name) + (target && !key.isEmpty ? " · \(key) from any app" : ""))
     }
 }
 
 /// A square button the rail's height, beside it: the same wash on
 /// hover, the same give on press.
 struct RailButton<Label: View>: View {
-    let help: String
+    let hover: (Bool, CGRect) -> Void
     let action: () -> Void
     @ViewBuilder let label: Label
     @SwiftUI.State private var hovering = false
+    @SwiftUI.State private var frame = CGRect.zero
 
     var body: some View {
         Button(action: action) {
@@ -446,9 +505,16 @@ struct RailButton<Label: View>: View {
         }
         .buttonStyle(Give())
         .foregroundStyle(hovering ? .primary : .secondary)
-        .onHover { hovering = $0 }
+        .onGeometryChange(for: CGRect.self) {
+            $0.frame(in: .named(Tabs.space))
+        } action: {
+            frame = $0
+        }
+        .onHover { on in
+            hovering = on
+            hover(on, frame)
+        }
         .animation(.inkSettle, value: hovering)
-        .help(help)
     }
 }
 
