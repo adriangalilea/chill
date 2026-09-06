@@ -166,11 +166,9 @@ struct PopoverView: View {
                     Text(aside).font(.meta).foregroundStyle(tone.opacity(0.8))
                         .fixedSize(horizontal: false, vertical: true)
                     if model.heldBy != nil {
-                        Button("take over") { model.perform(.takeOver) }
-                            .buttonStyle(.plain)
-                            .font(.meta)
-                            .foregroundStyle(tone)
-                            .help(ChillAction.takeOver.spec.title)
+                        Chip(tint: tone, action: { model.perform(.takeOver) }) {
+                            Text("take over").font(.meta)
+                        }
                     }
                 }
             }
@@ -198,16 +196,12 @@ struct PopoverView: View {
                         Text("press the line to add a point and drag it · right-click removes one")
                             .font(.meta).foregroundStyle(.tertiary)
                         Spacer(minLength: 0)
-                        Button {
-                            model.perform(.deleteCurve)
-                        } label: {
+                        Chip(action: { model.perform(.deleteCurve) }) {
                             HStack(spacing: .inkTight) {
                                 Text("trash").font(.system(size: 12))
                                 ShortcutBadge(key(.deleteCurve))
                             }
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
                     }
                     .transition(.opacity)
                 }
@@ -407,26 +401,12 @@ struct TipView: View {
                 ShortcutBadge(tip.key)
                 Text("toggle from any app").font(.meta).foregroundStyle(.secondary)
             }
-            // A subtle button: a check and the words, on its own faint
-            // plate, so it reads as something to press.
-            Button(action: gotIt) {
+            Chip(tint: Palette.dune, action: gotIt) {
                 HStack(spacing: .inkTight) {
                     Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
                     Text("got it").font(.meta)
                 }
-                .padding(.horizontal, .inkGap)
-                .padding(.vertical, .inkTight)
-                .background(
-                    Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: .inkRow)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: .inkRow)
-                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
-                )
-                .contentShape(Rectangle())
             }
-            .buttonStyle(Give())
-            .foregroundStyle(Palette.dune)
         }
         .fixedSize()
         .padding(.inkLane)
@@ -537,6 +517,42 @@ struct RailButton<Label: View>: View {
     }
 }
 
+/// THE button of the popover and its panels, every one the same: a
+/// faint plate with a hairline, a wash under the pointer, secondary ink
+/// stepping up to primary on hover (or a tint), and the give on press.
+struct Chip<Label: View>: View {
+    var tint: Color? = nil
+    let action: () -> Void
+    @ViewBuilder let label: Label
+    @SwiftUI.State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            label
+                .padding(.horizontal, .inkGap)
+                .padding(.vertical, .inkTight)
+                .background(
+                    Color.primary.opacity(hovering ? 0.12 : 0.06),
+                    in: RoundedRectangle(cornerRadius: .inkRow)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: .inkRow)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(Give())
+        .foregroundStyle(ink)
+        .onHover { hovering = $0 }
+        .animation(.inkSettle, value: hovering)
+    }
+
+    private var ink: AnyShapeStyle {
+        if let tint { return AnyShapeStyle(tint.opacity(hovering ? 1 : 0.85)) }
+        return hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
+    }
+}
+
 /// The press: a slight give and a dip, back on release.
 struct Give: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -634,8 +650,9 @@ struct Fixer: View {
         case .live?:
             EmptyView()
         case .stale?:
-            Button("this chill is older than chilld: quit and relaunch chill.app") {
-                model.perform(.quit)
+            Chip(tint: tone, action: { model.perform(.quit) }) {
+                Text("this chill is older than chilld: quit and relaunch chill.app")
+                    .font(.system(size: 12))
             }
         case .bare?, .down?, nil:
             registration
@@ -645,14 +662,20 @@ struct Fixer: View {
     @ViewBuilder private var registration: some View {
         switch model.registration {
         case .notRegistered:
-            Button("install chilld") { model.installDaemon() }
+            Chip(tint: tone, action: { model.installDaemon() }) {
+                Text("install chilld").font(.system(size: 12))
+            }
         case .requiresApproval:
             if MenuBar.isAdmin {
-                Button("approve chilld in \(Wire.approvalPath)") { model.approveDaemon() }
+                Chip(tint: tone, action: { model.approveDaemon() }) {
+                    Text("approve chilld in \(Wire.approvalPath)").font(.system(size: 12))
+                }
             } else {
                 Text("approval is an admin's act: ask one to allow chilld")
                     .font(.meta).foregroundStyle(.secondary)
-                Button("open \(Wire.approvalPath)") { model.approveDaemon() }
+                Chip(tint: tone, action: { model.approveDaemon() }) {
+                    Text("open \(Wire.approvalPath)").font(.system(size: 12))
+                }
             }
         case .notFound:
             Text("no chilld in this bundle (a bare build): mise run install")
@@ -684,19 +707,13 @@ struct ActionBar: View {
 
     private func button(_ action: ChillAction, _ short: String) -> some View {
         let key = model.store.displayPrimary(for: action)
-        return Button {
-            model.perform(action)
-        } label: {
+        return Chip(action: { model.perform(action) }) {
             HStack(spacing: .inkTight) {
                 Text(short).font(.system(size: 12))
                 if !key.isEmpty { ShortcutBadge(key) }
             }
             .fixedSize()
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, .inkGap)
-        .padding(.vertical, .inkTight)
-        .background(Color.inkRest.opacity(0.5), in: RoundedRectangle(cornerRadius: .inkRow))
         .help(action.spec.title)
     }
 }
@@ -731,19 +748,22 @@ struct KeysPanel: View {
 /// The floating panels' close: a small circled x, top right.
 struct CloseButton: View {
     let close: () -> Void
+    @SwiftUI.State private var hovering = false
 
     var body: some View {
         Button(action: close) {
             Image(systemName: "xmark")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.secondary)
                 .frame(width: 24, height: 24)
-                .background(.quaternary.opacity(0.85), in: Circle())
+                .background(Color.primary.opacity(hovering ? 0.12 : 0.06), in: Circle())
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(Give())
+        .foregroundStyle(hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+        .onHover { hovering = $0 }
+        .animation(.inkSettle, value: hovering)
         .padding(.inkLane)
-        .help("close (escape)")
     }
 }
 
