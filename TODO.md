@@ -124,6 +124,31 @@ and lid gates below.
       `/etc/sudoers.d/smc-fan-helper` (sudo, pbcopy to Adrian),
       `/usr/local/bin/smc-helper` trashed.
 
+## Deferred, for fun
+
+- A "heat it" button: stress the machine on purpose to WATCH the plot do
+  its thing, the die climbing, the fans following, the afterglow. mach
+  already has the kernels (`Bench`, `GPUKernel`); chill would call the
+  same package and show the run. Doubles as the fast way to record
+  Apple's observed curve: an hour of varied use compressed into minutes.
+- Useful heat: if the button burns watts, let the burn do work. Fits for
+  a bursty, sporadic, elastic contribution that pays even with a handful
+  of users, best first:
+  - GIMPS (Prime95 / mprime, the classic torture test, Mac build):
+    real number theory, checkpoints every few minutes so a gust-length
+    burst counts, per-user credit, valuable at one user, scales linearly.
+  - Folding@home or BOINC (Einstein@Home, Rosetta@home): work units
+    checkpoint, the client pauses and resumes, contribution is counted
+    per user; more setup than GIMPS, more science.
+  - A thermal atlas of Macs: every heat run uploads an anonymous trace
+    (chip, die and fan over time, Apple's observed curve) to a public
+    dataset of how each Mac model heats and cools. Nobody has it, it is
+    the field measurement strategy/ wants, and it is worth something at
+    ten users.
+  - Your own work: re-encode lore's archive, run your test suites, warm
+    caches; useful at N = 1, no network.
+  Coins are out: the heat should mean something.
+
 ## Later, not designed in
 
 - Per-power-source curves (docked vs battery); per-app curves.
