@@ -156,6 +156,7 @@ struct Plot: View {
 
     final class Pointer {
         var at: CGPoint?
+        var editable = false
     }
 
     /// How near the line the pointer must be for the ghost point.
@@ -350,13 +351,17 @@ struct Plot: View {
             )
             // Right-click on a point removes it: an event monitor, since
             // SwiftUI gestures do not see the secondary button.
+            .onChange(of: editable, initial: true) { _, on in pointer.editable = on }
             .onAppear {
-                guard editable else { return }
-                // The pointer is where the last hover put it, in the
-                // plot's own space: no window arithmetic, and the curve
-                // and geometry are read live, never captured.
+                // Installed once for the view's life (onAppear fires once,
+                // whichever tab was up), so whether the plot is editable
+                // right now is read from the box, never captured. The
+                // pointer is where the last hover put it, in the plot's
+                // own space: no window arithmetic; curve and geometry are
+                // read live.
                 rightClicks = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) {
                     event in
+                    guard pointer.editable else { return event }
                     guard let p = pointer.at,
                         let g = PlotGeometry(size: proxy.size, envelope: model.envelope)
                     else {
