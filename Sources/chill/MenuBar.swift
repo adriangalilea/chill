@@ -185,8 +185,13 @@ struct PopoverView: View {
             ZStack(alignment: .topLeading) {
                 switch model.tab {
                 case .apple:
-                    Foot(first: vetoNote, second: model.partsLine)
-                        .transition(.opacity)
+                    // A veto in force takes the line; otherwise the one
+                    // shortcut is said here, where it is found.
+                    Foot(
+                        first: vetoNote.isEmpty ? model.toggleLine : vetoNote,
+                        second: model.partsLine
+                    )
+                    .transition(.opacity)
                 case .gust:
                     Foot(first: gustLine + vetoNote, second: model.partsLine)
                         .transition(.opacity)
@@ -393,7 +398,7 @@ struct Knobs: View {
         else { return "" }
         return first.rpm >= last.rpm
             ? "every fan flat out"
-            : "floor until \(Int(first.c)) °C, full at \(Int(last.c)) °C · draw your own with +"
+            : "floor until \(Int(first.c)) °C, full at \(Int(last.c)) °C · \(model.store.displayPrimary(for: .toggle)) toggles apple"
     }
 
     private var push: Binding<Double> {

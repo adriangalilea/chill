@@ -799,6 +799,18 @@ final class Model {
         }
     }
 
+    /// The curve the toggle brings back: the last one used, chill until
+    /// you draw one.
+    var yourCurve: Curve? { curves.first(where: { $0.name == config.lastCurve }) ?? tuned }
+
+    /// The shortcut, said where the fans are read, so it is found without
+    /// opening a menu: `⌃⌥⌘C from anywhere: apple ↔ chill`.
+    var toggleLine: String {
+        let key = store.displayPrimary(for: .toggle)
+        guard !key.isEmpty else { return "" }
+        return "\(key) from anywhere: apple ↔ \(yourCurve?.name ?? Model.tunedName)"
+    }
+
     /// The one key from anywhere: a curve runs, so Apple's; Apple's runs,
     /// so yours, the last one used, chill until you draw one.
     func toggle() {
@@ -806,11 +818,11 @@ final class Model {
             system()
             return
         }
-        guard let yours = curves.first(where: { $0.name == config.lastCurve }) ?? tuned else {
+        guard let yourCurve else {
             notice = "no fan envelope yet: no daemon and no SMC"
             return
         }
-        use(yours)
+        use(yourCurve)
     }
 
     func openCanvas() {
