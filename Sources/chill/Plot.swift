@@ -456,24 +456,35 @@ struct Plot: View {
                 Palette.heatGradient, startPoint: CGPoint(x: plot.minX, y: plot.midY),
                 endPoint: CGPoint(x: plot.maxX, y: plot.midY)))
 
+        // A log chart's grid is even; the values on it are what run
+        // geometric. Eight columns and five rows at equal spacing, each
+        // labelled with the temperature or rpm found there.
         let hair = GraphicsContext.Shading.color(.primary.opacity(0.07))
-        for c in stride(from: Frame.celsius.lowerBound, through: Frame.celsius.upperBound, by: 10) {
+        let columns = 8
+        for i in 0...columns {
+            let u = Double(i) / Double(columns)
+            let x = plot.minX + plot.width * u
             var line = Path()
-            line.move(to: CGPoint(x: g.x(c), y: plot.minY))
-            line.addLine(to: CGPoint(x: g.x(c), y: plot.maxY))
+            line.move(to: CGPoint(x: x, y: plot.minY))
+            line.addLine(to: CGPoint(x: x, y: plot.maxY))
             context.stroke(line, with: hair, lineWidth: 1)
             context.draw(
-                Text("\(Int(c))°").font(.meta).foregroundStyle(.tertiary),
-                at: CGPoint(x: g.x(c), y: plot.maxY + 14))
+                Text("\(Int(PlotGeometry.celsius(unit: u).rounded()))°").font(.meta)
+                    .foregroundStyle(.tertiary),
+                at: CGPoint(x: x, y: plot.maxY + 14))
         }
-        for rpm in stride(from: (g.yLo / 1000).rounded(.up) * 1000, through: g.yHi, by: 1000) {
+        let rows = 5
+        for i in 0...rows {
+            let u = Double(i) / Double(rows)
+            let y = plot.maxY - plot.height * u
             var line = Path()
-            line.move(to: CGPoint(x: plot.minX, y: g.y(rpm)))
-            line.addLine(to: CGPoint(x: plot.maxX, y: g.y(rpm)))
+            line.move(to: CGPoint(x: plot.minX, y: y))
+            line.addLine(to: CGPoint(x: plot.maxX, y: y))
             context.stroke(line, with: hair, lineWidth: 1)
+            let rpm = g.rpm(at: CGPoint(x: plot.minX, y: y))
             context.draw(
-                Text("\(Int(rpm))").font(.meta).foregroundStyle(.tertiary),
-                at: CGPoint(x: plot.minX - 24, y: g.y(rpm)))
+                Text("\(Int((rpm / 100).rounded() * 100))").font(.meta).foregroundStyle(.tertiary),
+                at: CGPoint(x: plot.minX - 24, y: y))
         }
     }
 }
