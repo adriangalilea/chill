@@ -27,9 +27,9 @@ nothing below starts before the one above is green.
 Everything below is written and compiles (`mise check` at 0 warnings);
 the gates need a signed install on real fans. Done on the M5 Max: the
 signed install registers and is approved, chilld answers, SoloFan is
-retired from this Mac, curves force real fans. Human gates left:
-`garden genesis chill --desc "..."`, the M4's `Ftst` gates, the sleep
-and lid gates below.
+retired from this Mac, curves force real fans, every contract gate but
+the lid passes. Human gates left: `garden genesis chill --desc "..."`,
+the M4's `Ftst` gates, the lid gate below.
 
 - [x] Hello-world chilld: bundle assembled by `mise run install`
       (Developer ID required), plist under `Contents/Library/LaunchDaemons`
@@ -46,17 +46,22 @@ and lid gates below.
       forced and held, apple ↔ chill ↔ gust toggled many times with a
       truthful status, auto on every hand-back. The `Ftst` paths wait for
       the M4.
-- [ ] The contract: intent persisted in `policy.json`, presence with a
+- [x] The contract: intent persisted in `policy.json`, presence with a
       `ContinuousClock` deadline, the veto set, the 1 Hz evaluator, the
-      reference cloud for fans Apple holds. Built; proven so far: the app's
-      presence and the daemon's read-back at 1 Hz. Gates: quit or `kill -9` the
-      app mid-curve → Apple within 1 s (XPC invalidation); `SIGSTOP` the
-      app → within 10 s; close the lid on an external display → status
-      shows the veto and stays Apple for as long as the lid is closed,
-      presence notwithstanding; `launchctl kill TERM system/garden.untitled.chilld`
-      → auto before exit; sleep → auto before the ack, no 30 s delay in
-      `pmset -g log`; `chill daemon uninstall` → fans on Apple's curve,
-      registration gone.
+      reference cloud for fans Apple holds. Proven on the M5 Max: `kill -9`
+      the app mid-curve → Apple in 20 ms (XPC invalidation); `SIGSTOP` the
+      app → Apple at 10 s, `SIGCONT` → the curve again in 2 s; three
+      sleeps with a curve forced → the sleep veto in status, chilld absent
+      from the ack delays in `pmset -g log`; `chill daemon uninstall` →
+      system, then launchd's SIGTERM → "handing the fans back", Apple's
+      targets within 90 ms, registration gone, reinstall approved without
+      a second prompt.
+- [ ] The lid gate: close the lid on an external display → status shows
+      the veto and stays Apple for as long as the lid is closed, presence
+      notwithstanding. Needs the display.
+- [ ] `sudo launchctl kill TERM system/garden.untitled.chilld` while a
+      curve is forced: the handler is proven only with intent already at
+      system.
 - [x] `chill status`, `system`, `daemon install|uninstall|status`, `log`.
 
 ## 2 · curves and the CLI
