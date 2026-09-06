@@ -1,19 +1,20 @@
 import AppKit
 import ChillKit
+import Ink
 import Keymap
 import Observation
 import ServiceManagement
 import SwiftUI
 
-/// The status item: the effect glyph, a left-click menu that leads with
-/// whatever fixes a missing daemon, a right-click that toggles system ↔
-/// the last curve. The menu is rebuilt on every open from the model, and
-/// every item wears its registry key.
+/// The status item: the effect glyph, a left-click popover that IS the
+/// product (the plot over Apple's cloud, the curves, the actions with
+/// their keys, and whatever fixes a missing daemon first), a right-click
+/// that toggles system ↔ the last curve.
 @MainActor
-final class MenuBar: NSObject, NSMenuDelegate {
+final class MenuBar: NSObject {
     private let model: Model
     private let item: NSStatusItem
-    private let menu = NSMenu()
+    private let popover = NSPopover()
     private var glyph: Glyph?
 
     init(model: Model) {
@@ -21,10 +22,10 @@ final class MenuBar: NSObject, NSMenuDelegate {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         precondition(item.button != nil, "no status bar button")
-        menu.delegate = self
-        // No permanent statusItem.menu: the click decides. Left = the menu
-        // (attached for the click, then detached so the action keeps
-        // firing), right = the toggle.
+        popover.behavior = .transient
+        popover.animates = false
+        popover.contentViewController = NSHostingController(rootView: PopoverView(model: model))
+        model.popover = popover
         item.button!.target = self
         item.button!.action = #selector(clicked)
         item.button!.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -55,123 +56,16 @@ final class MenuBar: NSObject, NSMenuDelegate {
             model.toggle()
             return
         }
-        item.menu = menu
-        item.button!.performClick(nil)
-        item.menu = nil
-    }
-
-    // MARK: - the menu
-
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-        add(model.statusLine, enabled: false)
-        if let notice = model.notice { add(notice, enabled: false) }
-        if let held = model.heldBy {
-            add("held by \(held.name) (pid \(held.pid))", enabled: false)
-        }
-        switch model.link {
-        case .live?: break
-        case .bare?, .down?, .stale?, nil:
-            menu.addItem(.separator())
-            fixer()
-        }
-        menu.addItem(.separator())
-        for (index, curve) in model.curves.enumerated() {
-            let entry = add(curve.name, #selector(useCurve(_:)), represented: curve.name)
-            entry.state = model.intentCurve == curve.name ? .on : .off
-            if index < 9 {
-                entry.keyEquivalent = String(index + 1)
-                entry.keyEquivalentModifierMask = flags(model.store.familyModifier("curve", .local))
-            }
-        }
-        if model.curves.isEmpty { add("no curves: draw one on the canvas", enabled: false) }
-        menu.addItem(.separator())
-        add(.boost, #selector(boost))
-        add(.system, #selector(system))
-        if model.heldBy != nil { add(.takeOver, #selector(takeOver)) }
-        menu.addItem(.separator())
-        add(.canvas, #selector(canvas))
-        add(.help, #selector(help))
-        menu.addItem(.separator())
-        add(.quit, #selector(quit))
-    }
-
-    /// The one action that gets a daemon answering, first. A daemon that
-    /// answered and refused this process for good is fixed by a relaunch,
-    /// whatever the registration says. A bare build reads `.notFound` (no
-    /// LaunchDaemons plist beside its executable) and is told what
-    /// installs one.
-    private func fixer() {
-        if case .stale? = model.link {
-            add("this chill is older than chilld: quit and relaunch chill.app", #selector(quit))
+        if popover.isShown {
+            popover.performClose(nil)
             return
         }
-        switch model.registration {
-        case .notRegistered:
-            add("install chilld", #selector(install))
-        case .requiresApproval:
-            if MenuBar.isAdmin {
-                add("approve chilld in \(Wire.approvalPath)", #selector(approve))
-            } else {
-                add("approval is an admin's act: ask one to allow chilld", enabled: false)
-                add("open \(Wire.approvalPath)", #selector(approve))
-            }
-        case .notFound:
-            add("no chilld in this bundle (a bare build): mise run install", enabled: false)
-        case .enabled:
-            add("chilld is registered and not answering: chill daemon status", enabled: false)
-        @unknown default:
-            add("chilld registration status \(model.registration.rawValue)", enabled: false)
-        }
+        // An accessory app owns no key window until it activates; the
+        // keys route only into a key popover.
+        NSApp.activate()
+        popover.show(relativeTo: item.button!.bounds, of: item.button!, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
     }
-
-    @discardableResult
-    private func add(
-        _ title: String, _ selector: Selector? = nil, represented: Any? = nil,
-        enabled: Bool = true
-    ) -> NSMenuItem {
-        let entry = NSMenuItem(title: title, action: selector, keyEquivalent: "")
-        entry.target = self
-        entry.representedObject = represented
-        entry.isEnabled = enabled && selector != nil
-        menu.addItem(entry)
-        return entry
-    }
-
-    /// A registry action as a menu item, its live key shown.
-    private func add(_ action: ChillAction, _ selector: Selector) {
-        let entry = add(action.spec.title, selector)
-        guard let combo = model.store.menuCombo(for: action), combo.key.count == 1 else { return }
-        entry.keyEquivalent = combo.key
-        entry.keyEquivalentModifierMask = flags(combo.eventModifiers)
-    }
-
-    private func flags(_ modifiers: SwiftUI.EventModifiers) -> NSEvent.ModifierFlags {
-        var flags: NSEvent.ModifierFlags = []
-        if modifiers.contains(.command) { flags.insert(.command) }
-        if modifiers.contains(.shift) { flags.insert(.shift) }
-        if modifiers.contains(.option) { flags.insert(.option) }
-        if modifiers.contains(.control) { flags.insert(.control) }
-        return flags
-    }
-
-    // MARK: - selectors
-
-    @objc private func useCurve(_ sender: NSMenuItem) {
-        let name = sender.representedObject as! String
-        guard let curve = model.curves.first(where: { $0.name == name }) else { return }
-        model.cursor = name
-        model.use(curve)
-    }
-
-    @objc private func boost() { model.perform(.boost) }
-    @objc private func system() { model.perform(.system) }
-    @objc private func takeOver() { model.perform(.takeOver) }
-    @objc private func canvas() { model.perform(.canvas) }
-    @objc private func help() { model.perform(.help) }
-    @objc private func quit() { model.perform(.quit) }
-    @objc private func install() { model.installDaemon() }
-    @objc private func approve() { model.approveDaemon() }
 
     /// Membership of the `admin` group, the one that can approve a
     /// LaunchDaemon in System Settings. The group and the current user
@@ -189,5 +83,120 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
         precondition(rc >= 0, "getgrouplist overflowed \(groups.count) groups")
         return groups.prefix(Int(count)).contains(admin.pointee.gr_gid)
+    }
+}
+
+/// The popover: status, the fixer when no daemon answers, the plot, the
+/// curves, the actions. Same model, same keys as the canvas window.
+struct PopoverView: View {
+    let model: Model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: .inkLane) {
+            HStack(alignment: .firstTextBaseline, spacing: .inkGap) {
+                Text(model.statusLine)
+                    .font(.meta)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                if model.demo.on {
+                    Text("demo").font(.meta).foregroundStyle(.tertiary)
+                }
+            }
+            if let aside = model.aside {
+                Text(aside).font(.meta).foregroundStyle(tone.opacity(0.8)).lineLimit(2)
+            }
+            Fixer(model: model)
+            Plot(model: model)
+                .frame(height: 220)
+            CurveList(model: model)
+                .frame(maxHeight: 120)
+            ActionBar(model: model, popover: true)
+        }
+        .padding(.inkBlock)
+        .frame(width: 440)
+    }
+}
+
+/// The one action that gets a daemon answering, first. A daemon that
+/// answered and refused this process for good is fixed by a relaunch,
+/// whatever the registration says. A bare build reads `.notFound` (no
+/// LaunchDaemons plist beside its executable) and is told what installs
+/// one. Renders nothing while the daemon is live.
+struct Fixer: View {
+    let model: Model
+
+    var body: some View {
+        switch model.link {
+        case .live?:
+            EmptyView()
+        case .stale?:
+            Button("this chill is older than chilld: quit and relaunch chill.app") {
+                model.perform(.quit)
+            }
+        case .bare?, .down?, nil:
+            registration
+        }
+    }
+
+    @ViewBuilder private var registration: some View {
+        switch model.registration {
+        case .notRegistered:
+            Button("install chilld") { model.installDaemon() }
+        case .requiresApproval:
+            if MenuBar.isAdmin {
+                Button("approve chilld in \(Wire.approvalPath)") { model.approveDaemon() }
+            } else {
+                Text("approval is an admin's act: ask one to allow chilld")
+                    .font(.meta).foregroundStyle(.secondary)
+                Button("open \(Wire.approvalPath)") { model.approveDaemon() }
+            }
+        case .notFound:
+            Text("no chilld in this bundle (a bare build): mise run install")
+                .font(.meta).foregroundStyle(.secondary)
+        case .enabled:
+            Text("chilld is registered and not answering: chill daemon status")
+                .font(.meta).foregroundStyle(.secondary)
+        @unknown default:
+            Text("chilld registration status \(model.registration.rawValue)")
+                .font(.meta).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Every action the surface offers, as a button wearing its live key.
+/// The pointer's path and the keyboard's are the same registry entry.
+struct ActionBar: View {
+    let model: Model
+    let popover: Bool
+
+    var body: some View {
+        HStack(spacing: .inkGap) {
+            button(.newCurve)
+            if model.editing != nil { button(.useCurve) }
+            button(.boost)
+            button(.system)
+            if model.heldBy != nil { button(.takeOver) }
+            Spacer(minLength: 0)
+            if popover { button(.canvas) }
+            button(.help)
+            if popover { button(.quit) }
+        }
+    }
+
+    private func button(_ action: ChillAction) -> some View {
+        Button {
+            model.perform(action)
+        } label: {
+            HStack(spacing: .inkTight) {
+                Text(action.spec.title.split(separator: ":").first.map(String.init) ?? "")
+                    .font(.system(size: 12))
+                ShortcutBadge(model.store.displayPrimary(for: action))
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, .inkGap)
+        .padding(.vertical, .inkTight)
+        .background(Color.inkRest.opacity(0.5), in: RoundedRectangle(cornerRadius: .inkRow))
+        .help(action.spec.title)
     }
 }

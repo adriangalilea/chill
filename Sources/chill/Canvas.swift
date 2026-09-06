@@ -71,6 +71,7 @@ struct CanvasView: View {
                     .frame(width: 200)
                 Plot(model: model)
             }
+            ActionBar(model: model, popover: false)
             Text(hint)
                 .font(.meta)
                 .foregroundStyle(.tertiary)
@@ -79,12 +80,12 @@ struct CanvasView: View {
         .padding(.top, 8)
     }
 
-    /// The affordances this surface has, in its own keys.
+    /// The affordances this surface has: the pointer's, then the keys.
     private var hint: String {
         let s = model.store
         func k(_ a: ChillAction) -> String { s.displayPrimary(for: a) }
         return
-            "\(k(.pointUp))\(k(.pointDown)) rpm · \(k(.pointLeft))\(k(.pointRight)) °C · \(k(.nextPoint)) next point · \(k(.addPoint)) add · \(k(.removePoint)) remove · \(k(.previousCurve))\(k(.nextCurve)) curves · \(k(.useCurve)) use · \(k(.help)) all keys"
+            "click the plot: a point · drag: move it · double-click: use the curve · \(k(.pointUp))\(k(.pointDown)) rpm · \(k(.pointLeft))\(k(.pointRight)) °C · \(k(.nextPoint)) next point · \(k(.removePoint)) remove · \(k(.help)) all keys"
     }
 }
 
@@ -162,41 +163,113 @@ private struct Frame {
     static let celsius: ClosedRange<Double> = 30...110
 }
 
+/// The plot's coordinate map, one for drawing and the pointer alike: °C
+/// across, rpm up, y spanning the fans' envelope with a 5% margin.
+private struct PlotGeometry {
+    let plot: CGRect
+    let yLo: Double
+    let yHi: Double
+
+    static let inset = EdgeInsets(top: 12, leading: 48, bottom: 28, trailing: 12)
+
+    init?(size: CGSize, envelope: ClosedRange<Double>?) {
+        plot = CGRect(
+            x: PlotGeometry.inset.leading, y: PlotGeometry.inset.top,
+            width: size.width - PlotGeometry.inset.leading - PlotGeometry.inset.trailing,
+            height: size.height - PlotGeometry.inset.top - PlotGeometry.inset.bottom)
+        guard plot.width > 0, plot.height > 0, let envelope else { return nil }
+        let span = envelope.upperBound - envelope.lowerBound
+        yLo = envelope.lowerBound - span * 0.05
+        yHi = envelope.upperBound + span * 0.05
+    }
+
+    func x(_ c: Double) -> CGFloat {
+        plot.minX + plot.width * (c - Frame.celsius.lowerBound)
+            / (Frame.celsius.upperBound - Frame.celsius.lowerBound)
+    }
+    func y(_ rpm: Double) -> CGFloat {
+        plot.maxY - plot.height * (rpm - yLo) / (yHi - yLo)
+    }
+    func celsius(at p: CGPoint) -> Double {
+        let c =
+            Frame.celsius.lowerBound + (p.x - plot.minX) / plot.width
+            * (Frame.celsius.upperBound - Frame.celsius.lowerBound)
+        return min(Frame.celsius.upperBound, max(Frame.celsius.lowerBound, c))
+    }
+    func rpm(at p: CGPoint) -> Double {
+        let rpm = yLo + (plot.maxY - p.y) / plot.height * (yHi - yLo)
+        return min(yHi, max(yLo, rpm))
+    }
+    /// The curve point under the pointer, within a fingertip.
+    func hit(_ curve: Curve?, at p: CGPoint) -> Int? {
+        guard let curve else { return nil }
+        let distances = curve.points.enumerated().map { i, pt in
+            (i, hypot(x(pt.c) - p.x, y(pt.rpm) - p.y))
+        }
+        return distances.min { $0.1 < $1.1 }.flatMap { $0.1 <= 12 ? $0.0 : nil }
+    }
+}
+
 /// The reference clouds, the curve under edit with its selected point,
 /// and the live markers: the hottest die as a hairline, each fan's
-/// actual (open) and target (filled) on it. y spans the fans' envelope.
+/// actual (open) and target (filled) on it. The pointer draws here: a
+/// click lands a point, a drag moves the one under it, a double-click
+/// uses the curve.
 struct Plot: View {
     let model: Model
+    @SwiftUI.State private var dragging: Int?
+
+    init(model: Model) { self.model = model }
 
     var body: some View {
         let frame = Frame(
             envelope: model.envelope, clouds: model.clouds.bins, curve: model.editing,
             point: model.point, die: model.die, actuals: model.actuals, targets: model.targets)
-        Canvas { context, size in
-            draw(frame, in: context, size: size)
+        GeometryReader { proxy in
+            let geometry = PlotGeometry(size: proxy.size, envelope: frame.envelope)
+            Canvas { context, size in
+                if let geometry { draw(frame, geometry, in: context) }
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard let geometry else { return }
+                        if dragging == nil {
+                            dragging = geometry.hit(frame.curve, at: value.startLocation) ?? -1
+                        }
+                        guard let index = dragging, index >= 0 else { return }
+                        model.point = index
+                        model.drag(
+                            index, celsius: geometry.celsius(at: value.location),
+                            rpm: geometry.rpm(at: value.location))
+                    }
+                    .onEnded { value in
+                        defer { dragging = nil }
+                        guard let geometry, dragging == -1,
+                            hypot(value.translation.width, value.translation.height) < 3
+                        else { return }
+                        model.place(
+                            celsius: geometry.celsius(at: value.location),
+                            rpm: geometry.rpm(at: value.location))
+                    }
+            )
+            .simultaneousGesture(
+                TapGesture(count: 2).onEnded {
+                    if let editing = model.editing { model.use(editing) }
+                }
+            )
         }
         .background(
             RoundedRectangle(cornerRadius: .inkField).fill(Color.inkRest.opacity(0.4)))
     }
 
-    private static let inset = EdgeInsets(top: 12, leading: 48, bottom: 28, trailing: 12)
-
-    private func draw(_ f: Frame, in context: GraphicsContext, size: CGSize) {
-        let plot = CGRect(
-            x: Plot.inset.leading, y: Plot.inset.top,
-            width: size.width - Plot.inset.leading - Plot.inset.trailing,
-            height: size.height - Plot.inset.top - Plot.inset.bottom)
-        guard plot.width > 0, plot.height > 0, let envelope = f.envelope else { return }
-        let ySpan = envelope.upperBound - envelope.lowerBound
-        let yLo = envelope.lowerBound - ySpan * 0.05
-        let yHi = envelope.upperBound + ySpan * 0.05
-        func x(_ c: Double) -> CGFloat {
-            plot.minX + plot.width * (c - Frame.celsius.lowerBound)
-                / (Frame.celsius.upperBound - Frame.celsius.lowerBound)
-        }
-        func y(_ rpm: Double) -> CGFloat {
-            plot.maxY - plot.height * (rpm - yLo) / (yHi - yLo)
-        }
+    private func draw(_ f: Frame, _ g: PlotGeometry, in context: GraphicsContext) {
+        let plot = g.plot
+        let yLo = g.yLo
+        let yHi = g.yHi
+        func x(_ c: Double) -> CGFloat { g.x(c) }
+        func y(_ rpm: Double) -> CGFloat { g.y(rpm) }
 
         // The grid: hairlines every 10 °C and 1000 rpm, mono labels.
         let hair = GraphicsContext.Shading.color(.primary.opacity(0.07))

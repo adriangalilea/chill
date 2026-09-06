@@ -56,6 +56,8 @@ final class Model {
     @ObservationIgnored var router: LocalKeyRouter<ChillAction>?
     @ObservationIgnored let float = FloatingPanel()
     @ObservationIgnored var canvas: CanvasWindow?
+    /// The status item's popover, the surface most keys land on.
+    @ObservationIgnored weak var popover: NSPopover?
     var showHelp = false { didSet { presentHelp(showHelp) } }
 
     var link: Link?
@@ -362,6 +364,34 @@ final class Model {
         commit(editing.name, points, select: added)
     }
 
+    /// The pointer's way to draw: a click on the plot lands a point there.
+    /// No curve under the cursor means the click founds one; a point
+    /// within a degree of the click is moved to it instead of doubled.
+    func place(celsius: Double, rpm: Double) {
+        let placed = Curve.Point(c: celsius.rounded(), rpm: max(0, rpm.rounded()))
+        guard let editing else {
+            let name = freshName()
+            commit(name, [placed], select: placed)
+            cursor = name
+            point = 0
+            return
+        }
+        var points = editing.points.filter { abs($0.c - placed.c) >= 1 }
+        points.append(placed)
+        commit(editing.name, points, select: placed)
+    }
+
+    /// A drag: the point under the pointer follows it.
+    func drag(_ index: Int, celsius: Double, rpm: Double) {
+        guard let editing, editing.points.indices.contains(index) else { return }
+        var points = editing.points
+        let moved = Curve.Point(c: celsius.rounded(), rpm: max(0, rpm.rounded()))
+        points.remove(at: index)
+        points.removeAll { abs($0.c - moved.c) < 1 }
+        points.append(moved)
+        commit(editing.name, points, select: moved)
+    }
+
     func removePoint() {
         guard let editing, editing.points.count > 1, editing.points.indices.contains(point) else {
             return
@@ -392,16 +422,22 @@ final class Model {
             notice = "no fan envelope yet: no daemon and no SMC"
             return
         }
+        let name = freshName()
+        let fresh = Curve.Point(c: 50, rpm: span.lowerBound)
+        commit(name, [fresh, Curve.Point(c: 90, rpm: span.upperBound)], select: fresh)
+        cursor = name
+        point = 0
+    }
+
+    /// `curve`, then `curve-2`, `curve-3`: the first name not on disk.
+    private func freshName() -> String {
         var name = "curve"
         var n = 1
         while curves.contains(where: { $0.name == name }) {
             n += 1
             name = "curve-\(n)"
         }
-        let fresh = Curve.Point(c: 50, rpm: span.lowerBound)
-        commit(name, [fresh, Curve.Point(c: 90, rpm: span.upperBound)], select: fresh)
-        cursor = name
-        point = 0
+        return name
     }
 
     /// To the Trash, never gone; the daemon is handed back first when it
@@ -439,6 +475,7 @@ final class Model {
             shouldRoute: { [weak self] _, event in
                 guard let self, let window = event.window else { return false }
                 return window === self.canvas?.window
+                    || window === self.popover?.contentViewController?.view.window
             },
             perform: { [weak self] in self?.perform($0) },
             performFamily: { [weak self] _, key in self?.pick(Int(key)!) })
@@ -467,6 +504,8 @@ final class Model {
         case .back:
             if showHelp {
                 showHelp = false
+            } else if let popover, popover.isShown {
+                popover.performClose(nil)
             } else {
                 canvas?.close()
             }
