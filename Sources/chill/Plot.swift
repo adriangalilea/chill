@@ -264,32 +264,42 @@ struct CurveLayer: View, @MainActor Animatable {
         set { vec = newValue }
     }
 
+    /// The curve as the plot draws it: its rpm at every half degree of
+    /// the axis, always the same length, so ANY curve morphs into any
+    /// other (a three-point S into storm's flat ceiling included), then
+    /// the points' own coordinates, which only blend while the count
+    /// holds (the rest of the vector still does).
+    static let samples = stride(
+        from: Frame.celsius.lowerBound, through: Frame.celsius.upperBound, by: 0.5
+    ).map { $0 }
+
     static func encode(_ curve: Curve) -> Vec {
-        Vec(v: curve.points.flatMap { [$0.c, $0.rpm] })
+        Vec(v: samples.map(curve.rpm(at:)) + curve.points.flatMap { [$0.c, $0.rpm] })
     }
 
     var body: some View {
         Canvas { context, _ in draw(in: context) }
     }
 
-    /// Sampled every half degree from the same function the daemon
-    /// writes; a soft fill under it, the selected point ringed and
-    /// labelled below the line.
+    /// The line from the animated samples; a soft fill under it; the
+    /// points from their animated coordinates while the count holds,
+    /// from the truth otherwise; the selected point ringed and labelled
+    /// below the line.
     private func draw(in context: GraphicsContext) {
         let g = geometry
         let plot = g.plot
-        var shown = curve
-        if vec.v.count == curve.points.count * 2 {
-            let points = (0..<curve.points.count).map {
-                Curve.Point(c: vec.v[$0 * 2], rpm: vec.v[$0 * 2 + 1])
+        let n = CurveLayer.samples.count
+        let rpms = vec.v.count >= n ? Array(vec.v[0..<n]) : CurveLayer.samples.map(curve.rpm(at:))
+        var points = curve.points
+        if vec.v.count == n + curve.points.count * 2 {
+            points = (0..<curve.points.count).map {
+                Curve.Point(c: vec.v[n + $0 * 2], rpm: vec.v[n + $0 * 2 + 1])
             }
-            shown = (try? Curve(name: curve.name, points: points)) ?? curve
         }
         var line = Path()
-        line.move(to: CGPoint(x: plot.minX, y: g.y(shown.rpm(at: Frame.celsius.lowerBound))))
-        for c in stride(from: Frame.celsius.lowerBound, through: Frame.celsius.upperBound, by: 0.5)
-        {
-            line.addLine(to: CGPoint(x: g.x(c), y: g.y(shown.rpm(at: c))))
+        line.move(to: CGPoint(x: plot.minX, y: g.y(rpms[0])))
+        for (c, rpm) in zip(CurveLayer.samples, rpms) {
+            line.addLine(to: CGPoint(x: g.x(c), y: g.y(rpm)))
         }
         var under = line
         under.addLine(to: CGPoint(x: plot.maxX, y: plot.maxY))
@@ -299,7 +309,8 @@ struct CurveLayer: View, @MainActor Animatable {
         context.stroke(
             line, with: .color(Palette.dune.opacity(0.95)),
             style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-        for (i, p) in shown.points.enumerated() {
+        // A flat curve (storm) has one point at 0 °C, off the axis: no dot.
+        for (i, p) in points.enumerated() where Frame.celsius.contains(p.c) {
             let r: CGFloat = i == point ? 6 : 4
             let dot = CGRect(x: g.x(p.c) - r, y: g.y(p.rpm) - r, width: r * 2, height: r * 2)
             context.fill(Path(ellipseIn: dot), with: .color(Palette.dune))
