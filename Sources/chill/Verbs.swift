@@ -277,6 +277,11 @@ enum Status {
         case (.boost(let until), .chill):
             parts[1] += " for \(remaining(until)) more"
             parts.append(rpm(s.fans))
+        case (.curve, .apple):
+            if let die = s.die {
+                parts.append("\(s.dieSource) \(degrees(die))\(hottest(of: s.dieSensors))")
+            }
+            parts.append(rpm(s.fans))
         default:
             break
         }

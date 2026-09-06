@@ -90,6 +90,7 @@ final class Model {
     @ObservationIgnored private var verbs: Task<Void, Never>?
     @ObservationIgnored private var sensors: Result<LocalSensors, Error>?
     @ObservationIgnored private var cloudTimer: Timer?
+    @ObservationIgnored private var retuneLanding: Task<Void, Never>?
 
     init(demo: Demo) throws {
         self.demo = demo
@@ -329,8 +330,23 @@ final class Model {
     }
 
     /// The knob moved: the file follows, and the daemon when it runs it.
+    /// The knob moves at pointer rate; the plot follows every step (the
+    /// curve is computed from `config`), but the disk and the daemon get
+    /// one landing, the last value, `retuneSettle` after the pointer
+    /// stops: a drag is not sixty intents.
     func retune(push: Double) {
         config.push = push
+        retuneLanding?.cancel()
+        retuneLanding = Task { [weak self] in
+            try? await Task.sleep(for: Model.retuneSettle)
+            guard !Task.isCancelled, let self else { return }
+            self.landRetune()
+        }
+    }
+
+    static let retuneSettle: Duration = .milliseconds(150)
+
+    private func landRetune() {
         saveConfig()
         guard let tuned else { return }
         do {

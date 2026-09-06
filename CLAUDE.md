@@ -91,6 +91,14 @@ chill forces a fan iff all three hold, evaluated by the daemon every second:
      `OSThermalNotificationLevel` is iOS-only; nobody reaches for it.
    - `noReading`: three consecutive samples without a die temperature.
 
+And a fourth, per fan: the curve asks MORE than the fan's floor. At the
+floor chill has nothing to add over Apple's minimum, so it does not take
+the fan (Apple keeps it in mode 0, or gets it back); it engages once the
+curve rises past the writer's hysteresis above `Mn` and lets go once it
+is back at `Mn`. Status: `chill · curve "chill" at its floor · Apple
+holds the fans`. The reported minimum is the firmware's and chill never
+asks below it: a curve's rpm is clamped to the envelope.
+
 Any other state is Apple's: daemon start (reconciliation, first act), SIGTERM
 (a `DispatchSource` signal handler → auto → exit), normal exit, `chill daemon
 uninstall` (auto over XPC, read back, then unregister), an upgrade (see

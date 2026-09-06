@@ -53,6 +53,9 @@ actor Engine {
         var dieSensors = 0
         var dieSource = "die"
         var holder: Holder = .apple
+        /// Under a curve, every fan is Apple's because the curve asks no
+        /// more than its floor: chill has stepped aside, not failed.
+        var atFloor = false
         /// Fans whose READ threw (or whose judgment needed a `Ftst` read
         /// that threw); they are missing from `fans`.
         var unread: [Int] = []
@@ -74,6 +77,8 @@ actor Engine {
         let released: Bool
         /// The result byte of a target write whose read-back disagreed.
         var refused: UInt8? = nil
+        /// Left to Apple on purpose: the curve asked no more than the floor.
+        var atFloor = false
     }
 
     private let writer: SMCWriter
@@ -374,6 +379,7 @@ actor Engine {
         }
         var fans: [FanState] = []
         var holders: [Holder] = []
+        var atFloor: [Bool] = []
         var unread: [Int] = []
         var refused: [(fan: Int, result: UInt8)] = []
         judge: for (i, fan) in writer.fans.enumerated() {
@@ -382,6 +388,7 @@ actor Engine {
                     fan, plan: plan, forced: forced, die: die, ftst: ftst)
                 fans.append(verdict.state)
                 holders.append(verdict.holder)
+                atFloor.append(verdict.atFloor)
                 if let result = verdict.refused { refused.append((fan.index, result)) }
                 if let die, verdict.holder == .apple {
                     clouds[fan.index]!.add(celsius: die, rpm: verdict.state.actual)
@@ -406,7 +413,9 @@ actor Engine {
         settle(
             Sample(
                 fans: fans, die: die, dieSensors: dieSensors, dieSource: dieSource,
-                holder: Engine.aggregate(holders), unread: unread, refused: refused),
+                holder: Engine.aggregate(holders),
+                atFloor: !atFloor.isEmpty && atFloor.allSatisfy { $0 }, unread: unread,
+                refused: refused),
             plan: plan, forced: forced)
     }
 
@@ -429,7 +438,21 @@ actor Engine {
     {
         let n = fan.index
         let state = try await writer.read(fan: n)
-        if forced {
+        // Engaged: forced, AND the curve asks more than the fan's floor.
+        // At the floor chill has nothing to add over Apple's minimum, so
+        // Apple keeps (or gets back) the fan; chill takes it once the
+        // curve rises past the writer's hysteresis, and lets go once it
+        // is back at the floor. In between, whatever it was.
+        let asked = plan == .system ? nil : die.map { wanted(fan, die: $0, under: plan) }
+        let engaged: Bool = {
+            guard forced else { return false }
+            guard let asked else { return held.contains(n) }
+            if asked > fan.min + SMCWriter.hysteresis { return true }
+            if asked <= fan.min { return false }
+            return held.contains(n)
+        }()
+        let atFloor = forced && !engaged
+        if engaged {
             guard stillForced(plan) else { throw Moved() }
             guard state.mode == 1 else {
                 if await !writer.isAcquiring(fan: n) {
@@ -458,14 +481,18 @@ actor Engine {
         let forcedByAnyone = state.mode == 1 || ftst == 1
         let acquiring = await writer.isAcquiring(fan: n)
         if forcedByAnyone && (held.contains(n) || acquiring) {
+            if atFloor { Log.notice("fan \(n): the curve is at its floor, Apple's again") }
             try await writer.auto(fan: n)
             held.remove(n)
             let after = try await writer.read(fan: n)
             return Governed(
-                state: after, holder: after.mode == 1 ? .foreign : .apple, released: true)
+                state: after, holder: after.mode == 1 ? .foreign : .apple, released: true,
+                atFloor: atFloor)
         }
         held.remove(n)
-        return Governed(state: state, holder: forcedByAnyone ? .foreign : .apple, released: false)
+        return Governed(
+            state: state, holder: forcedByAnyone ? .foreign : .apple, released: false,
+            atFloor: atFloor)
     }
 
     private func wanted(_ fan: Fan, die: Double, under plan: Intent) -> Double {
@@ -500,6 +527,9 @@ actor Engine {
             if let veto = Veto.order.first(where: vetoes.contains) { return .vetoed(veto) }
             if watcher == nil { return .noOneWatching }
             switch sample.holder {
+            case .apple where sample.atFloor:
+                if case .curve(let curve) = plan { return .floor(curve.name) }
+                return .acquiring
             case .foreign, .apple, .acquiring: return .acquiring
             case .chill:
                 if case .curve(let curve) = plan { return .curve(curve.name) }
