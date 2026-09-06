@@ -26,13 +26,19 @@ enum Log {
     /// open fails and every line would be lost: the daemon's first act
     /// makes the directory and points fds 1 and 2 at the file, appending.
     /// The plist keeps the same path, so launchd's own pre-exec messages
-    /// land in the file once the directory exists.
+    /// land in the file once the directory exists. Modes are set
+    /// explicitly, every start: a launchd daemon's umask leaves a fresh
+    /// directory 0744, which no user can enter, and `chill log` runs as
+    /// the user.
     static func open() throws {
         let directory = (Wire.logFile as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(
             atPath: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: directory)
         let fd = Foundation.open(Wire.logFile, O_WRONLY | O_APPEND | O_CREAT, 0o644)
         guard fd >= 0 else { throw LogError.open(path: Wire.logFile, errno: errno) }
+        guard fchmod(fd, 0o644) == 0 else { throw LogError.open(path: Wire.logFile, errno: errno) }
         for target in [STDOUT_FILENO, STDERR_FILENO] {
             guard dup2(fd, target) == target else {
                 throw LogError.open(path: Wire.logFile, errno: errno)

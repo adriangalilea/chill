@@ -170,7 +170,10 @@ enum Verbs {
         }
         let fd = open(Wire.logFile, O_RDONLY)
         guard fd >= 0 else {
-            die("no \(Wire.logFile): chilld has never run here (chill daemon install)")
+            switch errno {
+            case ENOENT: die("no \(Wire.logFile): chilld has never run here (chill daemon install)")
+            default: die("\(Wire.logFile): \(String(cString: strerror(errno)))")
+            }
         }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         func copy() {

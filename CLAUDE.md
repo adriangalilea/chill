@@ -186,7 +186,9 @@ Label `garden.untitled.chilld`, `BundleProgram Contents/MacOS/chilld`,
 `StandardOutPath`/`StandardErrorPath`
 `/Library/Logs/chill/chilld.log` (launchd creates no parent directory, so
 chilld's first act makes `/Library/Logs/chill` and points its own fds 1
-and 2 at the file, appending; `Log.open`). No `AssociatedBundleIdentifiers`
+and 2 at the file, appending, modes set explicitly to 0755/0644 because
+a launchd daemon's umask leaves a fresh directory 0744, which `chill
+log`, running as the user, cannot enter; `Log.open`). No `AssociatedBundleIdentifiers`
 (in-bundle plists self-associate). The app registers with
 `SMAppService.daemon(plistName: "garden.untitled.chilld.plist")`; the daemon
 listens on `NSXPCListener(machServiceName:)`; clients connect with
