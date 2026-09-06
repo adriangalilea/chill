@@ -57,7 +57,10 @@ final class MenuBar: NSObject {
 
     @objc private func clicked() {
         if NSApp.currentEvent?.type == .rightMouseUp {
-            model.toggle()
+            log.info("right-click: the app menu")
+            item.menu = appMenu()
+            item.button!.performClick(nil)
+            item.menu = nil
             return
         }
         if popover.isShown {
@@ -83,6 +86,50 @@ final class MenuBar: NSObject {
                 "popover window key: \(window.isKeyWindow, privacy: .public), app active: \(NSApp.isActive, privacy: .public)"
             )
         }
+    }
+
+    // MARK: - the app menu (right-click)
+
+    /// What the popover is not for: the app itself. Version, daemon state,
+    /// the canvas, the keys, start at login, about, quit. Rebuilt on every
+    /// open from the live state. No item for what does not exist yet (an
+    /// update check comes with the appcast).
+    private func appMenu() -> NSMenu {
+        let menu = NSMenu()
+        func add(_ title: String, _ selector: Selector?, key: String = "") -> NSMenuItem {
+            let entry = NSMenuItem(title: title, action: selector, keyEquivalent: key)
+            entry.target = self
+            entry.isEnabled = selector != nil
+            menu.addItem(entry)
+            return entry
+        }
+        _ = add("chill \(Wire.version)", nil)
+        _ = add(model.daemonLine, nil)
+        menu.addItem(.separator())
+        _ = add("canvas", #selector(canvas), key: "c")
+        _ = add("shortcuts", #selector(help), key: "?")
+        menu.addItem(.separator())
+        let login = add("start at login", #selector(toggleLogin))
+        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        _ = add("about chill", #selector(about))
+        menu.addItem(.separator())
+        _ = add("quit chill", #selector(quit), key: "q")
+        return menu
+    }
+
+    @objc private func canvas() { model.perform(.canvas) }
+    @objc private func help() { model.perform(.help) }
+    @objc private func quit() { model.perform(.quit) }
+    @objc private func toggleLogin() { model.toggleLogin() }
+    @objc private func about() {
+        NSApp.activate()
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "chill",
+            .applicationVersion: Wire.version,
+            .credits: NSAttributedString(
+                string: Model.credits,
+                attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]),
+        ])
     }
 
     /// Membership of the `admin` group, the one that can approve a

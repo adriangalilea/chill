@@ -423,11 +423,6 @@ final class Model {
         if let curve = curves.first(where: { $0.name == name }) { use(curve) }
     }
 
-    /// Right-click on the status item: Apple ↔ the built-in curve.
-    var holdsFans: Bool { (state?.intent ?? .system) != .system }
-
-    func hold(_ on: Bool) { select(on ? .tuned : .apple) }
-
     private func drop(_ error: Error) {
         log.error(
             "link down: \(error, privacy: .public); tabs disabled until the next pulse answers")
@@ -473,14 +468,44 @@ final class Model {
 
     func takeOver() { call("take") { try await $0.take() } }
 
-    /// Right-click: system ↔ the last curve.
-    func toggle() {
-        log.info(
-            "right-click: \(self.state == nil ? "ignored, link not live" : (self.holdsFans ? "to apple" : "to chill"), privacy: .public)"
-        )
-        guard state != nil else { return }
-        hold(!holdsFans)
+    /// The daemon in one line for the app menu.
+    var daemonLine: String {
+        switch link {
+        case .live?: return "chilld \(hello?.daemonVersion ?? "") · pid \(hello?.pid ?? 0)"
+        case .down(let error)?: return "chilld: \(error.description)"
+        case .stale(let why)?: return "chilld: \(why)"
+        case .bare(let why)?: return "chilld: \(why)"
+        case nil: return "chilld: connecting"
+        }
     }
+
+    /// Start at login: the login item `chill daemon install` registers,
+    /// switched here; the daemon is untouched either way.
+    func toggleLogin() {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+                log.info("login item: off")
+            } else {
+                try SMAppService.mainApp.register()
+                log.info("login item: on")
+            }
+        } catch {
+            notice = "start at login: \(error.localizedDescription)"
+        }
+    }
+
+    /// The prior art, as README says it, for the about panel.
+    static let credits = """
+        Fan control for the Mac, with Apple in charge by default.
+
+        Prior art: SoloFan's Swift app (MIT, github.com/SoloTeamDev/solofan). \
+        The Ftst unlock: agoodkind/macos-smc-fan (MIT). \
+        The SMC keys that name the chip's parts: exelban/stats (MIT). \
+        Sensors through mach's read-only package.
+
+        MIT. github.com/adriangalilea/chill
+        """
 
     /// One verb, behind the verbs before it: a held arrow key sends a `use`
     /// per repeat, and the daemon runs them in wire order, so the replies
@@ -832,7 +857,7 @@ final class Model {
                 extras: [
                     (
                         name: "pointer",
-                        rows: [StaticShortcut("right-click the menu bar", "system ↔ last curve")]
+                        rows: [StaticShortcut("right-click the menu bar", "the app menu")]
                     )
                 ]
             )
