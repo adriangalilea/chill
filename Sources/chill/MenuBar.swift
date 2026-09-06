@@ -433,12 +433,16 @@ struct TabCell: View {
             }
             .overlay(alignment: .topTrailing) {
                 if mark {
+                    // A small dune pill with the glyph in the window's
+                    // ink: solid enough to read at a glance, brighter
+                    // under the pointer.
                     Image(systemName: "keyboard")
-                        .font(.system(size: 7, weight: .semibold))
-                        .foregroundStyle(Palette.dune.opacity(overMark ? 1 : 0.6))
-                        .padding(.top, 3)
-                        .padding(.trailing, 4)
-                        .contentShape(Rectangle())
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                        .frame(width: 16, height: 12)
+                        .background(Palette.dune.opacity(overMark ? 1 : 0.8), in: Capsule())
+                        .offset(x: 4, y: -4)
+                        .contentShape(Capsule())
                         .onHover { on in
                             overMark = on
                             hover(on, frame)
