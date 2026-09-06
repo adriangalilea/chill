@@ -6,12 +6,12 @@ import Foundation
 /// themselves with `--watch`; the rest do not.
 enum Verbs {
     static func die(_ message: String, exit code: Int32 = 1) -> Never {
-        FileHandle.standardError.write(Data("chill: \(message)\n".utf8))
+        fputs("chill: \(message)\n", stderr)
         exit(code)
     }
 
     static func note(_ message: String) {
-        FileHandle.standardError.write(Data("\(message)\n".utf8))
+        fputs("\(message)\n", stderr)
     }
 
     /// A client for this world, declared as `role`, or the reason none can
@@ -173,7 +173,14 @@ enum Verbs {
             die("no \(Wire.logFile): chilld has never run here (chill daemon install)")
         }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        FileHandle.standardOutput.write(handle.readDataToEndOfFile())
+        func copy() {
+            do {
+                try FileHandle.standardOutput.write(contentsOf: try handle.readToEnd() ?? Data())
+            } catch {
+                die("\(Wire.logFile): \(error)")
+            }
+        }
+        copy()
         guard follow else { return }
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd, eventMask: [.extend, .write, .delete, .rename],
@@ -182,7 +189,7 @@ enum Verbs {
             if !source.data.isDisjoint(with: [.delete, .rename]) {
                 die("\(Wire.logFile) was replaced; run chill log -f again")
             }
-            FileHandle.standardOutput.write(handle.readDataToEndOfFile())
+            copy()
         }
         source.resume()
         dispatchMain()
@@ -213,7 +220,8 @@ enum Watch {
             sources.append(source)
         }
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + .seconds(1), repeating: .seconds(1))
+        let period: DispatchTimeInterval = .milliseconds(Int(Wire.pulsePeriod.seconds * 1000))
+        timer.schedule(deadline: .now() + period, repeating: period)
         timer.setEventHandler {
             do {
                 let line = demo.mark(Status.line(try client.presence()))

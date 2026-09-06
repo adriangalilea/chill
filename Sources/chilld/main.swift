@@ -4,58 +4,217 @@ import MachSensors
 import Synchronization
 
 // chilld: the root LaunchDaemon and the ONLY SMC writer. launchd starts it
-// for the mach service in launchd/garden.untitled.chilld.plist, KeepAlive
-// restarts it, ThrottleInterval 1 keeps a crash loop writing auto every
-// second. This file is the process: open the log, log the start, open the
-// SMC, reconcile, load the policy, run the loop, arm the nets, listen, and
-// hand the fans back on every exit that runs code.
+// at boot and on demand for the mach service in
+// launchd/garden.untitled.chilld.plist; `KeepAlive { Crashed }` restarts a
+// signal death within ThrottleInterval 1 s, so a crash loop still writes
+// auto every second, while a deliberate exit (a refusal, the upgrade
+// step-aside) waits for the next client message to respawn it. This file
+// is the process: open the log, log the start, open the SMC, reconcile,
+// load the policy, run the loop, arm the nets, listen, and hand the fans
+// back on every exit that runs code.
 
 /// The daemon's version, the bundle's stamp (`Wire.version`).
 let daemonVersion = Wire.version
 
+enum BundleError: Error, CustomStringConvertible {
+    case unreadable(path: String, Error)
+    case noVersion(path: String)
+
+    var description: String {
+        switch self {
+        case .unreadable(let path, let error): return "bundle: cannot read \(path): \(error)"
+        case .noVersion(let path): return "bundle: \(path) carries no CFBundleShortVersionString"
+        }
+    }
+}
+
 /// The version the bundle on disk carries NOW, read fresh from its
 /// Info.plist: after an upgrade it differs from this image's, and that
 /// difference, not a client's word, is what makes the daemon step aside.
-/// "dev" where there is no bundle, as `Wire.version` says of a bare build.
-func installedVersion() -> String {
+/// chilld only ever runs from the registered bundle, so a plist that
+/// cannot be read there is a broken install and throws.
+func installedVersion() throws -> String {
     let plist = Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")
-    guard let data = try? Data(contentsOf: plist),
-        let info = try? PropertyListSerialization.propertyList(from: data, format: nil)
-            as? [String: Any],
-        let version = info["CFBundleShortVersionString"] as? String
-    else { return "dev" }
+    let info: Any
+    do {
+        info = try PropertyListSerialization.propertyList(
+            from: try Data(contentsOf: plist), format: nil)
+    } catch {
+        throw BundleError.unreadable(path: plist.path, error)
+    }
+    guard let version = (info as? [String: Any])?["CFBundleShortVersionString"] as? String else {
+        throw BundleError.noVersion(path: plist.path)
+    }
     return version
 }
 
-/// Each live connection's declared `Role`, by pid: written by `hello`,
-/// dropped with the connection, read to name a verb's `Peer`. Connections
-/// deliver on their own queues, hence the lock.
-final class Roles: Sendable {
-    private let table = Mutex<[Int32: String]>([:])
-
-    subscript(pid: Int32) -> String? { table.withLock { $0[pid] } }
-    func set(_ role: String, for pid: Int32) { table.withLock { $0[pid] = role } }
-    func drop(_ pid: Int32) { table.withLock { $0[pid] = nil } }
+/// A refusal at start: the daemon cannot do its job, so it says why on
+/// both logs and exits 1. launchd records the exit; the next client
+/// message respawns it on demand, and a Mac that can never run chilld
+/// idles instead of looping.
+func refuse(_ error: Error) -> Never {
+    Log.fault("\(error)")
+    fputs("chilld: \(error)\n", stderr)
+    exit(1)
 }
 
-/// The XPC face of the engine: one object owns the listener and turns
-/// every verb into an engine call, tagged with the peer of the message.
-final class Daemon: NSObject, NSXPCListenerDelegate, ChillDaemonProtocol {
+/// One accepted connection: its process, its token, the role `hello`
+/// declared, and the chain that keeps its verbs in the order XPC delivered
+/// them. Connection state is keyed by the CONNECTION, never by the pid:
+/// one process can hold two connections for a moment (the app rebuilds its
+/// client after a watchdog timeout while the old one drains its reply),
+/// and the old one's death must not erase the new one's role or presence.
+final class Session: NSObject, ChillDaemonProtocol, Sendable {
+    let pid: Int32
+    /// Minted at accept, unique for the daemon's life; what the engine
+    /// keys the watcher by.
+    let token: Int
+    private let engine: Engine
+    private let fans: [Fan]
+    private let hasLid: Bool
+    private let role = Mutex<String?>(nil)
+    /// NSXPCConnection delivers a connection's messages in order on its
+    /// queue; a free Task per message would run them on the pool in any
+    /// order, and a burst of `use` (a held arrow key) could leave the
+    /// daemon on the curve before last. Every verb, and the disconnect,
+    /// awaits the one before it. `state` stays outside: it changes nothing.
+    private let chain = Mutex<Task<Void, Never>?>(nil)
+
+    init(pid: Int32, token: Int, engine: Engine, fans: [Fan], hasLid: Bool) {
+        self.pid = pid
+        self.token = token
+        self.engine = engine
+        self.fans = fans
+        self.hasLid = hasLid
+    }
+
+    // MARK: - verbs
+
+    func hello(clientVersion: String, role: String, reply: @escaping @Sendable (Data) -> Void) {
+        guard clientVersion == daemonVersion else {
+            let onDisk: String
+            do {
+                onDisk = try installedVersion()
+            } catch {
+                Log.error("upgrade check: \(error)")
+                reply(
+                    Wire.encode(
+                        Reply<Hello>.refused(
+                            .unavailable("chilld cannot read its bundle: \(error)"))))
+                return
+            }
+            guard onDisk != daemonVersion else {
+                // This image IS the bundle on disk: the client is the
+                // stale one, and it gets told, not obeyed.
+                Log.notice(
+                    "hello from \(role) (pid \(pid)) \(clientVersion) refused: this bundle is \(daemonVersion)"
+                )
+                reply(
+                    Wire.encode(
+                        Reply<Hello>.refused(.stale(client: clientVersion, daemon: daemonVersion))
+                    ))
+                return
+            }
+            // A newer bundle is on disk: step aside. The client's retry
+            // launches that image through the mach service, and its first
+            // act is auto.
+            Log.notice(
+                "upgrade: \(daemonVersion) -> \(onDisk), asked by \(role) (pid \(pid)) \(clientVersion)"
+            )
+            reply(Wire.encode(Reply<Hello>.refused(.upgrading(from: daemonVersion, to: onDisk))))
+            Task { [engine] in
+                await engine.shutdown("upgrade")
+                exit(0)
+            }
+            return
+        }
+        self.role.withLock { $0 = role }
+        Log.notice("hello from \(role) (pid \(pid)) \(clientVersion)")
+        reply(
+            Wire.encode(
+                Reply<Hello>.ok(
+                    Hello(
+                        daemonVersion: daemonVersion, protocolVersion: Wire.protocolVersion,
+                        pid: getpid(), fans: fans, hasLid: hasLid))))
+    }
+
+    func use(curve: Data, reply: @escaping @Sendable (Data) -> Void) {
+        serve(reply) { await $0.use(curve, from: $1) }
+    }
+
+    func boost(minutes: Int, reply: @escaping @Sendable (Data) -> Void) {
+        serve(reply) { await $0.boost(minutes: minutes, from: $1) }
+    }
+
+    func system(reply: @escaping @Sendable (Data) -> Void) {
+        serve(reply) { await $0.system(from: $1) }
+    }
+
+    func presence(reply: @escaping @Sendable (Data) -> Void) {
+        serve(reply) { await $0.presence(from: $1) }
+    }
+
+    func state(reply: @escaping @Sendable (Data) -> Void) {
+        Task { [engine] in reply(Wire.encode(await engine.state())) }
+    }
+
+    func take(reply: @escaping @Sendable (Data) -> Void) {
+        serve(reply) { await $0.take(from: $1) }
+    }
+
+    /// The connection died: the presence it claimed goes, behind the verbs
+    /// it already sent, so a `presence` in flight cannot land after it.
+    func closed() {
+        let engine = engine
+        let token = token
+        chained { await engine.disconnected(session: token) }
+    }
+
+    /// A verb on the engine, tagged with the peer of the message: this
+    /// connection's pid and token, its name the role it declared in
+    /// `hello`. A verb before `hello` has no name and is refused.
+    private func serve(
+        _ reply: @escaping @Sendable (Data) -> Void,
+        _ verb: @escaping @Sendable (Engine, Peer) async -> Reply<State>
+    ) {
+        guard let role = role.withLock({ $0 }) else {
+            reply(
+                Wire.encode(
+                    Reply<State>.refused(.unavailable("pid \(pid) spoke before hello"))))
+            return
+        }
+        let peer = Peer(pid: pid, session: token, name: role)
+        let engine = engine
+        chained { reply(Wire.encode(await verb(engine, peer))) }
+    }
+
+    private func chained(_ job: @escaping @Sendable () async -> Void) {
+        chain.withLock { last in
+            let before = last
+            last = Task {
+                await before?.value
+                await job()
+            }
+        }
+    }
+}
+
+/// The listener: one `Session` per accepted connection, the signal exits,
+/// and the run loop.
+final class Daemon: NSObject, NSXPCListenerDelegate {
     private let listener: NSXPCListener
     private let engine: Engine
-    private let writer: SMCWriter
-    private let power: PowerWatch
+    private let fans: [Fan]
+    private let hasLid: Bool
     private let queue: DispatchQueue
-    private let roles = Roles()
     private var signals: [DispatchSourceSignal] = []
+    /// The session tokens, minted on the listener's queue.
+    private var accepted = 0
 
-    init(
-        requirement: String, engine: Engine, writer: SMCWriter, power: PowerWatch,
-        queue: DispatchQueue
-    ) {
+    init(requirement: String, engine: Engine, fans: [Fan], hasLid: Bool, queue: DispatchQueue) {
         self.engine = engine
-        self.writer = writer
-        self.power = power
+        self.fans = fans
+        self.hasLid = hasLid
         self.queue = queue
         listener = NSXPCListener(machServiceName: Wire.machService)
         super.init()
@@ -84,111 +243,18 @@ final class Daemon: NSObject, NSXPCListenerDelegate, ChillDaemonProtocol {
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection)
         -> Bool
     {
+        accepted += 1
+        let session = Session(
+            pid: connection.processIdentifier, token: accepted, engine: engine, fans: fans,
+            hasLid: hasLid)
         connection.exportedInterface = NSXPCInterface(with: ChillDaemonProtocol.self)
-        connection.exportedObject = self
-        let pid = connection.processIdentifier
-        let engine = engine
-        let roles = roles
-        let drop: @Sendable () -> Void = {
-            roles.drop(pid)
-            Task { await engine.disconnected(pid: pid) }
-        }
+        connection.exportedObject = session
+        let drop: @Sendable () -> Void = { session.closed() }
         connection.invalidationHandler = drop
         connection.interruptionHandler = drop
         connection.resume()
-        Log.notice("client pid \(pid) connected")
+        Log.notice("client pid \(session.pid) connected, session \(session.token)")
         return true
-    }
-
-    // MARK: - verbs
-
-    func hello(clientVersion: String, role: String, reply: @escaping @Sendable (Data) -> Void) {
-        let pid = NSXPCConnection.current()!.processIdentifier
-        guard clientVersion == daemonVersion else {
-            let onDisk = installedVersion()
-            guard onDisk != daemonVersion else {
-                // This image IS the bundle on disk: the client is the
-                // stale one, and it gets told, not obeyed.
-                Log.notice(
-                    "hello from \(role) (pid \(pid)) \(clientVersion) refused: this bundle is \(daemonVersion)"
-                )
-                reply(
-                    Wire.encode(
-                        Reply<Hello>.refused(
-                            .unavailable(
-                                "chill \(clientVersion) is not chilld \(daemonVersion), the installed bundle; relaunch chill.app"
-                            ))))
-                return
-            }
-            // A newer bundle is on disk: step aside so KeepAlive launches
-            // its image, whose first act is auto. The client retries after
-            // the relaunch.
-            Log.notice(
-                "upgrade: \(daemonVersion) -> \(onDisk), asked by \(role) (pid \(pid)) \(clientVersion)"
-            )
-            reply(
-                Wire.encode(
-                    Reply<Hello>.refused(
-                        .unavailable(
-                            "chilld \(daemonVersion) is stepping aside for \(onDisk), retry")
-                    )))
-            Task { [engine] in
-                await engine.shutdown("upgrade")
-                exit(0)
-            }
-            return
-        }
-        roles.set(role, for: pid)
-        Log.notice("hello from \(role) (pid \(pid)) \(clientVersion)")
-        reply(
-            Wire.encode(
-                Reply<Hello>.ok(
-                    Hello(
-                        daemonVersion: daemonVersion, protocolVersion: Wire.protocolVersion,
-                        pid: getpid(), fans: writer.fans, hasLid: power.hasLid))))
-    }
-
-    func use(curve: Data, reply: @escaping @Sendable (Data) -> Void) {
-        serve(reply) { await $0.use(curve, from: $1) }
-    }
-
-    func boost(minutes: Int, reply: @escaping @Sendable (Data) -> Void) {
-        serve(reply) { await $0.boost(minutes: minutes, from: $1) }
-    }
-
-    func system(reply: @escaping @Sendable (Data) -> Void) {
-        serve(reply) { await $0.system(from: $1) }
-    }
-
-    func presence(reply: @escaping @Sendable (Data) -> Void) {
-        serve(reply) { await $0.presence(from: $1) }
-    }
-
-    func state(reply: @escaping @Sendable (Data) -> Void) {
-        Task { [engine] in reply(Wire.encode(await engine.state())) }
-    }
-
-    func take(reply: @escaping @Sendable (Data) -> Void) {
-        serve(reply) { await $0.take(from: $1) }
-    }
-
-    /// A verb on the engine, tagged with the peer of the message: its pid
-    /// from the connection, its name the role that connection declared in
-    /// `hello`, both read on the XPC thread before any hop. A verb before
-    /// `hello` has no name and is refused.
-    private func serve(
-        _ reply: @escaping @Sendable (Data) -> Void,
-        _ verb: @escaping @Sendable (Engine, Peer) async -> Reply<State>
-    ) {
-        let pid = NSXPCConnection.current()!.processIdentifier
-        guard let role = roles[pid] else {
-            reply(
-                Wire.encode(
-                    Reply<State>.refused(.unavailable("pid \(pid) spoke before hello"))))
-            return
-        }
-        let peer = Peer(pid: pid, name: role)
-        Task { [engine] in reply(Wire.encode(await verb(engine, peer))) }
     }
 }
 
@@ -209,8 +275,15 @@ do {
     requirement = try requirementString()
     writer = try SMCWriter()
     // The first act, before any client can speak: every fan back to Apple,
-    // `Ftst` cleared, read back. This is what makes a crash survivable.
-    try blocking { try await writer.reconcile() }
+    // `Ftst` cleared, read back. This is what makes a crash survivable. A
+    // fan that will not leave mode 1 is someone else's: logged, read back
+    // as `foreign` by every pass, reclaimed by `chill system`; never a
+    // reason not to listen.
+    do {
+        try blocking { try await writer.reconcile() }
+    } catch WriterError.reconcile(let failures) {
+        Log.error("reconcile at start: \(WriterError.reconcile(failures)); those fans read foreign")
+    }
     engine = Engine(writer: writer, hid: Result { try HIDSensors() }, intent: Policy.load())
     power = try PowerWatch(engine: engine)
     blocking { await engine.start() }
@@ -227,4 +300,6 @@ do {
     refuse(error)
 }
 Log.notice("peer requirement: \(requirement)")
-Daemon(requirement: requirement, engine: engine, writer: writer, power: power, queue: queue).run()
+Daemon(
+    requirement: requirement, engine: engine, fans: writer.fans, hasLid: power.hasLid, queue: queue
+).run()

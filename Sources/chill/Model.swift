@@ -6,11 +6,14 @@ import ServiceManagement
 import SwiftUI
 
 /// What the app knows about the daemon right now: its last `State`, why
-/// none answers, or that this build cannot even ask (ad-hoc signed, no
-/// peer requirement to derive).
+/// none answers, that one answered and refused this process for good (a
+/// chill older than chilld, or a reply this build cannot decode: quit and
+/// relaunch from the bundle), or that this build cannot even ask (ad-hoc
+/// signed, no peer requirement to derive).
 enum Link: Equatable {
     case live(ChillKit.State)
     case down(ClientError)
+    case stale(String)
     case bare(String)
 
     var state: ChillKit.State? {
@@ -23,6 +26,7 @@ enum Link: Equatable {
         switch self {
         case .live(let state): return Status.line(state)
         case .down(let error): return error.description
+        case .stale(let why): return why
         case .bare(let why): return "daemon: \(why); a bare build cannot reach chilld"
         }
     }
@@ -31,6 +35,7 @@ enum Link: Equatable {
         switch (a, b) {
         case (.live(let x), .live(let y)): return Wire.encode(x) == Wire.encode(y)
         case (.down(let x), .down(let y)): return x.description == y.description
+        case (.stale(let x), .stale(let y)): return x == y
         case (.bare(let x), .bare(let y)): return x == y
         default: return false
         }
@@ -76,6 +81,10 @@ final class Model {
     let clouds: CloudStore
     @ObservationIgnored private var client: Client?
     @ObservationIgnored private var busy = false
+    /// The verbs in flight, each behind the one before: `link` is set by
+    /// replies in the order the verbs were sent, never by whichever lands
+    /// last.
+    @ObservationIgnored private var verbs: Task<Void, Never>?
     @ObservationIgnored private var sensors: Result<LocalSensors, Error>?
     @ObservationIgnored private var cloudTimer: Timer?
 
@@ -108,15 +117,14 @@ final class Model {
     }
 
     /// The fans' reported envelope, lowest Mn to highest Mx: from `hello`
-    /// with a daemon, the SMC without one, nil with neither (the status
+    /// with a daemon, the SMC's own numbers without one (read once when
+    /// the local sensors open, never live), nil with neither (the status
     /// line says why there is no daemon; nothing is invented).
     var envelope: ClosedRange<Double>? {
         if let fans = hello?.fans, !fans.isEmpty {
             return fans.map(\.min).min()!...fans.map(\.max).max()!
         }
-        if let fans = local?.fans, !fans.isEmpty {
-            return fans.map(\.min).min()!...fans.map(\.max).max()!
-        }
+        if case .success(let sensors)? = sensors { return sensors.envelope }
         return nil
     }
 
@@ -153,7 +161,10 @@ final class Model {
     /// One exchange per second: presence while watching, a read otherwise.
     /// A transport failure drops the client so the next pulse rebuilds it
     /// (and re-reads the registration through `ClientError`); a refused
-    /// presence means another watcher holds the fans.
+    /// presence means another watcher holds the fans; any other answer
+    /// from a daemon that spoke (a stale-client refusal, a reply this
+    /// build cannot decode) is `stale`, the client kept: nothing to
+    /// rebuild, the fix is a relaunch.
     func pulse(watching: Bool) async {
         self.watching = watching
         guard !busy else { return }
@@ -167,11 +178,18 @@ final class Model {
             let state = watching ? try await client.presence() : try await client.state()
             heldBy = nil
             await arrived(state, from: client)
-        } catch ClientError.refused(.heldBy(let pid, let name)) {
-            heldBy = (pid, name)
-            do {
-                await arrived(try await client.state(), from: client)
-            } catch {
+        } catch let error as ClientError {
+            switch error {
+            case .refused(.heldBy(let pid, let name)):
+                heldBy = (pid, name)
+                do {
+                    await arrived(try await client.state(), from: client)
+                } catch {
+                    drop(error)
+                }
+            case .refused, .malformed:
+                link = .stale(error.description)
+            case .notInstalled, .awaitingApproval, .unreachable:
                 drop(error)
             }
         } catch {
@@ -243,17 +261,31 @@ final class Model {
         }
     }
 
+    /// One verb, behind the verbs before it: a held arrow key sends a `use`
+    /// per repeat, and the daemon runs them in wire order, so the replies
+    /// land in that order too and `link` never wears a stale one.
     private func call(_ job: @escaping (Client) async throws -> ChillKit.State) {
         guard let client = connect() else { return }
-        Task {
+        let before = verbs
+        verbs = Task {
+            await before?.value
             do {
                 let state = try await job(client)
                 notice = nil
                 heldBy = nil
                 await arrived(state, from: client)
-            } catch ClientError.refused(let refusal) {
-                if case .heldBy(let pid, let name) = refusal { heldBy = (pid, name) }
-                notice = refusal.description
+            } catch let error as ClientError {
+                switch error {
+                case .refused(.heldBy(let pid, let name)):
+                    heldBy = (pid, name)
+                    notice = error.description
+                case .refused(.stale), .malformed:
+                    link = .stale(error.description)
+                case .refused(let refusal):
+                    notice = refusal.description
+                case .notInstalled, .awaitingApproval, .unreachable:
+                    drop(error)
+                }
             } catch {
                 drop(error)
             }

@@ -15,7 +15,7 @@ let usage = """
     chill: fan control for the Mac, with Apple in charge by default.
 
     chill forces a fan only while all three hold: an intent (a curve or a
-    boost), presence (someone watching within the last 10 s) and no veto
+    boost), presence (someone watching within the last \(Int(Wire.presenceWindow.seconds)) s) and no veto
     (lid closed, sleep, thermal pressure, no die reading). Any other state
     is Apple's curve.
 

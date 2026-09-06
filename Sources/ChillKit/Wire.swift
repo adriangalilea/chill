@@ -5,7 +5,7 @@ import Foundation
 public enum Wire {
     /// Bumped on any change to `ChillDaemonProtocol` or a payload; shipped
     /// in `hello` and in every `State` so a mismatch is visible.
-    public static let protocolVersion = 3
+    public static let protocolVersion = 4
     /// The launchd label, the mach service and the plist name are ONE
     /// string: `launchd/garden.untitled.chilld.plist` advertises it and
     /// `SMAppService.daemon(plistName:)` registers it.
@@ -21,6 +21,15 @@ public enum Wire {
     /// A client that has not spoken within this window is gone; the daemon
     /// hands the fans back to Apple on the next evaluation.
     public static let presenceWindow: Duration = .seconds(10)
+    /// How often a watcher speaks (the app's `Pulse`, the CLI's `--watch`):
+    /// three pulses fit inside `presenceWindow` with room, so one lost
+    /// exchange never hands the fans back.
+    public static let pulsePeriod: Duration = {
+        let period: Duration = .seconds(1)
+        precondition(
+            period * 3 < presenceWindow, "pulse \(period) is not well inside \(presenceWindow)")
+        return period
+    }()
     /// How long a boost runs when no length is given: the app's `b`, the
     /// CLI's bare `chill boost`, and the usage line all read this one.
     public static let boostMinutes = 5
@@ -98,6 +107,12 @@ public enum Refusal: Error, Codable, Sendable, Hashable, CustomStringConvertible
     case badCurve(String)
     /// The verb cannot be served on this Mac or in this daemon state.
     case unavailable(String)
+    /// The daemon is stepping aside for the newer bundle on disk; the
+    /// client's retry launches that image. The one refusal worth retrying.
+    case upgrading(from: String, to: String)
+    /// The client is older than the installed bundle: a final answer,
+    /// never retried; the process has to be relaunched from the bundle.
+    case stale(client: String, daemon: String)
 
     public var description: String {
         switch self {
@@ -105,6 +120,11 @@ public enum Refusal: Error, Codable, Sendable, Hashable, CustomStringConvertible
             return "held by \(name) (pid \(pid)); rerun with --watch --take to take over"
         case .badCurve(let reason): return "bad curve: \(reason)"
         case .unavailable(let reason): return reason
+        case .upgrading(let from, let to):
+            return "chilld \(from) is stepping aside for \(to), retry"
+        case .stale(let client, let daemon):
+            return
+                "chill \(client) is not chilld \(daemon), the installed bundle; relaunch chill.app"
         }
     }
 }
@@ -200,10 +220,12 @@ public enum Veto: String, Codable, Sendable, Hashable {
     case noReading
 }
 
-/// The one client currently watching, keyed by its connection's pid
-/// (`NSXPCConnection.processIdentifier`); the code-signing requirement on
-/// the listener is the gate, the pid only tells two of chill's own clients
-/// apart.
+/// The one client currently watching, named by its connection's pid
+/// (`NSXPCConnection.processIdentifier`) and role; the code-signing
+/// requirement on the listener is the gate, the pid only tells two of
+/// chill's own clients apart. The daemon keys the watcher by the
+/// connection itself, so a dead connection of the same process can never
+/// drop a live one's presence.
 public struct Presence: Codable, Sendable, Hashable {
     public let pid: Int32
     public let name: String

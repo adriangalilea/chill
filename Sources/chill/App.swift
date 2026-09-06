@@ -32,7 +32,15 @@ final class Delegate: NSObject, NSApplicationDelegate {
         do {
             model = try Model(demo: demo)
         } catch {
-            Verbs.die("\(error)")
+            // A state file that does not parse is an error, not a reset,
+            // and it names its path. From Finder or the login item there
+            // is no stderr, so it is said on screen before the exit.
+            guard isatty(STDERR_FILENO) == 0 else { Verbs.die("\(error)") }
+            let alert = NSAlert()
+            alert.messageText = "chill cannot start"
+            alert.informativeText = "\(error)"
+            alert.runModal()
+            exit(1)
         }
         menuBar = MenuBar(model: model)
         pulse = Pulse(model: model)

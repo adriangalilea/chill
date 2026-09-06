@@ -42,7 +42,8 @@ public actor Client {
     /// through a relaunch, the app's next pulse) reaches the daemon.
     public static let replyTimeout: Duration = .seconds(10)
     /// How long `hello` retries after the daemon steps aside for an
-    /// upgrade (KeepAlive relaunches the new image within a second).
+    /// upgrade: the retry's own message launches the new image on demand
+    /// through the mach service, within a second.
     public static let relaunchWindow: Duration = .seconds(10)
 
     public nonisolated let demo: Demo
@@ -96,13 +97,16 @@ public actor Client {
             case .ok(let hello):
                 greeted = hello
                 return hello
-            case .refused(let refusal):
-                // Either the daemon is stepping aside for a newer bundle,
-                // and its replacement answers on the same mach service
-                // within the window, or this client is the stale one and
-                // the refusal is the answer once the window closes.
-                guard ContinuousClock.now < deadline else { throw ClientError.refused(refusal) }
+            case .refused(.upgrading(let from, let to)):
+                // The daemon is stepping aside for a newer bundle; its
+                // replacement answers on the same mach service within the
+                // window. Every other refusal is the answer, at once.
+                guard ContinuousClock.now < deadline else {
+                    throw ClientError.refused(.upgrading(from: from, to: to))
+                }
                 try await Task.sleep(for: .seconds(1))
+            case .refused(let refusal):
+                throw ClientError.refused(refusal)
             }
         }
     }

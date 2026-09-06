@@ -16,6 +16,10 @@ enum WriterError: Error, CustomStringConvertible {
     /// `reconcile` ran `auto` on EVERY fan and these refused; the others
     /// are Apple's.
     case reconcile([(fan: Int, error: Error)])
+    /// The firmware answered a `F{n}Tg` write with a result byte and the
+    /// target read back is not the one written: the fan is chill's (mode
+    /// 1 read back), the number is not.
+    case targetRejected(fan: Int, result: UInt8, wrote: Double, readBack: Double)
 
     var description: String {
         switch self {
@@ -30,6 +34,9 @@ enum WriterError: Error, CustomStringConvertible {
         case .reconcile(let failures):
             return "smc: reconcile: "
                 + failures.map { "fan \($0.fan): \($0.error)" }.joined(separator: "; ")
+        case .targetRejected(let fan, let result, let wrote, let readBack):
+            return
+                "smc: fan \(fan) target write answered 0x\(String(result, radix: 16)), wrote \(Int(wrote)), reads \(Int(readBack))"
         }
     }
 }
@@ -272,7 +279,11 @@ actor SMCWriter {
     /// unchanged within the hysteresis, at most `slewPerSample` per call.
     /// The current target is READ from `F{n}Tg`, never remembered, so the
     /// first step after acquire starts from what Apple last asked.
-    /// Returns the target the fan holds after the call.
+    /// Returns the target the fan holds after the call, READ BACK: the
+    /// firmware answers some target writes with a result byte (0x87 seen
+    /// on `F0Tg`) and applies the value anyway, so the read-back is the
+    /// judge, not the reply; a read-back that is not the value written
+    /// throws `targetRejected`.
     @discardableResult
     func target(fan n: Int, rpm: Double) throws -> Double {
         let wanted = fans[n].clamp(rpm)
@@ -281,9 +292,21 @@ actor SMCWriter {
         guard abs(delta) > SMCWriter.hysteresis else { return current }
         let step = Swift.max(-SMCWriter.slewPerSample, Swift.min(SMCWriter.slewPerSample, delta))
         let next = fans[n].clamp(current + step)
-        try write("F\(n)Tg", float: Float(next))
-        Log.notice("fan \(n): target \(Int(current)) -> \(Int(next)) (curve \(Int(wanted)))")
-        return next
+        do {
+            try write("F\(n)Tg", float: Float(next))
+        } catch SMCError.rejected(_, let result) {
+            let readBack = Double(try smc.float("F\(n)Tg"))
+            guard readBack == Double(Float(next)) else {
+                throw WriterError.targetRejected(
+                    fan: n, result: result, wrote: next, readBack: readBack)
+            }
+            Log.notice(
+                "fan \(n): target write answered 0x\(String(result, radix: 16)), read-back \(Int(readBack))"
+            )
+        }
+        let landed = Double(try smc.float("F\(n)Tg"))
+        Log.notice("fan \(n): target \(Int(current)) -> \(Int(landed)) (curve \(Int(wanted)))")
+        return landed
     }
 
     // MARK: - the write path

@@ -71,7 +71,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
         switch model.link {
         case .live?: break
-        case .bare?, .down?, nil:
+        case .bare?, .down?, .stale?, nil:
             menu.addItem(.separator())
             fixer()
         }
@@ -96,10 +96,16 @@ final class MenuBar: NSObject, NSMenuDelegate {
         add(.quit, #selector(quit))
     }
 
-    /// The one action that gets a daemon answering, first. A bare build
-    /// reads `.notFound` (no LaunchDaemons plist beside its executable)
-    /// and is told what installs one.
+    /// The one action that gets a daemon answering, first. A daemon that
+    /// answered and refused this process for good is fixed by a relaunch,
+    /// whatever the registration says. A bare build reads `.notFound` (no
+    /// LaunchDaemons plist beside its executable) and is told what
+    /// installs one.
     private func fixer() {
+        if case .stale? = model.link {
+            add("this chill is older than chilld: quit and relaunch chill.app", #selector(quit))
+            return
+        }
         switch model.registration {
         case .notRegistered:
             add("install chilld", #selector(install))

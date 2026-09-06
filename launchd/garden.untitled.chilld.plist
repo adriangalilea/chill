@@ -11,8 +11,13 @@
 		<key>garden.untitled.chilld</key>
 		<true/>
 	</dict>
-	<key>KeepAlive</key>
+	<key>RunAtLoad</key>
 	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>Crashed</key>
+		<true/>
+	</dict>
 	<key>ThrottleInterval</key>
 	<integer>1</integer>
 	<key>StandardOutPath</key>

@@ -16,8 +16,12 @@ public enum Reason: CustomStringConvertible, Equatable, Sendable {
     /// the cached envelope max.
     case boost
     case noFans
-    /// A fan the last pass could not read or write; the log has the error.
+    /// A fan the last pass could not read; the log has the error.
     case unreadable(fan: Int)
+    /// A fan chill holds (mode 1 read back) whose target write the firmware
+    /// answered with a result byte AND the read-back did not match: the
+    /// fan is chill's, the number is not.
+    case targetRefused(fan: Int, result: UInt8)
 
     public var description: String {
         switch self {
@@ -30,6 +34,8 @@ public enum Reason: CustomStringConvertible, Equatable, Sendable {
         case .boost: return "max rpm"
         case .noFans: return "this Mac has no fans"
         case .unreadable(let fan): return "smc: fan \(fan) unreadable · see chilld.log"
+        case .targetRefused(let fan, let result):
+            return "smc: fan \(fan) target refused 0x\(String(result, radix: 16)) · see chilld.log"
         }
     }
 }

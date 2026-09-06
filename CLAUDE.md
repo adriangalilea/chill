@@ -18,9 +18,11 @@ machine, chill governs it; both read sensors through the same package.
 A fan runs a CURVE: temperature in, rpm out. That is the whole model.
 
 - `system` is Apple's curve. chill cannot read it, so it OBSERVES it: while a
-  fan's mode reads 0 or 3 (Apple holds it), every sample (temperature, rpm)
-  lands in a per-fan histogram that draws Apple's real behaviour on the
-  canvas as a cloud. Read-only, default, always drawn as the reference.
+  fan's holder reads `apple` (mode 0 or 3 with `Ftst` clear: neither a
+  foreign writer nor chill's own acquire muting the servo), every sample
+  (temperature, rpm) lands in a per-fan histogram that draws Apple's real
+  behaviour on the canvas as a cloud. Read-only, default, always drawn as
+  the reference.
 - A named curve is yours: (°C, rpm) points, linear interpolation, one curve
   for every fan, each fan clamped to its own reported envelope. Editing
   happens ON the canvas, over the reference cloud, with the hottest die and
@@ -71,11 +73,17 @@ chill forces a fan iff all three hold, evaluated by the daemon every second:
 Any other state is Apple's: daemon start (reconciliation, first act), SIGTERM
 (a `DispatchSource` signal handler → auto → exit), normal exit, `chill daemon
 uninstall` (auto over XPC, read back, then unregister), an upgrade (see
-Wire). SIGKILL and panics run no code: `KeepAlive` restarts the daemon,
-`ThrottleInterval` 1 so a crash loop still writes auto every second, and
-the restart's first act is auto. A forced target and a set `Ftst` MAY
-outlive their writer (they do on M5; M4 reports reclaim within seconds), so
-reconciliation is the foundation, not a feature.
+Wire). SIGKILL and panics run no code: `KeepAlive { Crashed }` restarts
+the daemon after a signal death, `ThrottleInterval` 1 so a crash loop
+still writes auto every second, and the restart's first act is auto. A
+deliberate `exit` (a start refusal, the upgrade step-aside) is not a
+crash: the daemon stays loaded and the next client message launches it
+on demand through the mach service, so a Mac that can never run chilld
+idles instead of looping. A fan that refuses auto at start is not a
+refusal: it is logged and reads `foreign` until `chill system` reclaims
+it. A forced target and a set `Ftst` MAY outlive their writer (they do on
+M5; M4 reports reclaim within seconds), so reconciliation is the
+foundation, not a feature.
 
 ### Honest status
 
@@ -142,8 +150,9 @@ never the cached envelope. Every XPC invalidation re-reads
 Mach service `garden.untitled.chilld`. `launchd/garden.untitled.chilld.plist`
 is copied verbatim by `assemble.sh` to `Contents/Library/LaunchDaemons/`:
 Label `garden.untitled.chilld`, `BundleProgram Contents/MacOS/chilld`,
-`MachServices { garden.untitled.chilld: true }`, `KeepAlive true`,
-`ThrottleInterval 1`, `StandardOutPath`/`StandardErrorPath`
+`MachServices { garden.untitled.chilld: true }`, `RunAtLoad true`,
+`KeepAlive { Crashed: true }`, `ThrottleInterval 1`,
+`StandardOutPath`/`StandardErrorPath`
 `/Library/Logs/chill/chilld.log` (launchd creates no parent directory, so
 chilld's first act makes `/Library/Logs/chill` and points its own fds 1
 and 2 at the file, appending; `Log.open`). No `AssociatedBundleIdentifiers`
@@ -176,11 +185,17 @@ bundle's stamp, both ends) and `Wire.logFile`:
   one executable, so the process name cannot tell them apart), kept per
   connection by the daemon and worn as the watcher's name in status and
   `heldBy`. Version mismatch: the daemon re-reads the bundle's Info.plist
-  from disk; when THAT differs from its own image it logs `upgrade: old →
-  new` and exits 0, KeepAlive relaunches the new image and its first act
+  from disk (a plist it cannot read is a broken install: logged, the
+  client refused, no step-aside); when THAT differs from its own image it
+  logs `upgrade: old → new`, refuses `upgrading(from, to)` and exits 0;
+  the client's retry launches the new image on demand and its first act
   is auto. When the disk still carries the daemon's version the client is
-  the stale one and is refused (`relaunch chill.app`) without an exit, so
-  an old process left running cannot bounce the daemon at its pulse rate.
+  the stale one and is refused `stale(client, daemon)` (`relaunch
+  chill.app`) without an exit, so an old process left running cannot
+  bounce the daemon at its pulse rate. `Client.hello` retries only
+  `upgrading`, within `relaunchWindow`; every other refusal is the answer
+  at once, and the app shows it as `Link.stale` with quit-and-relaunch as
+  the fixing action.
 - `use(curve: Curve) -> State` · `boost(minutes) -> State` · `system() ->
   State` · `presence() -> State` · `state() -> State` · `take() -> State`.
 - `State { intent, holder: apple | chill(curve) | acquiring | foreign,
@@ -192,12 +207,20 @@ bundle's stamp, both ends) and `Wire.logFile`:
   reference cloud as the daemon accumulates it in memory (fans Apple
   holds only); the app is the one that persists it.
 
-ONE presence holder at a time, keyed by the connection's pid
-(`NSXPCConnection.processIdentifier`): the listener's code-signing
-requirement is the gate, the pid only tells two of chill's own clients
-apart. Only `presence` and `take` claim it; a second client's `presence` is
-refused with `heldBy(pid, name)` unless it calls `take` (`--take` on the
-CLI). Fast user switching is out of scope.
+ONE presence holder at a time, keyed by the CONNECTION (a `Session` per
+accepted connection, its token minted at accept, owning the role `hello`
+declared); the pid (`NSXPCConnection.processIdentifier`) names it in
+status and `heldBy` and tells two of chill's own clients apart, the
+listener's code-signing requirement is the gate. One process can hold two
+connections for a moment (the app rebuilds its client after a watchdog
+timeout while the old one drains), so a dead connection drops only the
+presence it claimed itself, never the newer one's. A connection's verbs
+reach the engine in wire order, chained per session (`state` apart), and
+the app chains its own verbs the same way, so a held arrow key's burst of
+`use` lands last-edit-last on both ends. Only `presence` and `take` claim
+presence; a second client's `presence` is refused with `heldBy(pid,
+name)` unless it calls `take` (`--take` on the CLI). Fast user switching
+is out of scope.
 
 ### The SMC writer
 
@@ -229,7 +252,12 @@ firmware rejected, 0x84 = no such key; `KERN_SUCCESS` alone means nothing.
   reconciliation and every exit path run this exact routine.
 - **target**: clamp to the cached envelope, hysteresis 50 rpm, slew at most
   N rpm per sample toward the curve value (N from the observed `F{n}Ac`
-  slew on the reference cloud); the physical ramp is the firmware's.
+  slew on the reference cloud); the physical ramp is the firmware's. The
+  read-back judges the write: the firmware answers some `F{n}Tg` writes
+  with a result byte (0x87 seen) and applies the value anyway, which is
+  logged and fine; a read-back that disagrees is `targetRejected`, the
+  fan stays chill's (mode 1 read back) and status says `smc: fan N target
+  refused 0x87`. Only a failed READ makes a fan `unreadable`.
 
 ## Sensors: one reader, two consumers
 
@@ -239,8 +267,10 @@ repo as the `MachSensors` library product (macOS 13 floor, beside
 MachCore): per-sensor readings `[Sensor(name, celsius)]` with invalid ones
 filtered, `hottest`, and an SMC reader with `info(key) -> (type, size)`
 (cmd 9), typed reads (`flt `, `ui8`, `ui16`), `fans()` enumerated from
-`FNum` returning actual/target/min/max/mode, a public 80-byte codec, and
-typed errors from the result byte. No write function exists in the package:
+`FNum` returning actual/target/mode (the live telemetry), `envelope(fan:)`
+for Mn/Mx apart (read ONCE by every consumer: chilld's writer at start,
+the app's `LocalSensors` when it opens; `Mx` reads intermittently), a
+public 80-byte codec, and typed errors from the result byte. No write function exists in the package:
 read-only by construction; chilld composes its cmd 6 write on the codec.
 chill consumes it as `.package(path: "../mach")` against the pinned
 submodule pointer; on ship day it becomes the public `swift-hw` package

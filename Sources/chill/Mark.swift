@@ -45,8 +45,9 @@ enum Mark {
 
 /// The status item's image: EFFECT, read from the daemon, never intent.
 /// outline = Apple holds the fans · filled = a curve does · bar = boost ·
-/// slashed = no daemon (not installed, awaiting approval, unreachable, or
-/// a bare build that cannot reach one) · dotted = someone else forced them.
+/// slashed = no daemon this process can read (not installed, awaiting
+/// approval, unreachable, a bare build that cannot reach one, or a chill
+/// older than chilld) · dotted = someone else forced them.
 enum Glyph: Equatable {
     case outline, filled, bar, slashed, dotted
 

@@ -200,7 +200,7 @@ struct Plot: View {
 
         // The grid: hairlines every 10 °C and 1000 rpm, mono labels.
         let hair = GraphicsContext.Shading.color(.primary.opacity(0.07))
-        for c in stride(from: 30.0, through: 110, by: 10) {
+        for c in stride(from: Frame.celsius.lowerBound, through: Frame.celsius.upperBound, by: 10) {
             var line = Path()
             line.move(to: CGPoint(x: x(c), y: plot.minY))
             line.addLine(to: CGPoint(x: x(c), y: plot.maxY))

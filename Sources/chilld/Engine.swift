@@ -2,23 +2,27 @@ import ChillKit
 import Foundation
 import MachSensors
 
-/// The one client watching, keyed by the pid of its XPC connection. The
-/// listener's code-signing requirement has already proved the peer is
-/// chill's own signed code; the pid is only the KEY that tells two such
-/// clients apart (the app and a `--watch` CLI) and the handle the
-/// invalidation handler drops. That is why `NSXPCConnection.processIdentifier`
-/// is enough and the audit token is never read. The deadline is a
-/// `ContinuousClock` instant: it keeps counting through sleep, so a
-/// watcher from before a long sleep is gone at wake.
+/// The one client watching. The listener's code-signing requirement has
+/// already proved the peer is chill's own signed code; the pid only tells
+/// two such clients apart (the app and a `--watch` CLI) for `heldBy` and
+/// the status line, which is why `NSXPCConnection.processIdentifier` is
+/// enough and the audit token is never read. `session` is the CONNECTION
+/// (a token minted at accept): one process can hold two connections for a
+/// moment (the app rebuilds its client after a watchdog timeout while the
+/// old one drains), and only the connection that claimed the presence may
+/// drop it. The deadline is a `ContinuousClock` instant: it keeps counting
+/// through sleep, so a watcher from before a long sleep is gone at wake.
 struct Watcher: Sendable {
     let pid: Int32
+    let session: Int
     let name: String
     let deadline: ContinuousClock.Instant
 }
 
-/// The peer of one XPC message.
+/// The peer of one XPC message: its process, its connection, its role.
 struct Peer: Sendable {
     let pid: Int32
+    let session: Int
     let name: String
 }
 
@@ -48,8 +52,13 @@ actor Engine {
         var die: Double?
         var dieSensors = 0
         var holder: Holder = .apple
-        /// Fans whose pass threw; they are missing from `fans`.
+        /// Fans whose READ threw (or whose judgment needed a `Ftst` read
+        /// that threw); they are missing from `fans`.
         var unread: [Int] = []
+        /// Fans chill holds whose target write the firmware refused, the
+        /// read-back disagreeing with the value written; they are in
+        /// `fans` with the target they really hold.
+        var refused: [(fan: Int, result: UInt8)] = []
     }
 
     /// The world moved under a forced pass between its read and its write.
@@ -62,6 +71,8 @@ actor Engine {
         /// This pass wrote auto on the fan, so `Ftst` may have changed
         /// under the fans still to be judged.
         let released: Bool
+        /// The result byte of a target write whose read-back disagreed.
+        var refused: UInt8? = nil
     }
 
     private let writer: SMCWriter
@@ -79,8 +90,12 @@ actor Engine {
     private var wokeSinceSleep = false
     /// This process is on its way out: nothing is forced from here on.
     private var halting = false
-    /// Fans chill put in mode 1 and has not handed back. What separates
-    /// "chill holds it" from `foreign` when the read-back says mode 1.
+    /// Fans chill wrote, or is writing, mode 1 on and has not handed back:
+    /// entered the moment an acquire begins, since its success lands
+    /// between passes. What separates "chill holds it" from `foreign` when
+    /// the read-back says mode 1. A failed acquire is harmless here: the
+    /// fan reads 0 or 3, no one is forcing it, and the next non-forced
+    /// pass removes it.
     private var held: Set<Int> = []
     private var clouds: [Int: Histogram]
     private var sample = Sample()
@@ -185,11 +200,13 @@ actor Engine {
         return .ok(render())
     }
 
-    /// The client's connection died: its presence goes with it, and the
-    /// fans go back on this evaluation, not the next tick.
-    func disconnected(pid: Int32) async {
-        guard let current = watcher, current.pid == pid else { return }
-        Log.notice("presence: \(current.name) (pid \(pid)) disconnected")
+    /// A client's connection died: the presence IT claimed goes with it,
+    /// and the fans go back on this evaluation, not the next tick. Keyed
+    /// by the connection, so an older connection of the same process
+    /// dying never drops the presence a newer one holds.
+    func disconnected(session: Int) async {
+        guard let current = watcher, current.session == session else { return }
+        Log.notice("presence: \(current.name) (pid \(current.pid)) disconnected")
         watcher = nil
         await evaluate()
     }
@@ -239,7 +256,10 @@ actor Engine {
     // MARK: - presence and intent
 
     /// Renew `peer` as the watcher, or refuse because another live client
-    /// holds it. A watcher's message after a wake lifts the sleep veto.
+    /// holds it. Another PROCESS is another client; a new connection of
+    /// the same process renews and takes the record over, so the death of
+    /// its old connection cannot touch it. A watcher's message after a
+    /// wake lifts the sleep veto.
     private func claim(_ peer: Peer) -> Refusal? {
         let now = clock.now
         if let other = watcher, other.pid != peer.pid, other.deadline > now {
@@ -248,7 +268,9 @@ actor Engine {
         if watcher?.pid != peer.pid {
             Log.notice("presence: \(peer.name) (pid \(peer.pid)) watching")
         }
-        watcher = Watcher(pid: peer.pid, name: peer.name, deadline: now + Wire.presenceWindow)
+        watcher = Watcher(
+            pid: peer.pid, session: peer.session, name: peer.name,
+            deadline: now + Wire.presenceWindow)
         if wokeSinceSleep {
             wokeSinceSleep = false
             set(.sleep, false)
@@ -329,20 +351,42 @@ actor Engine {
         let plan = intent
         let forced = stillForced(plan)
         // One `Ftst` read per pass, re-read after any hand-back in it: a
-        // fan judged after another's auto is judged on the post-write value.
-        var ftst = await readFtst()
+        // fan judged after another's auto is judged on the post-write
+        // value. A `Ftst` that cannot be read judges nothing: every fan
+        // still waiting on it is unread, never "Apple's" by default.
+        var ftst: UInt8?
+        do {
+            ftst = try await writer.ftst()
+        } catch {
+            Log.error("Ftst: \(error)")
+            settle(
+                Sample(
+                    fans: [], die: die, dieSensors: dieSensors, unread: writer.fans.map(\.index)),
+                plan: plan, forced: forced)
+            return
+        }
         var fans: [FanState] = []
         var holders: [Holder] = []
         var unread: [Int] = []
-        for fan in writer.fans {
+        var refused: [(fan: Int, result: UInt8)] = []
+        judge: for (i, fan) in writer.fans.enumerated() {
             do {
                 let verdict = try await govern(
                     fan, plan: plan, forced: forced, die: die, ftst: ftst)
-                if verdict.released { ftst = await readFtst() }
                 fans.append(verdict.state)
                 holders.append(verdict.holder)
-                if let die, verdict.state.mode == 0 || verdict.state.mode == 3 {
+                if let result = verdict.refused { refused.append((fan.index, result)) }
+                if let die, verdict.holder == .apple {
                     clouds[fan.index]!.add(celsius: die, rpm: verdict.state.actual)
+                }
+                if verdict.released {
+                    do {
+                        ftst = try await writer.ftst()
+                    } catch {
+                        Log.error("Ftst: \(error)")
+                        unread = writer.fans[(i + 1)...].map(\.index)
+                        break judge
+                    }
                 }
             } catch is Moved {
                 Log.notice("pass abandoned: the world moved under it")
@@ -352,13 +396,21 @@ actor Engine {
                 unread.append(fan.index)
             }
         }
-        sample = Sample(
-            fans: fans, die: die, dieSensors: dieSensors, holder: Engine.aggregate(holders),
-            unread: unread)
-        let next = currentReason(plan: plan, forced: forced)
-        if next != reason {
-            Log.notice("\(plan) · \(next)")
-            reason = next
+        settle(
+            Sample(
+                fans: fans, die: die, dieSensors: dieSensors, holder: Engine.aggregate(holders),
+                unread: unread, refused: refused),
+            plan: plan, forced: forced)
+    }
+
+    /// The pass's read-back becomes the state every `render` ships, and
+    /// the reason it implies is logged once per change.
+    private func settle(_ next: Sample, plan: Intent, forced: Bool) {
+        sample = next
+        let why = currentReason(plan: plan, forced: forced)
+        if why != reason {
+            Log.notice("\(plan) · \(why)")
+            reason = why
         }
     }
 
@@ -376,14 +428,25 @@ actor Engine {
                 if await !writer.isAcquiring(fan: n) {
                     guard stillForced(plan) else { throw Moved() }
                     Log.notice("fan \(n): mode \(state.mode), acquiring")
+                    held.insert(n)
                     await writer.beginAcquire(fan: n)
                 }
                 return Governed(state: state, holder: .acquiring, released: false)
             }
             held.insert(n)
-            if let die { try await writer.target(fan: n, rpm: wanted(fan, die: die, under: plan)) }
-            return Governed(
+            var verdict = Governed(
                 state: state, holder: .chill(curve: intentName(of: plan)), released: false)
+            if let die {
+                do {
+                    try await writer.target(fan: n, rpm: wanted(fan, die: die, under: plan))
+                } catch WriterError.targetRejected(_, let result, _, _) {
+                    // The fan is chill's, read back in mode 1; only the
+                    // number was refused. A failed READ is the other catch,
+                    // in `step`, and lands the fan in `unread`.
+                    verdict.refused = result
+                }
+            }
+            return verdict
         }
         let forcedByAnyone = state.mode == 1 || ftst == 1
         let acquiring = await writer.isAcquiring(fan: n)
@@ -420,6 +483,9 @@ actor Engine {
         if writer.fans.isEmpty { return .noFans }
         if let fan = sample.unread.first { return .unreadable(fan: fan) }
         if sample.holder == .foreign { return .foreign }
+        if let refusal = sample.refused.first {
+            return .targetRefused(fan: refusal.fan, result: refusal.result)
+        }
         switch plan {
         case .system:
             return .apple
@@ -462,16 +528,6 @@ actor Engine {
         guard case .success(let sensors) = hid else { return (nil, 0) }
         let dies = sensors.readings().filter { $0.block != .other }
         return (dies.map(\.celsius).max(), dies.count)
-    }
-
-    private func readFtst() async -> UInt8? {
-        guard writer.hasFtst else { return nil }
-        do {
-            return try await writer.ftst()
-        } catch {
-            Log.error("Ftst: \(error)")
-            return nil
-        }
     }
 
     // MARK: - state

@@ -1,4 +1,5 @@
 import AppKit
+import ChillKit
 import CoreGraphics
 
 /// The contract's second leg, from the app: presence at 1 Hz while this
@@ -34,7 +35,7 @@ final class Pulse {
         // event tracking, where a default-mode timer never fires, and a
         // menu held open past the presence window would hand the fans
         // back mid-look.
-        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Wire.pulsePeriod.seconds, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
         RunLoop.main.add(timer, forMode: .common)
