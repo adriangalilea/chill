@@ -31,9 +31,11 @@ public enum RequirementError: Error, CustomStringConvertible {
 /// same bundle (`chill` is not `chilld`), so the identifier clause is
 /// dropped and everything after it, the certificate chain down to the
 /// Team ID, is the requirement. The clause order is what
-/// `SecCodeCopyDesignatedRequirement` composes for signed code; a string
-/// that does not open with `identifier "..." and ` is an error, not a
-/// guess.
+/// `SecCodeCopyDesignatedRequirement` composes for signed code. The
+/// identifier is quoted only when it needs quoting (`"garden.untitled.chill"`
+/// has dots, `chilld` has none), so the opener is `identifier <token> and `
+/// with either spelling; a string that does not open that way is an
+/// error, not a guess.
 public func requirementString() throws -> String {
     func check(_ call: String, _ status: OSStatus) throws {
         guard status == errSecSuccess else {
@@ -51,9 +53,14 @@ public func requirementString() throws -> String {
     var text: CFString?
     try check("SecRequirementCopyString", SecRequirementCopyString(requirement!, [], &text))
     let designated = text! as String
-    let opener = "identifier \""
-    guard designated.hasPrefix(opener),
-        let close = designated.range(of: "\" and ", range: opener.endIndex..<designated.endIndex)
-    else { throw RequirementError.unexpectedShape(designated) }
+    let opener = "identifier "
+    guard designated.hasPrefix(opener) else {
+        throw RequirementError.unexpectedShape(designated)
+    }
+    let afterOpener = designated[opener.endIndex...]
+    let separator = afterOpener.hasPrefix("\"") ? "\" and " : " and "
+    guard let close = afterOpener.range(of: separator) else {
+        throw RequirementError.unexpectedShape(designated)
+    }
     return String(designated[close.upperBound...])
 }
