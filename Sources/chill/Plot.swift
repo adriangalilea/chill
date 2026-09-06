@@ -854,8 +854,6 @@ struct Badge: View {
                     ForEach(model.fanLines, id: \.self) { line in
                         Text(line).foregroundStyle(Palette.dune)
                     }
-                    Text(frame.targets.isEmpty ? "apple holds the fans" : "chill holds the fans")
-                        .foregroundStyle(.secondary)
                 }
             }
         }

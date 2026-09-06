@@ -28,10 +28,12 @@ A fan runs a CURVE: temperature in, rpm out. That is the whole model.
   a curve, and it only takes a curve's shape after hours across many
   temperatures. If it returns to the plot it is as one dotted line, the
   median rpm per degree where data exists (root TODO).
-- `chill` is the built-in curve, the one most people run: the fan's
+- `calm` is the built-in curve, the one most people run: the fan's
   minimum until it kicks in, then one clean S to its maximum, two knobs
-  (`kickIn`, `slope` in config.json), on disk as `chill.json` like any
-  curve.
+  (`kickIn`, `slope` in config.json), on disk as `calm.json` like any
+  curve. Custom curves are born `custom`, `custom-2`. The rail shows the
+  house's three with glyphs (apple.logo, snowflake, wind), a hairline,
+  then yours by name.
 - A named curve is yours: (°C, rpm) points, one curve for every fan, each
   fan clamped to its own reported envelope. Interpolation is monotone
   cubic Hermite (`Curve.rpm(at:)`: tangents from the mean of the two

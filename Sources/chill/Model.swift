@@ -283,7 +283,7 @@ final class Model {
     /// put a hump on either side of itself. Named `chill`, on disk like
     /// any curve, so `chill curve use chill` and the canvas see the same
     /// one.
-    static let tunedName = "chill"
+    static let tunedName = "calm"
 
     static func tuned(kickIn: Double, slope: Double, envelope: ClosedRange<Double>) -> Curve {
         let span = 45 - 30 * slope
@@ -648,13 +648,13 @@ final class Model {
         point = 0
     }
 
-    /// `curve`, then `curve-2`, `curve-3`: the first name not on disk.
+    /// `custom`, then `custom-2`, `custom-3`: the first name not on disk.
     private func freshName() -> String {
-        var name = "curve"
+        var name = "custom"
         var n = 1
         while curves.contains(where: { $0.name == name }) {
             n += 1
-            name = "curve-\(n)"
+            name = "custom-\(n)"
         }
         return name
     }

@@ -220,12 +220,18 @@ struct Tabs: View {
     var body: some View {
         HStack(spacing: .inkGap) {
             HStack(spacing: 2) {
-                tab("apple", .apple)
-                tab("chill", .tuned)
+                // The house's three, each with its glyph, then a hairline,
+                // then yours by name.
+                tab("apple", .apple, glyph: "apple.logo")
+                tab("calm", .tuned, glyph: "snowflake")
+                tab("gust", .gust, glyph: "wind")
+                Rectangle()
+                    .fill(Color.primary.opacity(0.12))
+                    .frame(width: 1, height: 16)
+                    .padding(.horizontal, 3)
                 ForEach(model.customCurves, id: \.name) { curve in
-                    tab(curve.name, .custom(curve.name))
+                    tab(curve.name, .custom(curve.name), glyph: nil)
                 }
-                tab("gust", .gust)
                 Button {
                     model.newCurveTab()
                 } label: {
@@ -235,7 +241,7 @@ struct Tabs: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("a new curve, born as a copy of chill's, yours to draw")
+                .help("a new curve, born as a copy of calm, yours to draw")
             }
             .padding(3)
             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: .inkField))
@@ -267,23 +273,28 @@ struct Tabs: View {
         .animation(.inkSettle, value: model.tab)
     }
 
-    private func tab(_ name: String, _ tab: Model.Tab) -> some View {
+    private func tab(_ name: String, _ tab: Model.Tab, glyph: String?) -> some View {
         let selected = model.tab == tab
         return Button {
             model.select(tab)
         } label: {
-            Text(name)
-                .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                .padding(.horizontal, .inkLane)
-                .frame(height: 26)
-                .background {
-                    if selected {
-                        RoundedRectangle(cornerRadius: .inkRow)
-                            .fill(Palette.dune.opacity(0.22))
-                            .matchedGeometryEffect(id: "plate", in: rail)
-                    }
+            HStack(spacing: 5) {
+                if let glyph {
+                    Image(systemName: glyph).font(.system(size: 11, weight: .medium))
                 }
-                .contentShape(Rectangle())
+                Text(name)
+            }
+            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+            .padding(.horizontal, .inkLane)
+            .frame(height: 26)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: .inkRow)
+                        .fill(Palette.dune.opacity(0.22))
+                        .matchedGeometryEffect(id: "plate", in: rail)
+                }
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(selected ? Palette.dune : .secondary)
@@ -296,7 +307,7 @@ struct Tabs: View {
         case .apple: return "macOS runs the fans; chill only watches"
         case .tuned:
             return
-                "chill's curve: the fans at their minimum until the die passes the kick-in, then a smooth climb to full"
+                "the house curve: the fans at their minimum until the chip passes the kick-in, then a smooth climb to full"
         case .gust:
             return "every fan flat out for \(Wire.boostMinutes) minutes, then back to apple"
         case .custom:
