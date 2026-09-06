@@ -313,38 +313,45 @@ struct Plot: View {
             // The labels are badges: one view each, pinned by a corner
             // whose offset never depends on their size, so the same view
             // grows into its details under the pointer and shrinks back,
-            // in place. The die's badge rides the die's animation.
-            .overlay(alignment: .topLeading) {
-                if let geometry, let die = frame.die {
+            // in place. The die's badge rides the die's animation. Both
+            // live in one stack so the expanded one is always on top.
+            .overlay {
+                if let geometry {
                     let lit = Plot.hoveredNow(hover, frame, geometry, editable: editable)
-                    let right = LiveLayer.dieLabelRight(die, geometry)
-                    Badge(model: model, frame: frame, on: .die, expanded: lit == .die)
-                        .fixedSize()
-                        .frame(
-                            maxWidth: .infinity, maxHeight: .infinity,
-                            alignment: right ? .topLeading : .topTrailing
-                        )
-                        .offset(
-                            x: right
-                                ? geometry.x(die) + 6
-                                : geometry.x(die) - 6 - proxy.size.width,
-                            y: geometry.plot.minY - 2
-                        )
-                        .animation(.easeOut(duration: 0.9), value: die)
-                        .allowsHitTesting(false)
-                }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if let geometry, let rpm = LiveLayer.marks(frame.actuals).first?.1 {
-                    let lit = Plot.hoveredNow(hover, frame, geometry, editable: editable)
-                    Badge(model: model, frame: frame, on: .fans, expanded: lit == .fans)
-                        .fixedSize()
-                        .offset(
-                            x: -(proxy.size.width - geometry.plot.maxX + 4),
-                            y: -(proxy.size.height - geometry.y(rpm) + 3)
-                        )
-                        .animation(.easeOut(duration: 0.9), value: rpm)
-                        .allowsHitTesting(false)
+                    ZStack {
+                        if let die = frame.die {
+                            let right = LiveLayer.dieLabelRight(die, geometry)
+                            Badge(model: model, frame: frame, on: .die, expanded: lit == .die)
+                                .fixedSize()
+                                .frame(
+                                    maxWidth: .infinity, maxHeight: .infinity,
+                                    alignment: right ? .topLeading : .topTrailing
+                                )
+                                .offset(
+                                    x: right
+                                        ? geometry.x(die) + 6
+                                        : geometry.x(die) - 6 - proxy.size.width,
+                                    y: geometry.plot.minY - 2
+                                )
+                                .animation(.easeOut(duration: 0.9), value: die)
+                                .zIndex(lit == .die ? 1 : 0)
+                        }
+                        if let rpm = LiveLayer.marks(frame.actuals).first?.1 {
+                            Badge(model: model, frame: frame, on: .fans, expanded: lit == .fans)
+                                .fixedSize()
+                                .frame(
+                                    maxWidth: .infinity, maxHeight: .infinity,
+                                    alignment: .bottomTrailing
+                                )
+                                .offset(
+                                    x: -(proxy.size.width - geometry.plot.maxX + 4),
+                                    y: -(proxy.size.height - geometry.y(rpm) + 3)
+                                )
+                                .animation(.easeOut(duration: 0.9), value: rpm)
+                                .zIndex(lit == .fans ? 1 : 0)
+                        }
+                    }
+                    .allowsHitTesting(false)
                 }
             }
             .animation(
