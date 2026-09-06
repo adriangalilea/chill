@@ -111,34 +111,44 @@ struct PopoverView: View {
                 .onChange(of: model.tab, initial: true) { _, tab in
                     if case .custom(let name) = tab { model.cursor = name }
                 }
-            switch model.tab {
-            case .apple, .storm:
-                EmptyView()
-            case .tuned:
-                Knobs(model: model).transition(.opacity)
-            case .custom:
-                HStack(spacing: .inkLane) {
-                    Text("click adds a point · drag moves it · \(key(.removePoint)) removes it")
-                        .font(.meta).foregroundStyle(.tertiary)
-                    Spacer(minLength: 0)
-                    Button {
-                        model.perform(.deleteCurve)
-                    } label: {
-                        HStack(spacing: .inkTight) {
-                            Text("trash").font(.system(size: 12))
-                            ShortcutBadge(key(.deleteCurve))
+            // The foot is the same height on every tab, so the popover
+            // never resizes and the plot never moves: the knobs' height,
+            // with the other tabs' content or nothing in that space.
+            ZStack(alignment: .topLeading) {
+                switch model.tab {
+                case .apple, .storm:
+                    Color.clear
+                case .tuned:
+                    Knobs(model: model).transition(.opacity)
+                case .custom:
+                    HStack(spacing: .inkLane) {
+                        Text("click adds a point · drag moves it · \(key(.removePoint)) removes it")
+                            .font(.meta).foregroundStyle(.tertiary)
+                        Spacer(minLength: 0)
+                        Button {
+                            model.perform(.deleteCurve)
+                        } label: {
+                            HStack(spacing: .inkTight) {
+                                Text("trash").font(.system(size: 12))
+                                ShortcutBadge(key(.deleteCurve))
+                            }
                         }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
                 }
-                .transition(.opacity)
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(height: PopoverView.footHeight)
         }
         .padding(.inkBlock)
         .frame(width: 460)
         .animation(.inkSettle, value: model.tab)
     }
+
+    /// Two knob rows at 16 pt and their gap.
+    static let footHeight: CGFloat = 16 * 2 + .inkGap
 
     /// What the plot draws for the tab: nothing over Apple's cloud, the
     /// built-in curve, the custom curve, or the ceiling during a storm.
