@@ -200,8 +200,14 @@ final class Model {
     /// build cannot decode) is `stale`, the client kept: nothing to
     /// rebuild, the fix is a relaunch.
     func pulse(watching: Bool) async {
+        if watching != self.watching {
+            log.info("presence: \(watching ? "watching" : "not watching", privacy: .public)")
+        }
         self.watching = watching
-        guard !busy else { return }
+        guard !busy else {
+            log.debug("pulse skipped: the last one has not answered")
+            return
+        }
         busy = true
         defer { busy = false }
         guard let client = connect() else {
@@ -235,6 +241,9 @@ final class Model {
         if hello == nil {
             hello = try? await client.hello()
             if hello != nil { ensureTuned() }
+        }
+        if link?.state == nil {
+            log.info("link live: \(state.lastReason, privacy: .public)")
         }
         link = Link.live(state)
         local = nil
@@ -289,7 +298,9 @@ final class Model {
         do {
             try curveStore.save(tuned)
             reload()
-            if intentCurve == Model.tunedName { call { try await $0.use(tuned) } }
+            if intentCurve == Model.tunedName {
+                call("use chill (retune)") { try await $0.use(tuned) }
+            }
         } catch {
             notice = "\(error)"
         }
@@ -317,6 +328,9 @@ final class Model {
     var customCurves: [Curve] { curves.filter { $0.name != Model.tunedName } }
 
     func select(_ tab: Tab) {
+        log.info(
+            "tab \(String(describing: tab), privacy: .public) pressed; daemon runs \(String(describing: self.tab), privacy: .public), link \(self.state == nil ? "not live" : "live", privacy: .public)"
+        )
         switch tab {
         case .apple:
             system()
@@ -325,7 +339,7 @@ final class Model {
                 notice = "no fan envelope yet: no daemon and no SMC"
                 return
             }
-            call { try await $0.use(tuned) }
+            call("use chill") { try await $0.use(tuned) }
         case .custom(let name):
             guard let curve = curves.first(where: { $0.name == name }) else { return }
             cursor = name
@@ -339,6 +353,7 @@ final class Model {
     /// `+`: a custom curve born as a copy of the built-in one, run at
     /// once, edited in place by pointer or keys.
     func newCurveTab() {
+        log.info("+ pressed")
         guard let tuned else {
             notice = "no fan envelope yet: no daemon and no SMC"
             return
@@ -356,6 +371,8 @@ final class Model {
     func hold(_ on: Bool) { select(on ? .tuned : .apple) }
 
     private func drop(_ error: Error) {
+        log.error(
+            "link down: \(error, privacy: .public); tabs disabled until the next pulse answers")
         link = .down(error as? ClientError ?? .unreachable("\(error)"))
         client = nil
         hello = nil
@@ -390,17 +407,20 @@ final class Model {
     func use(_ curve: Curve) {
         config.lastCurve = curve.name
         saveConfig()
-        call { try await $0.use(curve) }
+        call("use \(curve.name)") { try await $0.use(curve) }
     }
 
-    func boost() { call { try await $0.boost(minutes: Wire.boostMinutes) } }
+    func boost() { call("boost") { try await $0.boost(minutes: Wire.boostMinutes) } }
 
-    func system() { call { try await $0.system() } }
+    func system() { call("system") { try await $0.system() } }
 
-    func takeOver() { call { try await $0.take() } }
+    func takeOver() { call("take") { try await $0.take() } }
 
     /// Right-click: system ↔ the last curve.
     func toggle() {
+        log.info(
+            "right-click: \(self.state == nil ? "ignored, link not live" : (self.holdsFans ? "to apple" : "to chill"), privacy: .public)"
+        )
         guard state != nil else { return }
         hold(!holdsFans)
     }
@@ -408,17 +428,35 @@ final class Model {
     /// One verb, behind the verbs before it: a held arrow key sends a `use`
     /// per repeat, and the daemon runs them in wire order, so the replies
     /// land in that order too and `link` never wears a stale one.
-    private func call(_ job: @escaping (Client) async throws -> ChillKit.State) {
-        guard let client = connect() else { return }
+    private func call(
+        _ name: String, _ job: @escaping (Client) async throws -> ChillKit.State
+    ) {
+        guard let client = connect() else {
+            log.error(
+                "verb \(name, privacy: .public): no client, link \(self.link.map { "\($0)" } ?? "nil", privacy: .public)"
+            )
+            return
+        }
         let before = verbs
+        let queued = ContinuousClock.now
+        log.info(
+            "verb \(name, privacy: .public): queued\(before == nil ? "" : " behind another", privacy: .public)"
+        )
         verbs = Task {
             await before?.value
+            let started = ContinuousClock.now
             do {
                 let state = try await job(client)
+                log.info(
+                    "verb \(name, privacy: .public): ok in \(Model.ms(started), privacy: .public) ms (waited \(Model.ms(queued, until: started), privacy: .public) ms) → \(state.intent, privacy: .public) · \(state.lastReason, privacy: .public)"
+                )
                 notice = nil
                 heldBy = nil
                 await arrived(state, from: client)
             } catch let error as ClientError {
+                log.error(
+                    "verb \(name, privacy: .public): \(error, privacy: .public) after \(Model.ms(started), privacy: .public) ms"
+                )
                 switch error {
                 case .refused(.heldBy(let pid, let name)):
                     heldBy = (pid, name)
@@ -431,9 +469,18 @@ final class Model {
                     drop(error)
                 }
             } catch {
+                log.error(
+                    "verb \(name, privacy: .public): \(error, privacy: .public) after \(Model.ms(started), privacy: .public) ms"
+                )
                 drop(error)
             }
         }
+    }
+
+    private static func ms(_ since: ContinuousClock.Instant, until: ContinuousClock.Instant = .now)
+        -> Int
+    {
+        Int((until - since) / .milliseconds(1))
     }
 
     // MARK: - the no-daemon menu
@@ -553,7 +600,9 @@ final class Model {
             reload()
             point = curve.points.firstIndex { $0.c == select.c } ?? 0
             notice = nil
-            if intentCurve == curve.name { call { try await $0.use(curve) } }
+            if intentCurve == curve.name {
+                call("use \(curve.name) (edit)") { try await $0.use(curve) }
+            }
         } catch {
             notice = "\(error)"
         }
@@ -625,6 +674,7 @@ final class Model {
     }
 
     func perform(_ action: ChillAction) {
+        log.info("action \(action.rawValue, privacy: .public)")
         switch action {
         case .pointUp: nudge(celsius: 0, rpm: Model.rpmStep)
         case .pointDown: nudge(celsius: 0, rpm: -Model.rpmStep)

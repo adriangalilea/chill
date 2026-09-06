@@ -61,9 +61,11 @@ final class MenuBar: NSObject {
             return
         }
         if popover.isShown {
+            log.info("popover closed by the status item")
             popover.performClose(nil)
             return
         }
+        log.info("popover opened; \(self.model.statusLine, privacy: .public)")
         // An accessory app owns no key window until it activates; the
         // keys route only into a key popover.
         NSApp.activate()
@@ -221,6 +223,9 @@ struct Tabs: View {
             .help("every key, and quit")
         }
         .disabled(model.state == nil)
+        .onChange(of: model.state == nil) { _, off in
+            log.info("tabs \(off ? "disabled: link not live" : "enabled", privacy: .public)")
+        }
         .animation(.inkSettle, value: model.tab)
     }
 
