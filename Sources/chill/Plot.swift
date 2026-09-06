@@ -258,11 +258,17 @@ struct Plot: View {
                     .transition(.opacity)
                 }
                 if let geometry {
+                    // A fresh identity whenever the live numbers appear or
+                    // vanish: the layer is born at the truth and fades in,
+                    // never swept in from the sentinel it would otherwise
+                    // animate from.
                     LiveLayer(
                         frame: frame, geometry: geometry,
                         lit: Plot.hoveredNow(hover, frame, geometry, editable: editable)
                     )
                     .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
+                    .id(frame.die != nil && !frame.actuals.isEmpty)
+                    .transition(.opacity)
                 }
             }
             // The labels are badges: one view each, pinned by a corner
@@ -306,6 +312,7 @@ struct Plot: View {
                 .inkSettle, value: Plot.hoveredNow(hover, frame, geometry, editable: editable)
             )
             .animation(.inkSettle, value: frame.curve?.name)
+            .animation(.inkSettle, value: frame.die != nil && !frame.actuals.isEmpty)
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let p):
@@ -608,8 +615,11 @@ struct LiveLayer: View, @MainActor Animatable {
     }
 
     private func draw(in context: GraphicsContext) {
+        var context = context
         let g = geometry
         let plot = g.plot
+        // Nothing live is drawn outside the plot, whatever a value does.
+        context.clip(to: Path(plot))
         let truth = LiveLayer.encode(frame)
         let v = vec.v.count == truth.v.count ? vec.v : truth.v
         let die: Double? = v[0] < 0 ? nil : v[0]
@@ -654,7 +664,8 @@ struct LiveLayer: View, @MainActor Animatable {
             // The afterglow: this frame's animated position joins the
             // path, then the path is stroked stretch by stretch in the
             // heat it had, blurred into a glow, oldest faintest.
-            if let lead = marks.first {
+            // Only positions inside the plot join the afterglow.
+            if let lead = marks.first, Frame.celsius.contains(die), g.yLo...g.yHi ~= lead.1 {
                 frame.trail.record(die: die, rpm: lead.1)
             }
             let now = Date()
