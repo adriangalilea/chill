@@ -897,7 +897,8 @@ final class Model {
         if showHelp { showHelp = false }
         float.onDismissRequest = { [weak self] in self?.showAbout = false }
         float.show(
-            AboutPanel().glassEffect(.regular, in: .rect(cornerRadius: .inkPanel)),
+            AboutPanel(close: { [weak self] in self?.showAbout = false })
+                .glassEffect(.regular, in: .rect(cornerRadius: .inkPanel)),
             size: AboutPanel.size, on: NSApp.keyWindow?.screen,
             dismissOnAppSwitch: false)
     }

@@ -182,6 +182,9 @@ struct Plot: View {
     let editable: Bool
     @SwiftUI.State private var dragging: Int?
     @SwiftUI.State private var hover: CGPoint?
+    /// Where each badge really is, reported by `Pinned` after it measured
+    /// and clamped itself; the hover finds a badge here, not in a guess.
+    @SwiftUI.State private var boxes: [Hovered: CGRect] = [:]
     @SwiftUI.State private var rightClicks: Any?
     /// The pointer's last position in the plot, readable from the
     /// right-click monitor's closure without capturing a stale value.
@@ -228,16 +231,16 @@ struct Plot: View {
         case die, fans
     }
 
-    static func hovered(_ p: CGPoint, _ f: Frame, _ g: PlotGeometry, editable: Bool) -> Hovered? {
+    static func hovered(
+        _ p: CGPoint, _ f: Frame, _ g: PlotGeometry, editable: Bool, boxes: [Hovered: CGRect]
+    ) -> Hovered? {
         guard g.plot.contains(p) else { return nil }
         if editable, g.hit(f.curve, at: p) != nil { return nil }
-        if let die = f.die,
-            abs(p.x - g.x(die)) < hoverReach || LiveLayer.dieLabelBox(die, g).contains(p)
-        {
+        if let die = f.die, abs(p.x - g.x(die)) < hoverReach || boxes[.die]?.contains(p) == true {
             return .die
         }
         for rpm in LiveLayer.marks(f.actuals).map(\.1)
-        where abs(p.y - g.y(rpm)) < hoverReach || LiveLayer.fanLabelBox(rpm, g).contains(p) {
+        where abs(p.y - g.y(rpm)) < hoverReach || boxes[.fans]?.contains(p) == true {
             return .fans
         }
         return nil
@@ -256,11 +259,10 @@ struct Plot: View {
         return nil
     }
 
-    static func hoveredNow(_ p: CGPoint?, _ f: Frame, _ g: PlotGeometry?, editable: Bool)
-        -> Hovered?
-    {
-        guard let p, let g else { return nil }
-        return hovered(p, f, g, editable: editable)
+    /// What the pointer rests on right now.
+    private func lit(_ f: Frame, _ g: PlotGeometry?) -> Hovered? {
+        guard let hover, let g else { return nil }
+        return Plot.hovered(hover, f, g, editable: editable, boxes: boxes)
     }
 
     init(model: Model, curve: Curve?, editable: Bool) {
@@ -301,62 +303,61 @@ struct Plot: View {
                     // vanish: the layer is born at the truth and fades in,
                     // never swept in from the sentinel it would otherwise
                     // animate from.
-                    LiveLayer(
-                        frame: frame, geometry: geometry,
-                        lit: Plot.hoveredNow(hover, frame, geometry, editable: editable)
-                    )
-                    .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
-                    .id(frame.die != nil && !frame.actuals.isEmpty)
-                    .transition(.opacity)
+                    LiveLayer(frame: frame, geometry: geometry, lit: lit(frame, geometry))
+                        .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
+                        .id(frame.die != nil && !frame.actuals.isEmpty)
+                        .transition(.opacity)
                 }
             }
-            // The labels are badges: one view each, pinned by a corner
-            // whose offset never depends on their size, so the same view
-            // grows into its details under the pointer and shrinks back,
-            // in place. The die's badge rides the die's animation. Both
-            // live in one stack so the expanded one is always on top.
+            // The labels are badges: one view each, pinned beside its
+            // mark and kept inside the plot whatever it grows into, so the
+            // same view expands under the pointer and shrinks back in
+            // place, never past an edge. The die's badge rides the die's
+            // animation. Both live in one stack so the expanded one is
+            // always on top.
             .overlay {
                 if let geometry {
-                    let lit = Plot.hoveredNow(hover, frame, geometry, editable: editable)
+                    let lit = lit(frame, geometry)
+                    let bounds = CGRect(origin: .zero, size: proxy.size)
                     ZStack {
                         if let die = frame.die {
                             let right = LiveLayer.dieLabelRight(die, geometry)
-                            Badge(model: model, frame: frame, on: .die, expanded: lit == .die)
-                                .fixedSize()
-                                .frame(
-                                    maxWidth: .infinity, maxHeight: .infinity,
-                                    alignment: right ? .topLeading : .topTrailing
-                                )
-                                .offset(
-                                    x: right
-                                        ? geometry.x(die) + 6
-                                        : geometry.x(die) - 6 - proxy.size.width,
-                                    y: geometry.plot.minY - 2
-                                )
-                                .animation(.easeOut(duration: 0.9), value: die)
-                                .zIndex(lit == .die ? 1 : 0)
+                            let x = geometry.x(die)
+                            Pinned(
+                                within: bounds,
+                                origin: { size in
+                                    CGPoint(
+                                        x: right ? x + 6 : x - 6 - size.width,
+                                        y: geometry.plot.minY - 2)
+                                },
+                                placed: { boxes[.die] = $0 }
+                            ) {
+                                Badge(model: model, frame: frame, on: .die, expanded: lit == .die)
+                            }
+                            .animation(.easeOut(duration: 0.9), value: die)
+                            .zIndex(lit == .die ? 1 : 0)
                         }
                         if let rpm = LiveLayer.marks(frame.actuals).first?.1 {
-                            Badge(model: model, frame: frame, on: .fans, expanded: lit == .fans)
-                                .fixedSize()
-                                .frame(
-                                    maxWidth: .infinity, maxHeight: .infinity,
-                                    alignment: .bottomTrailing
-                                )
-                                .offset(
-                                    x: -(proxy.size.width - geometry.plot.maxX + 4),
-                                    y: -(proxy.size.height - geometry.y(rpm) + 3)
-                                )
-                                .animation(.easeOut(duration: 0.9), value: rpm)
-                                .zIndex(lit == .fans ? 1 : 0)
+                            let y = geometry.y(rpm)
+                            Pinned(
+                                within: bounds,
+                                origin: { size in
+                                    CGPoint(
+                                        x: geometry.plot.maxX - 4 - size.width,
+                                        y: y - 3 - size.height)
+                                },
+                                placed: { boxes[.fans] = $0 }
+                            ) {
+                                Badge(model: model, frame: frame, on: .fans, expanded: lit == .fans)
+                            }
+                            .animation(.easeOut(duration: 0.9), value: rpm)
+                            .zIndex(lit == .fans ? 1 : 0)
                         }
                     }
                     .allowsHitTesting(false)
                 }
             }
-            .animation(
-                .inkSettle, value: Plot.hoveredNow(hover, frame, geometry, editable: editable)
-            )
+            .animation(.inkSettle, value: lit(frame, geometry))
             .animation(.inkSettle, value: frame.curve?.name)
             .animation(.inkSettle, value: frame.die != nil && !frame.actuals.isEmpty)
             .onContinuousHover { phase in
@@ -661,17 +662,6 @@ struct LiveLayer: View, @MainActor Animatable {
         g.plot.maxX - g.x(die) > 90
     }
 
-    static func dieLabelBox(_ die: Double, _ g: PlotGeometry) -> CGRect {
-        let x = g.x(die)
-        return dieLabelRight(die, g)
-            ? CGRect(x: x, y: g.plot.minY, width: 96, height: 20)
-            : CGRect(x: x - 96, y: g.plot.minY, width: 96, height: 20)
-    }
-
-    static func fanLabelBox(_ rpm: Double, _ g: PlotGeometry) -> CGRect {
-        CGRect(x: g.plot.maxX - 120, y: g.y(rpm) - 20, width: 120, height: 40)
-    }
-
     var animatableData: Vec {
         get { vec }
         set { vec = newValue }
@@ -817,6 +807,39 @@ struct LiveLayer: View, @MainActor Animatable {
 /// A label on the plot that is also its own card: the one line at rest,
 /// the details under it when the pointer is on its line, the same view
 /// growing and shrinking in place.
+/// A view pinned beside a point and kept inside its bounds whatever its
+/// size: the content measures itself, `origin` says where its top-left
+/// wants to be for that size, and the result is clamped into `within`,
+/// so a badge that grows past an edge slides in instead of leaving.
+/// `placed` reports the final frame, the truth the hover reads.
+struct Pinned<Content: View>: View {
+    let within: CGRect
+    let origin: (CGSize) -> CGPoint
+    let placed: (CGRect) -> Void
+    @ViewBuilder let content: Content
+    @SwiftUI.State private var size = CGSize.zero
+
+    var body: some View {
+        let rect = CGRect(origin: clamped(origin(size)), size: size)
+        content
+            .fixedSize()
+            .onGeometryChange(for: CGSize.self) {
+                $0.size
+            } action: {
+                size = $0
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .offset(x: rect.minX, y: rect.minY)
+            .onChange(of: rect, initial: true) { placed(rect) }
+    }
+
+    private func clamped(_ p: CGPoint) -> CGPoint {
+        CGPoint(
+            x: min(max(p.x, within.minX), max(within.minX, within.maxX - size.width)),
+            y: min(max(p.y, within.minY), max(within.minY, within.maxY - size.height)))
+    }
+}
+
 struct Badge: View {
     let model: Model
     let frame: Frame

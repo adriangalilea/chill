@@ -525,7 +525,8 @@ struct ActionBar: View {
 /// accessory app opened from its status item is not granted activation,
 /// so that panel comes up behind the front window, unseen.
 struct AboutPanel: View {
-    static let size = NSSize(width: 360, height: 300)
+    static let size = NSSize(width: 400, height: 420)
+    let close: () -> Void
 
     var body: some View {
         VStack(spacing: .inkLane) {
@@ -542,8 +543,23 @@ struct AboutPanel: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
         .padding(.inkBlock)
+        .padding(.top, .inkLane)
         .frame(width: AboutPanel.size.width, height: AboutPanel.size.height)
+        .overlay(alignment: .topTrailing) {
+            Button(action: close) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(.quaternary.opacity(0.85), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(.inkLane)
+            .help("close (escape)")
+        }
     }
 }
