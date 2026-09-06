@@ -732,9 +732,6 @@ struct Badge: View {
     let on: Plot.Hovered
     let expanded: Bool
 
-    /// How many sensors the temperature badge lists under the hottest.
-    static let sensorsShown = 6
-
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             switch on {
@@ -748,23 +745,31 @@ struct Badge: View {
                     .foregroundStyle(Palette.heat(die))
                 }
                 if expanded {
-                    // Several sensors share a name (one per die block);
-                    // one line per name, its hottest.
+                    // Several sensors share a name (one per die block):
+                    // one cell per name, its hottest, in a FIXED order
+                    // (by name, numerically) so rows never trade places
+                    // as the numbers move. All of them, two columns.
                     let all = model.temperatures()
                     let sensors = Dictionary(grouping: all, by: \.name)
                         .map { name, group in (name: name, celsius: group.map(\.celsius).max()!) }
-                        .sorted { $0.celsius > $1.celsius }
-                    ForEach(sensors.prefix(Badge.sensorsShown), id: \.name) { sensor in
-                        HStack(spacing: .inkGap) {
-                            Text(sensor.name).foregroundStyle(.secondary)
-                            Spacer(minLength: .inkLane)
-                            Text(String(format: "%.1f °C", sensor.celsius))
-                                .foregroundStyle(Palette.heat(sensor.celsius))
+                        .sorted {
+                            $0.name.localizedStandardCompare($1.name) == .orderedAscending
                         }
-                    }
-                    if sensors.count > Badge.sensorsShown {
-                        Text("and \(sensors.count - Badge.sensorsShown) cooler")
-                            .foregroundStyle(.tertiary)
+                    let rows = (sensors.count + 1) / 2
+                    Grid(alignment: .leading, horizontalSpacing: .inkLane, verticalSpacing: 3) {
+                        ForEach(0..<rows, id: \.self) { row in
+                            GridRow {
+                                ForEach(
+                                    [row, row + rows].filter { $0 < sensors.count }, id: \.self
+                                ) { i in
+                                    Text(sensors[i].name.replacingOccurrences(of: "PMU ", with: ""))
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.1f", sensors[i].celsius))
+                                        .foregroundStyle(Palette.heat(sensors[i].celsius))
+                                        .gridColumnAlignment(.trailing)
+                                }
+                            }
+                        }
                     }
                 }
             case .fans:
