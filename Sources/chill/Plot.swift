@@ -246,7 +246,10 @@ struct Plot: View {
                 if let geometry, let curve = frame.curve {
                     CurveLayer(
                         curve: curve, point: frame.point, geometry: geometry,
-                        hot: editable ? hover.flatMap { geometry.hit(curve, at: $0) } : nil,
+                        hot: editable
+                            ? (dragging.flatMap { $0 >= 0 ? $0 : nil }
+                                ?? hover.flatMap { geometry.hit(curve, at: $0) })
+                            : nil,
                         ghost: ghost(frame, geometry)
                     )
                     .animation(.easeOut(duration: 0.5), value: CurveLayer.encode(curve))
@@ -523,6 +526,11 @@ struct CurveLayer: View, @MainActor Animatable {
                 context.stroke(
                     Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
                     with: .color(Palette.dune.opacity(0.6)), lineWidth: 1.5)
+            }
+            // The numbers only while the pointer is on the point (or
+            // dragging it, which keeps it hot): a selection is not a
+            // reason to keep them up.
+            if i == hot {
                 context.plated(
                     Text("\(Int(p.c))° · \(Int(p.rpm)) rpm").font(.meta)
                         .foregroundStyle(Palette.dune),

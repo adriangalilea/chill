@@ -73,12 +73,23 @@ public struct Curve: Codable, Sendable, Hashable {
         guard n > 1 else { return [0] }
         let h = (0..<n - 1).map { points[$0 + 1].c - points[$0].c }
         let d = (0..<n - 1).map { (points[$0 + 1].rpm - points[$0].rpm) / h[$0] }
+        // Round first: each interior tangent is the mean of its two
+        // secants (zero where the curve turns), which bends softly.
         var m = [Double](repeating: 0, count: n)
-        for i in 1..<n - 1 {
-            guard d[i - 1] * d[i] > 0 else { continue }
-            let w0 = 2 * h[i] + h[i - 1]
-            let w1 = h[i] + 2 * h[i - 1]
-            m[i] = (w0 + w1) / (w0 / d[i - 1] + w1 / d[i])
+        for i in 1..<n - 1 where d[i - 1] * d[i] > 0 {
+            m[i] = (d[i - 1] + d[i]) / 2
+        }
+        // Then Fritsch and Carlson's limit per segment, so no stretch
+        // overshoots its points.
+        for i in 0..<n - 1 where d[i] != 0 {
+            let a = m[i] / d[i]
+            let b = m[i + 1] / d[i]
+            let s = a * a + b * b
+            if s > 9 {
+                let t = 3 / s.squareRoot()
+                m[i] = t * a * d[i]
+                m[i + 1] = t * b * d[i]
+            }
         }
         return m
     }
