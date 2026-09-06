@@ -118,7 +118,7 @@ struct PopoverView: View {
             // with the other tabs' content or nothing in that space.
             ZStack(alignment: .topLeading) {
                 switch model.tab {
-                case .apple, .storm:
+                case .apple, .gust:
                     Color.clear
                 case .tuned:
                     Knobs(model: model).transition(.opacity)
@@ -153,14 +153,14 @@ struct PopoverView: View {
     static let footHeight: CGFloat = 16 * 2 + .inkGap
 
     /// What the plot draws for the tab: nothing over Apple's cloud, the
-    /// built-in curve, the custom curve, or the ceiling during a storm.
+    /// built-in curve, the custom curve, or the ceiling during a gust.
     private var plotted: Curve? {
         switch model.tab {
         case .apple: return nil
         case .tuned: return model.tuned
         case .custom(let name): return model.curves.first { $0.name == name }
-        case .storm:
-            return model.envelope.flatMap { try? Curve.flat(name: "storm", rpm: $0.upperBound) }
+        case .gust:
+            return model.envelope.flatMap { try? Curve.flat(name: "gust", rpm: $0.upperBound) }
         }
     }
 
@@ -173,7 +173,7 @@ struct PopoverView: View {
 }
 
 /// The tab bar: one rail holding every intent, `apple · chill · <custom>
-/// · storm`, plus `+`; the selected segment is a dune plate that slides
+/// · gust`, plus `+`; the selected segment is a dune plate that slides
 /// to whichever the daemon runs. `?` sits apart on the right.
 struct Tabs: View {
     let model: Model
@@ -187,7 +187,7 @@ struct Tabs: View {
                 ForEach(model.customCurves, id: \.name) { curve in
                     tab(curve.name, .custom(curve.name))
                 }
-                tab("storm", .storm)
+                tab("gust", .gust)
                 Button {
                     model.newCurveTab()
                 } label: {
@@ -259,7 +259,7 @@ struct Tabs: View {
         case .tuned:
             return
                 "chill's curve: the fans at their minimum until the die passes the kick-in, then a smooth climb to full"
-        case .storm:
+        case .gust:
             return "every fan flat out for \(Wire.boostMinutes) minutes, then back to apple"
         case .custom:
             return "your curve \"\(name)\": click the plot to add a point, drag to move it"

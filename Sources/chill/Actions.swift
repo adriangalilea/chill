@@ -60,7 +60,7 @@ enum ChillAction: String, CaseIterable, ActionSet {
                 title: "trash this curve", symbol: "trash", local: [KeyCombo("delete", .command)])
         case .boost:
             return Spec(
-                title: "storm: every fan at maximum for \(Wire.boostMinutes) min", symbol: "wind",
+                title: "gust: every fan at maximum for \(Wire.boostMinutes) min", symbol: "wind",
                 local: [KeyCombo("b")])
         case .system:
             return Spec(

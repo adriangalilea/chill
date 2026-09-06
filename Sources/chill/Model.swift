@@ -151,6 +151,17 @@ final class Model {
 
     var actuals: [Double] { state?.fans.map(\.actual) ?? local?.fans.map(\.actual) ?? [] }
 
+    /// Where the live point has been: one sample per pulse, the last
+    /// `Trail.span`, drawn as the afterglow behind it.
+    var trail: [Trail.Sample] = []
+
+    private func remember() {
+        guard let die else { return }
+        let now = Date()
+        trail.append(Trail.Sample(at: now, die: die, actuals: actuals))
+        trail.removeAll { now.timeIntervalSince($0.at) > Trail.span }
+    }
+
     /// The die sensors by heat, read from the machine on demand for the
     /// temperature hover card (the daemon ships one number, the hottest;
     /// the names live only in the HID reader). Opens the local sensors
@@ -247,6 +258,7 @@ final class Model {
         }
         link = Link.live(state)
         local = nil
+        remember()
         if let hello { clouds.absorb(state.clouds, from: hello.pid) }
     }
 
@@ -310,7 +322,7 @@ final class Model {
     /// one, each custom curve. The selected tab is read from the daemon,
     /// never remembered; picking one sends it.
     enum Tab: Hashable {
-        case apple, tuned, storm
+        case apple, tuned, gust
         case custom(String)
     }
 
@@ -319,7 +331,7 @@ final class Model {
         case .curve(let curve)?:
             return curve.name == Model.tunedName ? .tuned : .custom(curve.name)
         case .boost?:
-            return .storm
+            return .gust
         default:
             return .apple
         }
@@ -345,7 +357,7 @@ final class Model {
             cursor = name
             point = 0
             use(curve)
-        case .storm:
+        case .gust:
             boost()
         }
     }
@@ -395,7 +407,9 @@ final class Model {
     private func sampleLocally() {
         if sensors == nil { sensors = Result { try LocalSensors() } }
         switch sensors! {
-        case .success(let sensors): local = sensors.sample()
+        case .success(let sensors):
+            local = sensors.sample()
+            remember()
         case .failure(let error):
             if local == nil { Verbs.note("chill: \(error); no local telemetry") }
             local = LocalSample(die: nil, fans: [])

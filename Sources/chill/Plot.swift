@@ -12,6 +12,7 @@ struct Frame {
     let die: Double?
     let actuals: [Double]
     let targets: [Double]
+    let trail: [Trail.Sample]
 
     static let celsius: ClosedRange<Double> = 30...110
     static let celsiusSpan = celsius.upperBound - celsius.lowerBound
@@ -58,6 +59,27 @@ struct PlotGeometry {
             (i, hypot(x(pt.c) - p.x, y(pt.rpm) - p.y))
         }
         return distances.min { $0.1 < $1.1 }.flatMap { $0.1 <= 12 ? $0.0 : nil }
+    }
+}
+
+/// The afterglow: where the live point has been, each sample a halo of
+/// the point's own shape in the heat it had, fading with age like
+/// phosphor under a lamp that moved on.
+enum Trail {
+    struct Sample: Hashable {
+        let at: Date
+        let die: Double
+        let actuals: [Double]
+    }
+
+    /// How long a sample glows.
+    static let span: TimeInterval = 90
+    static let radius: CGFloat = 14
+
+    /// The glow left at `age`: bright and full-size just behind the
+    /// point, gone at `span`.
+    static func alpha(age: TimeInterval) -> Double {
+        0.45 * pow(max(0, 1 - age / span), 2)
     }
 }
 
@@ -124,7 +146,7 @@ struct Plot: View {
         let frame = Frame(
             envelope: model.envelope, clouds: model.clouds.bins, curve: curve,
             point: editable ? model.point : -1, die: model.die, actuals: model.actuals,
-            targets: model.targets)
+            targets: model.targets, trail: model.trail)
         GeometryReader { proxy in
             let geometry = PlotGeometry(size: proxy.size, envelope: frame.envelope)
             ZStack {
@@ -266,7 +288,7 @@ struct CurveLayer: View, @MainActor Animatable {
 
     /// The curve as the plot draws it: its rpm at every half degree of
     /// the axis, always the same length, so ANY curve morphs into any
-    /// other (a three-point S into storm's flat ceiling included), then
+    /// other (a three-point S into gust's flat ceiling included), then
     /// the points' own coordinates, which only blend while the count
     /// holds (the rest of the vector still does).
     static let samples = stride(
@@ -309,7 +331,7 @@ struct CurveLayer: View, @MainActor Animatable {
         context.stroke(
             line, with: .color(Palette.dune.opacity(0.95)),
             style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-        // A flat curve (storm) has one point at 0 °C, off the axis: no dot.
+        // A flat curve (gust) has one point at 0 °C, off the axis: no dot.
         for (i, p) in points.enumerated() where Frame.celsius.contains(p.c) {
             let r: CGFloat = i == point ? 6 : 4
             let dot = CGRect(x: g.x(p.c) - r, y: g.y(p.rpm) - r, width: r * 2, height: r * 2)
@@ -408,6 +430,32 @@ struct LiveLayer: View, @MainActor Animatable {
                 actuals.count > 1 && spread <= Plot.togetherRPM
                 ? [("fans", actuals.reduce(0, +) / Double(actuals.count))]
                 : actuals.enumerated().map { ("fan \($0.offset + 1)", $0.element) }
+            // The afterglow first, oldest deepest, one halo per sample
+            // where the point was, merged the way the marks are.
+            let now = Date()
+            for sample in frame.trail {
+                let age = now.timeIntervalSince(sample.at)
+                let alpha = Trail.alpha(age: age)
+                guard alpha > 0.01, !sample.actuals.isEmpty else { continue }
+                let together =
+                    sample.actuals.count > 1
+                    && (sample.actuals.max()! - sample.actuals.min()!) <= Plot.togetherRPM
+                let rpms =
+                    together
+                    ? [sample.actuals.reduce(0, +) / Double(sample.actuals.count)]
+                    : sample.actuals
+                let glow = Palette.heat(sample.die)
+                for rpm in rpms {
+                    let c = CGPoint(x: g.x(sample.die), y: g.y(rpm))
+                    let r = Trail.radius
+                    context.fill(
+                        Path(
+                            ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+                        with: .radialGradient(
+                            Gradient(colors: [glow.opacity(alpha), glow.opacity(0)]),
+                            center: c, startRadius: 0, endRadius: r))
+                }
+            }
             for (i, mark) in marks.enumerated() {
                 var rule = Path()
                 rule.move(to: CGPoint(x: plot.minX, y: g.y(mark.1)))
