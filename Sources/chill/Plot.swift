@@ -340,6 +340,7 @@ struct Plot: View {
                             let right = LiveLayer.dieLabelRight(die, geometry)
                             let x = geometry.x(die)
                             Badge(model: model, frame: frame, on: .die, expanded: lit == .die)
+                                .fixedSize()
                                 .placed { boxes[.die] = $0 }
                                 .zIndex(lit == .die ? 1 : 0)
                                 .pinned { size in
@@ -351,6 +352,7 @@ struct Plot: View {
                         if let rpm = LiveLayer.marks(frame.actuals).first?.1 {
                             let y = geometry.y(rpm)
                             Badge(model: model, frame: frame, on: .fans, expanded: lit == .fans)
+                                .fixedSize()
                                 .placed { boxes[.fans] = $0 }
                                 .zIndex(lit == .fans ? 1 : 0)
                                 .pinned { size in
@@ -877,7 +879,12 @@ struct Pinboard: Layout {
         in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
     ) {
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            // The board's width is proposed, so a child that wraps (a tip
+            // capped at some width) is measured wrapped and its plate
+            // holds its text; a child that must not stretch says so with
+            // `fixedSize`.
+            let proposal = ProposedViewSize(width: bounds.width, height: nil)
+            let size = subview.sizeThatFits(proposal)
             let wanted = subview[Pin.self](size)
             let at = CGPoint(
                 x: min(
@@ -886,7 +893,7 @@ struct Pinboard: Layout {
                 y: min(
                     max(bounds.minY + wanted.y, bounds.minY),
                     max(bounds.minY, bounds.maxY - size.height)))
-            subview.place(at: at, anchor: .topLeading, proposal: .unspecified)
+            subview.place(at: at, anchor: .topLeading, proposal: proposal)
         }
     }
 }

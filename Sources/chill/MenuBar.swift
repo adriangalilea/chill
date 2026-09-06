@@ -351,15 +351,17 @@ struct Tabs: View {
     }
 
     private func cell(_ name: String, _ tab: Model.Tab, glyph: String) -> some View {
-        TabCell(model: model, name: name, tab: tab, glyph: glyph, rail: rail) { on, at in
-            guard on else {
-                if tip?.at == at { tip = nil }
-                return
+        let key = model.store.displayPrimary(for: .toggle)
+        return TabCell(
+            model: model, name: name, tab: tab, glyph: glyph, rail: rail,
+            mark: model.toggleTarget == tab && !key.isEmpty
+        ) { hover in
+            switch hover {
+            case .cell(true, let at): tip = Tip(text: Tabs.about(tab, name), at: at)
+            case .cell(false, let at): if tip?.at == at { tip = nil }
+            case .mark(true, let at): tip = Tip(key: key, at: at)
+            case .mark(false, let at): tip = Tip(text: Tabs.about(tab, name), at: at)
             }
-            let key = model.store.displayPrimary(for: .toggle)
-            tip = Tip(
-                text: Tabs.about(tab, name),
-                key: model.toggleTarget == tab && !key.isEmpty ? key : nil, at: at)
         }
     }
 
@@ -391,23 +393,32 @@ struct Tabs: View {
 /// shortcut when that tab is the one the toggle would press, and where
 /// (the cell's frame in the rail's space, the tip's anchor).
 struct Tip: Equatable {
-    let text: String
+    var text: String? = nil
     var key: String? = nil
     let at: CGRect
 }
 
+/// What a cell reports: the pointer over the cell, or over its key
+/// mark, with the cell's frame either way (the tip's anchor).
+enum TabHover {
+    case cell(Bool, CGRect)
+    case mark(Bool, CGRect)
+}
+
 /// The tip itself: a plate in the window's background, meta type, the
-/// text wrapping past 300 pt, the combo as a key cap on its own line.
+/// text wrapping past 300 pt; or the combo as a key cap, alone.
 struct TipView: View {
     let tip: Tip
 
     var body: some View {
         VStack(alignment: .leading, spacing: .inkGap) {
-            Text(tip.text)
-                .font(.meta)
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 300, alignment: .leading)
+            if let text = tip.text {
+                Text(text)
+                    .font(.meta)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: 300, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let key = tip.key {
                 HStack(spacing: .inkGap) {
                     ShortcutBadge(key)
@@ -429,16 +440,20 @@ struct TipView: View {
 /// One tab: glyph and name, the dune plate under the one that runs
 /// (matched across the rail, so it slides), a wash under the pointer,
 /// the text stepping up from secondary to primary on hover and to dune
-/// when selected, and a small give on press. Alive, never loud. Hover
-/// is reported up with the cell's frame; the rail draws the one tip.
+/// when selected, and a small give on press. Alive, never loud. The
+/// tab the toggle would press wears a key mark in its corner; the mark
+/// is its own hover: over it the tip is the combo alone. Hover is
+/// reported up with the cell's frame; the rail draws the one tip.
 struct TabCell: View {
     let model: Model
     let name: String
     let tab: Model.Tab
     let glyph: String
     let rail: Namespace.ID
-    let hover: (Bool, CGRect) -> Void
+    let mark: Bool
+    let hover: (TabHover) -> Void
     @SwiftUI.State private var hovering = false
+    @SwiftUI.State private var overMark = false
     @SwiftUI.State private var frame = CGRect.zero
 
     var body: some View {
@@ -463,6 +478,20 @@ struct TabCell: View {
                         .fill(Color.primary.opacity(0.07))
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if mark {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundStyle(Palette.dune.opacity(overMark ? 1 : 0.6))
+                        .padding(.top, 3)
+                        .padding(.trailing, 4)
+                        .contentShape(Rectangle())
+                        .onHover { on in
+                            overMark = on
+                            hover(.mark(on, frame))
+                        }
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(Give())
@@ -474,9 +503,10 @@ struct TabCell: View {
         }
         .onHover { on in
             hovering = on
-            hover(on, frame)
+            hover(.cell(on, frame))
         }
         .animation(.inkSettle, value: hovering)
+        .animation(.inkSettle, value: overMark)
     }
 }
 
