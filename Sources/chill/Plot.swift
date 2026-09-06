@@ -102,6 +102,25 @@ final class Trail {
     }
 }
 
+extension GraphicsContext {
+    /// A label that reads anywhere on the plot: the text on a small plate
+    /// of the window's own background, so dune over dune and ice over
+    /// the lit heatmap keep their contrast. `anchor` places the plate.
+    func plated(_ text: Text, at point: CGPoint, anchor: UnitPoint = .center) {
+        let resolved = resolve(text)
+        let size = resolved.measure(in: CGSize(width: 400, height: 40))
+        let pad = CGSize(width: 5, height: 2)
+        let plate = CGRect(
+            x: point.x - (size.width + 2 * pad.width) * anchor.x,
+            y: point.y - (size.height + 2 * pad.height) * anchor.y,
+            width: size.width + 2 * pad.width, height: size.height + 2 * pad.height)
+        fill(
+            Path(roundedRect: plate, cornerRadius: 4),
+            with: .color(Color(nsColor: .windowBackgroundColor).opacity(0.82)))
+        draw(resolved, at: CGPoint(x: plate.midX, y: plate.midY), anchor: .center)
+    }
+}
+
 /// A vector of doubles SwiftUI can interpolate: every live number of the
 /// plot in one, so a new sample slides the die, the rings and the curve
 /// together. Two vectors of different length do not blend; the layer
@@ -267,18 +286,26 @@ struct Plot: View {
                 at: CGPoint(x: plot.minX - 24, y: g.y(rpm)))
         }
 
-        // The cloud: alpha by density, the second fan half as strong.
-        for fan in f.clouds.keys.sorted() {
-            let table = f.clouds[fan]!
-            guard let peak = table.values.max(), peak > 0 else { continue }
-            let weight = fan == 0 ? 1.0 : 0.5
-            for (bin, count) in table {
-                let rect = CGRect(
-                    x: g.x(Double(bin.c)), y: g.y(Double(bin.rpm + Cloud.rpmBin)),
-                    width: g.x(Double(bin.c) + 1) - g.x(Double(bin.c)),
-                    height: g.y(Double(bin.rpm)) - g.y(Double(bin.rpm + Cloud.rpmBin)))
-                let alpha = (0.05 + 0.4 * sqrt(Double(count) / Double(peak))) * weight
-                context.fill(Path(rect), with: .color(Palette.apple.opacity(alpha)))
+        // Apple's cloud: where macOS has run the fans while it held them,
+        // one 1 °C × 50 rpm bin per cell, alpha by density, the second fan
+        // half as strong, blurred so the cells read as one soft cloud
+        // instead of a stack of bars.
+        context.drawLayer { layer in
+            layer.addFilter(.blur(radius: 3))
+            for fan in f.clouds.keys.sorted() {
+                let table = f.clouds[fan]!
+                guard let peak = table.values.max(), peak > 0 else { continue }
+                let weight = fan == 0 ? 1.0 : 0.5
+                for (bin, count) in table {
+                    let rect = CGRect(
+                        x: g.x(Double(bin.c)), y: g.y(Double(bin.rpm + Cloud.rpmBin)),
+                        width: g.x(Double(bin.c) + 1) - g.x(Double(bin.c)),
+                        height: g.y(Double(bin.rpm)) - g.y(Double(bin.rpm + Cloud.rpmBin)))
+                    let alpha = (0.06 + 0.5 * sqrt(Double(count) / Double(peak))) * weight
+                    layer.fill(
+                        Path(rect.insetBy(dx: -1.5, dy: -1.5)),
+                        with: .color(Palette.apple.opacity(alpha)))
+                }
             }
         }
     }
@@ -359,7 +386,7 @@ struct CurveLayer: View, @MainActor Animatable {
                 context.stroke(
                     Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
                     with: .color(Palette.dune.opacity(0.5)), lineWidth: 1.5)
-                context.draw(
+                context.plated(
                     Text("\(Int(p.c))° · \(Int(p.rpm)) rpm").font(.meta)
                         .foregroundStyle(Palette.dune),
                     at: CGPoint(x: g.x(p.c), y: g.y(p.rpm) + 18))
@@ -436,9 +463,12 @@ struct LiveLayer: View, @MainActor Animatable {
             line.move(to: CGPoint(x: g.x(die), y: plot.minY))
             line.addLine(to: CGPoint(x: g.x(die), y: plot.maxY))
             context.stroke(line, with: .color(heat.opacity(0.7)), lineWidth: 1)
-            context.draw(
+            // Right of the line, or left of it near the right edge.
+            let rightRoom = plot.maxX - g.x(die) > 90
+            context.plated(
                 Text("die \(Status.degrees(die))").font(.meta).foregroundStyle(heat),
-                at: CGPoint(x: g.x(die) + 34, y: plot.minY + 8))
+                at: CGPoint(x: g.x(die) + (rightRoom ? 6 : -6), y: plot.minY + 8),
+                anchor: rightRoom ? .leading : .trailing)
             // The die is a vertical hairline, so a fan is a horizontal
             // one at its rpm, the two crossing at the live point, a small
             // ring there. Fans running together are one line, "fans · N
@@ -493,10 +523,10 @@ struct LiveLayer: View, @MainActor Animatable {
                     Path(ellipseIn: core.insetBy(dx: -1.5, dy: -1.5)), with: .color(heat),
                     lineWidth: 1)
                 let dy: CGFloat = marks.count > 1 && i == 1 ? 9 : -9
-                context.draw(
+                context.plated(
                     Text("\(mark.0) · \(Int(mark.1)) rpm").font(.meta)
                         .foregroundStyle(Palette.dune),
-                    at: CGPoint(x: plot.maxX - 6, y: g.y(mark.1) + dy), anchor: .trailing)
+                    at: CGPoint(x: plot.maxX - 4, y: g.y(mark.1) + dy), anchor: .trailing)
             }
             // chill's target, a dashed rule at the rpm it asked for.
             for target in targets {
