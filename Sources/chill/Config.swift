@@ -3,9 +3,31 @@ import Foundation
 
 /// `~/.local/state/chill/config.json`: what the app remembers between
 /// launches and the daemon has no business knowing. `lastCurve` is the
-/// right-click toggle's target and the canvas's first cursor.
+/// right-click toggle's target and the canvas's first cursor; `kickIn`
+/// and `aggression` are the two knobs that shape the built-in `chill`
+/// curve, the one most people never leave.
 struct Config: Codable, Equatable {
     var lastCurve: String?
+    /// The die temperature (°C) below which the built-in curve sits at
+    /// the fan's minimum.
+    var kickIn: Double = Config.defaultKickIn
+    /// 0 = a gentle 45 °C ramp to maximum, 1 = a steep 15 °C one.
+    var aggression: Double = Config.defaultAggression
+
+    static let defaultKickIn = 65.0
+    static let defaultAggression = 0.5
+    static let kickInRange = 45.0...90.0
+
+    init(lastCurve: String?) { self.lastCurve = lastCurve }
+
+    /// Both knobs read their first-run value when the file predates them.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lastCurve = try c.decodeIfPresent(String.self, forKey: .lastCurve)
+        kickIn = try c.decodeIfPresent(Double.self, forKey: .kickIn) ?? Config.defaultKickIn
+        aggression =
+            try c.decodeIfPresent(Double.self, forKey: .aggression) ?? Config.defaultAggression
+    }
 
     /// The file, or the first-run value (the demo world starts on its
     /// seed curve). A file that does not parse is an error, not a reset:

@@ -86,34 +86,94 @@ final class MenuBar: NSObject {
     }
 }
 
-/// The popover: status, the fixer when no daemon answers, the plot, the
-/// curves, the actions. Same model, same keys as the canvas window.
+/// The popover: the one switch (Apple ↔ chill), the status, the fixer
+/// when no daemon answers, the plot, the two knobs that shape the
+/// built-in curve, the actions. Same model, same keys as the canvas.
 struct PopoverView: View {
     let model: Model
 
     var body: some View {
         VStack(alignment: .leading, spacing: .inkLane) {
-            HStack(alignment: .firstTextBaseline, spacing: .inkGap) {
-                Text(model.statusLine)
-                    .font(.meta)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+            HStack(spacing: .inkLane) {
+                Picker("", selection: holds) {
+                    Text("apple").tag(false)
+                    Text("chill").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 160)
+                .disabled(model.state == nil)
                 if model.demo.on {
                     Text("demo").font(.meta).foregroundStyle(.tertiary)
                 }
+                Spacer(minLength: 0)
+                ActionBar(model: model, popover: true)
             }
+            Text(model.statusLine)
+                .font(.meta)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             if let aside = model.aside {
-                Text(aside).font(.meta).foregroundStyle(tone.opacity(0.8)).lineLimit(2)
+                Text(aside).font(.meta).foregroundStyle(tone.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Fixer(model: model)
             Plot(model: model)
                 .frame(height: 220)
-            CurveList(model: model)
-                .frame(maxHeight: 120)
-            ActionBar(model: model, popover: true)
+            Knobs(model: model)
         }
         .padding(.inkBlock)
-        .frame(width: 440)
+        .frame(width: 460)
+    }
+
+    private var holds: Binding<Bool> {
+        Binding(get: { model.holdsFans }, set: { model.hold($0) })
+    }
+}
+
+/// The two knobs of the built-in curve: where it kicks in, how steep it
+/// climbs. Live: every move lands on disk and, when chill runs this
+/// curve, on the daemon. A custom curve under the cursor is said so.
+struct Knobs: View {
+    let model: Model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: .inkGap) {
+            HStack(spacing: .inkLane) {
+                Text("kicks in at \(Int(model.config.kickIn)) °C")
+                    .font(.meta).foregroundStyle(.secondary)
+                    .frame(width: 130, alignment: .leading)
+                Slider(value: kickIn, in: Config.kickInRange, step: 1)
+            }
+            HStack(spacing: .inkLane) {
+                Text("aggression")
+                    .font(.meta).foregroundStyle(.secondary)
+                    .frame(width: 130, alignment: .leading)
+                Slider(value: aggression, in: 0...1) {
+                    EmptyView()
+                } minimumValueLabel: {
+                    Text("gentle").font(.meta).foregroundStyle(.tertiary)
+                } maximumValueLabel: {
+                    Text("steep").font(.meta).foregroundStyle(.tertiary)
+                }
+            }
+            if let custom = model.intentCurve, custom != Model.tunedName {
+                Text("chill runs your curve \"\(custom)\"; the knobs shape the built-in one")
+                    .font(.meta).foregroundStyle(.tertiary)
+            }
+        }
+        .disabled(model.envelope == nil)
+    }
+
+    private var kickIn: Binding<Double> {
+        Binding(
+            get: { model.config.kickIn },
+            set: { model.retune(kickIn: $0, aggression: model.config.aggression) })
+    }
+    private var aggression: Binding<Double> {
+        Binding(
+            get: { model.config.aggression },
+            set: { model.retune(kickIn: model.config.kickIn, aggression: $0) })
     }
 }
 
@@ -171,27 +231,33 @@ struct ActionBar: View {
 
     var body: some View {
         HStack(spacing: .inkGap) {
-            button(.newCurve)
-            if model.editing != nil { button(.useCurve) }
-            button(.boost)
-            button(.system)
-            if model.heldBy != nil { button(.takeOver) }
-            Spacer(minLength: 0)
-            if popover { button(.canvas) }
-            button(.help)
-            if popover { button(.quit) }
+            if popover {
+                button(.boost, "boost")
+                if model.heldBy != nil { button(.takeOver, "take over") }
+                button(.canvas, "curves")
+                button(.help, "?")
+                button(.quit, "quit")
+            } else {
+                button(.newCurve, "new curve")
+                if model.editing != nil { button(.useCurve, "use") }
+                button(.boost, "boost")
+                button(.system, "apple")
+                if model.heldBy != nil { button(.takeOver, "take over") }
+                Spacer(minLength: 0)
+                button(.help, "?")
+            }
         }
     }
 
-    private func button(_ action: ChillAction) -> some View {
+    private func button(_ action: ChillAction, _ short: String) -> some View {
         Button {
             model.perform(action)
         } label: {
             HStack(spacing: .inkTight) {
-                Text(action.spec.title.split(separator: ":").first.map(String.init) ?? "")
-                    .font(.system(size: 12))
-                ShortcutBadge(model.store.displayPrimary(for: action))
+                Text(short).font(.system(size: 12))
+                if short != "?" { ShortcutBadge(model.store.displayPrimary(for: action)) }
             }
+            .fixedSize()
         }
         .buttonStyle(.plain)
         .padding(.horizontal, .inkGap)

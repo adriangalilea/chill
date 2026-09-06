@@ -200,10 +200,85 @@ final class Model {
     }
 
     private func arrived(_ state: ChillKit.State, from client: Client) async {
-        if hello == nil { hello = try? await client.hello() }
+        if hello == nil {
+            hello = try? await client.hello()
+            if hello != nil { ensureTuned() }
+        }
         link = Link.live(state)
         local = nil
         if let hello { clouds.absorb(state.clouds, from: hello.pid) }
+    }
+
+    // MARK: - the built-in curve
+
+    /// The curve most people run: the fan's minimum until `kickIn`, then a
+    /// ramp to its maximum over 45 °C (gentle) down to 15 °C (steep), with
+    /// a knee that `aggression` lifts. Named `chill`, on disk like any
+    /// curve, so `chill curve use chill` and the canvas see the same one.
+    static let tunedName = "chill"
+
+    static func tuned(kickIn: Double, aggression: Double, envelope: ClosedRange<Double>) -> Curve {
+        let span = 45 - 30 * aggression
+        let lift =
+            envelope.lowerBound + (envelope.upperBound - envelope.lowerBound)
+            * (0.2 + 0.3 * aggression)
+        return try! Curve(
+            name: tunedName,
+            points: [
+                Curve.Point(c: kickIn, rpm: envelope.lowerBound),
+                Curve.Point(c: kickIn + span * 0.45, rpm: lift),
+                Curve.Point(c: kickIn + span, rpm: envelope.upperBound),
+            ])
+    }
+
+    var tuned: Curve? {
+        envelope.map {
+            Model.tuned(kickIn: config.kickIn, aggression: config.aggression, envelope: $0)
+        }
+    }
+
+    /// The built-in curve exists on disk from the first envelope on.
+    private func ensureTuned() {
+        guard !curves.contains(where: { $0.name == Model.tunedName }), let tuned else { return }
+        do {
+            try curveStore.save(tuned)
+            reload()
+        } catch {
+            notice = "\(error)"
+        }
+    }
+
+    /// A knob moved: the file follows, and the daemon when it runs it.
+    func retune(kickIn: Double, aggression: Double) {
+        config.kickIn = kickIn
+        config.aggression = aggression
+        saveConfig()
+        guard let tuned else { return }
+        do {
+            try curveStore.save(tuned)
+            reload()
+            if intentCurve == Model.tunedName { call { try await $0.use(tuned) } }
+        } catch {
+            notice = "\(error)"
+        }
+    }
+
+    /// The one switch: Apple holds the fans, or chill does with the last
+    /// curve used (the built-in one until a custom curve was picked).
+    var holdsFans: Bool { (state?.intent ?? .system) != .system }
+
+    func hold(_ on: Bool) {
+        guard on else {
+            system()
+            return
+        }
+        if let last = config.lastCurve, let curve = curves.first(where: { $0.name == last }) {
+            use(curve)
+        } else if let tuned {
+            use(tuned)
+        } else {
+            notice = "no fan envelope yet: no daemon and no SMC"
+        }
     }
 
     private func drop(_ error: Error) {
@@ -252,15 +327,8 @@ final class Model {
 
     /// Right-click: system ↔ the last curve.
     func toggle() {
-        guard let state else { return }
-        if state.intent != .system {
-            system()
-        } else if let last = config.lastCurve, let curve = curves.first(where: { $0.name == last })
-        {
-            use(curve)
-        } else {
-            notice = "no last curve: pick one first"
-        }
+        guard state != nil else { return }
+        hold(!holdsFans)
     }
 
     /// One verb, behind the verbs before it: a held arrow key sends a `use`
@@ -479,7 +547,7 @@ final class Model {
             },
             perform: { [weak self] in self?.perform($0) },
             performFamily: { [weak self] _, key in self?.pick(Int(key)!) })
-        store.publish(appName: "chill", accent: "#dff3ff")
+        store.publish(appName: "chill", accent: Palette.iceHex)
     }
 
     func perform(_ action: ChillAction) {

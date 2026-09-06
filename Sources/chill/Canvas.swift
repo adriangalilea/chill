@@ -37,9 +37,18 @@ extension Font {
     static let meta = Font.system(size: 11, weight: .medium, design: .monospaced)
 }
 
-/// The mark's ink, the one hue every colored thing on the canvas wears;
-/// alpha is the only variable.
-let tone = Color(red: 0xDF / 255.0, green: 0xF3 / 255.0, blue: 0xFF / 255.0)
+/// Three hues, one per meaning, alpha the only other variable: ice for
+/// what chill does (the curve, its targets, the accent), ember for heat
+/// (the die), a warm neutral for what Apple does (the cloud). Same family
+/// as tempo's scale and accent, so the studio's tools read as siblings.
+enum Palette {
+    static let iceHex = "#a9c8ec"
+    static let ice = Color(red: 0xA9 / 255.0, green: 0xC8 / 255.0, blue: 0xEC / 255.0)
+    static let ember = Color(red: 0xFF / 255.0, green: 0x74 / 255.0, blue: 0x20 / 255.0)
+    static let apple = Color(red: 0xCF / 255.0, green: 0xC5 / 255.0, blue: 0xB4 / 255.0)
+}
+
+let tone = Palette.ice
 
 struct CanvasView: View {
     let model: Model
@@ -303,51 +312,58 @@ struct Plot: View {
                     width: x(Double(bin.c) + 1) - x(Double(bin.c)),
                     height: y(Double(bin.rpm)) - y(Double(bin.rpm + Cloud.rpmBin)))
                 let alpha = (0.08 + 0.6 * sqrt(Double(count) / Double(peak))) * weight
-                context.fill(Path(rect), with: .color(tone.opacity(alpha)))
+                context.fill(Path(rect), with: .color(Palette.apple.opacity(alpha)))
             }
         }
 
-        // The curve: flat beyond its ends, the selected point ringed.
+        // The curve, in ice: flat beyond its ends, a soft fill under it,
+        // the selected point ringed and labelled below the line.
         if let curve = f.curve {
             var line = Path()
             line.move(to: CGPoint(x: plot.minX, y: y(curve.points.first!.rpm)))
             for p in curve.points { line.addLine(to: CGPoint(x: x(p.c), y: y(p.rpm))) }
             line.addLine(to: CGPoint(x: plot.maxX, y: y(curve.points.last!.rpm)))
+            var under = line
+            under.addLine(to: CGPoint(x: plot.maxX, y: plot.maxY))
+            under.addLine(to: CGPoint(x: plot.minX, y: plot.maxY))
+            under.closeSubpath()
+            context.fill(under, with: .color(Palette.ice.opacity(0.08)))
             context.stroke(
-                line, with: .color(.primary.opacity(0.9)),
+                line, with: .color(Palette.ice.opacity(0.95)),
                 style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             for (i, p) in curve.points.enumerated() {
                 let r: CGFloat = i == f.point ? 6 : 4
                 let dot = CGRect(x: x(p.c) - r, y: y(p.rpm) - r, width: r * 2, height: r * 2)
-                context.fill(Path(ellipseIn: dot), with: .color(.primary))
+                context.fill(Path(ellipseIn: dot), with: .color(Palette.ice))
                 if i == f.point {
                     context.stroke(
                         Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
-                        with: .color(.primary.opacity(0.5)), lineWidth: 1.5)
+                        with: .color(Palette.ice.opacity(0.5)), lineWidth: 1.5)
                     context.draw(
                         Text("\(Int(p.c))° · \(Int(p.rpm)) rpm").font(.meta)
-                            .foregroundStyle(.secondary),
-                        at: CGPoint(x: x(p.c), y: y(p.rpm) - 18))
+                            .foregroundStyle(Palette.ice),
+                        at: CGPoint(x: x(p.c), y: y(p.rpm) + 18))
                 }
             }
         }
 
-        // Live: the hottest die, each fan's actual and target on it.
+        // Live, in ember: the hottest die as a hairline labelled at its
+        // foot, each fan's actual (open) and target (filled) on it.
         if let die = f.die {
             var line = Path()
             line.move(to: CGPoint(x: x(die), y: plot.minY))
             line.addLine(to: CGPoint(x: x(die), y: plot.maxY))
-            context.stroke(line, with: .color(tone.opacity(0.7)), lineWidth: 1)
+            context.stroke(line, with: .color(Palette.ember.opacity(0.6)), lineWidth: 1)
             context.draw(
-                Text(Status.degrees(die)).font(.meta).foregroundStyle(tone),
-                at: CGPoint(x: x(die) + 18, y: plot.minY + 8))
+                Text("die \(Status.degrees(die))").font(.meta).foregroundStyle(Palette.ember),
+                at: CGPoint(x: x(die) + 30, y: plot.maxY - 10))
             for actual in f.actuals {
                 let dot = CGRect(x: x(die) - 5, y: y(actual) - 5, width: 10, height: 10)
-                context.stroke(Path(ellipseIn: dot), with: .color(tone), lineWidth: 1.5)
+                context.stroke(Path(ellipseIn: dot), with: .color(Palette.ember), lineWidth: 1.5)
             }
             for target in f.targets {
                 let dot = CGRect(x: x(die) - 4, y: y(target) - 4, width: 8, height: 8)
-                context.fill(Path(ellipseIn: dot), with: .color(tone))
+                context.fill(Path(ellipseIn: dot), with: .color(Palette.ice))
             }
         }
     }
