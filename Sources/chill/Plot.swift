@@ -44,12 +44,12 @@ struct PlotGeometry {
     /// ones near the floor. One map and its inverse per axis, used by
     /// everything drawn, hovered or dragged; the heatmap's stops go
     /// through the same map.
-    static let logSpan = log(Frame.celsius.upperBound / Frame.celsius.lowerBound)
+    static let logSpan = Foundation.log(Frame.celsius.upperBound / Frame.celsius.lowerBound)
 
     /// 0 to 1 across the temperature axis.
     static func unit(_ c: Double) -> Double {
         let c = min(Frame.celsius.upperBound, max(Frame.celsius.lowerBound, c))
-        return log(c / Frame.celsius.lowerBound) / logSpan
+        return Foundation.log(c / Frame.celsius.lowerBound) / logSpan
     }
 
     /// The temperature at 0 to 1 across the axis.
@@ -62,14 +62,14 @@ struct PlotGeometry {
     }
     func y(_ rpm: Double) -> CGFloat {
         let r = min(yHi, max(yLo, rpm))
-        return plot.maxY - plot.height * log(r / yLo) / log(yHi / yLo)
+        return plot.maxY - plot.height * Foundation.log(r / yLo) / Foundation.log(yHi / yLo)
     }
     func celsius(at p: CGPoint) -> Double {
         PlotGeometry.celsius(unit: (p.x - plot.minX) / plot.width)
     }
     func rpm(at p: CGPoint) -> Double {
         let u = min(1, max(0, (plot.maxY - p.y) / plot.height))
-        return yLo * exp(u * log(yHi / yLo))
+        return yLo * exp(u * Foundation.log(yHi / yLo))
     }
     /// The curve point under the pointer, within a fingertip.
     func hit(_ curve: Curve?, at p: CGPoint) -> Int? {
