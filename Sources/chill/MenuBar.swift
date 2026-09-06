@@ -24,7 +24,11 @@ final class MenuBar: NSObject {
         precondition(item.button != nil, "no status bar button")
         popover.behavior = .transient
         popover.animates = false
-        popover.contentViewController = NSHostingController(rootView: PopoverView(model: model))
+        let hosting = NSHostingController(rootView: PopoverView(model: model))
+        // The popover takes SwiftUI's ideal size, not the first guess:
+        // without this the top row is measured short and clipped.
+        hosting.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hosting
         model.popover = popover
         item.button!.target = self
         item.button!.action = #selector(clicked)
@@ -118,8 +122,8 @@ struct PopoverView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Fixer(model: model)
-            Plot(model: model)
-                .frame(height: 220)
+            Plot(model: model, curve: model.tuned, editable: false)
+                .frame(height: 200)
             Knobs(model: model)
         }
         .padding(.inkBlock)
@@ -158,8 +162,10 @@ struct Knobs: View {
                 }
             }
             if let custom = model.intentCurve, custom != Model.tunedName {
-                Text("chill runs your curve \"\(custom)\"; the knobs shape the built-in one")
-                    .font(.meta).foregroundStyle(.tertiary)
+                Text(
+                    "running your curve \"\(custom)\" from the canvas; the switch returns to this one"
+                )
+                .font(.meta).foregroundStyle(.tertiary)
             }
         }
         .disabled(model.envelope == nil)

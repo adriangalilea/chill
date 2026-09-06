@@ -46,14 +46,41 @@ public struct Curve: Codable, Sendable, Hashable {
         try Curve(name: name, points: [Point(c: 0, rpm: rpm)])
     }
 
-    /// Linear interpolation between neighbours, flat beyond the ends.
+    /// A smooth curve through the points: monotone cubic Hermite
+    /// (Fritsch and Carlson's tangents), so it never overshoots a point
+    /// or wiggles between two, with flat tangents at both ends so the
+    /// constant stretches beyond them join without a knee. What the
+    /// canvas draws is what the daemon writes: one function.
     public func rpm(at celsius: Double) -> Double {
         if celsius <= points.first!.c { return points.first!.rpm }
         if celsius >= points.last!.c { return points.last!.rpm }
-        let i = points.firstIndex { $0.c > celsius }!
-        let (lo, hi) = (points[i - 1], points[i])
-        let t = (celsius - lo.c) / (hi.c - lo.c)
-        return lo.rpm + t * (hi.rpm - lo.rpm)
+        let i = points.firstIndex { $0.c > celsius }! - 1
+        let (lo, hi) = (points[i], points[i + 1])
+        let h = hi.c - lo.c
+        let t = (celsius - lo.c) / h
+        let (m0, m1) = (tangents[i], tangents[i + 1])
+        let t2 = t * t
+        let t3 = t2 * t
+        return (2 * t3 - 3 * t2 + 1) * lo.rpm + (t3 - 2 * t2 + t) * h * m0
+            + (-2 * t3 + 3 * t2) * hi.rpm + (t3 - t2) * h * m1
+    }
+
+    /// One slope per point, rpm per °C: zero at the ends and wherever
+    /// the curve turns, else the harmonic mean of the neighbouring
+    /// secants weighted by their spans (the monotone choice).
+    private var tangents: [Double] {
+        let n = points.count
+        guard n > 1 else { return [0] }
+        let h = (0..<n - 1).map { points[$0 + 1].c - points[$0].c }
+        let d = (0..<n - 1).map { (points[$0 + 1].rpm - points[$0].rpm) / h[$0] }
+        var m = [Double](repeating: 0, count: n)
+        for i in 1..<n - 1 {
+            guard d[i - 1] * d[i] > 0 else { continue }
+            let w0 = 2 * h[i] + h[i - 1]
+            let w1 = h[i] + 2 * h[i - 1]
+            m[i] = (w0 + w1) / (w0 / d[i - 1] + w1 / d[i])
+        }
+        return m
     }
 
     /// The rpm this curve asks of `fan` at `celsius`, inside its envelope.

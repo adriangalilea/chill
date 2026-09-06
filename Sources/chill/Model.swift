@@ -263,8 +263,8 @@ final class Model {
         }
     }
 
-    /// The one switch: Apple holds the fans, or chill does with the last
-    /// curve used (the built-in one until a custom curve was picked).
+    /// The one switch: Apple holds the fans, or chill does with the
+    /// built-in curve. A custom curve is chosen on the canvas, never here.
     var holdsFans: Bool { (state?.intent ?? .system) != .system }
 
     func hold(_ on: Bool) {
@@ -272,13 +272,11 @@ final class Model {
             system()
             return
         }
-        if let last = config.lastCurve, let curve = curves.first(where: { $0.name == last }) {
-            use(curve)
-        } else if let tuned {
-            use(tuned)
-        } else {
+        guard let tuned else {
             notice = "no fan envelope yet: no daemon and no SMC"
+            return
         }
+        call { try await $0.use(tuned) }
     }
 
     private func drop(_ error: Error) {

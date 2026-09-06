@@ -46,6 +46,32 @@ enum Palette {
     static let ice = Color(red: 0xA9 / 255.0, green: 0xC8 / 255.0, blue: 0xEC / 255.0)
     static let ember = Color(red: 0xFF / 255.0, green: 0x74 / 255.0, blue: 0x20 / 255.0)
     static let apple = Color(red: 0xCF / 255.0, green: 0xC5 / 255.0, blue: 0xB4 / 255.0)
+    static let hot = Color(red: 0xFF / 255.0, green: 0x2E / 255.0, blue: 0x2E / 255.0)
+
+    /// The die's color IS its temperature: ice at 45 °C and below, ember
+    /// by 75 °C, red at 100 °C, blended in between.
+    static func heat(_ celsius: Double) -> Color {
+        func mix(_ a: Color, _ b: Color, _ t: Double) -> Color {
+            let (ra, ga, ba) = a.rgb
+            let (rb, gb, bb) = b.rgb
+            return Color(
+                red: ra + (rb - ra) * t, green: ga + (gb - ga) * t, blue: ba + (bb - ba) * t)
+        }
+        switch celsius {
+        case ..<45: return ice
+        case ..<75: return mix(ice, ember, (celsius - 45) / 30)
+        case ..<100: return mix(ember, hot, (celsius - 75) / 25)
+        default: return hot
+        }
+    }
+}
+
+extension Color {
+    /// The sRGB components, for blending two palette colors.
+    fileprivate var rgb: (Double, Double, Double) {
+        let c = NSColor(self).usingColorSpace(.sRGB)!
+        return (c.redComponent, c.greenComponent, c.blueComponent)
+    }
 }
 
 let tone = Palette.ice
@@ -78,7 +104,7 @@ struct CanvasView: View {
             HStack(alignment: .top, spacing: .inkBlock) {
                 CurveList(model: model)
                     .frame(width: 200)
-                Plot(model: model)
+                Plot(model: model, curve: model.editing, editable: true)
             }
             ActionBar(model: model, popover: false)
             Text(hint)
@@ -226,14 +252,23 @@ private struct PlotGeometry {
 /// uses the curve.
 struct Plot: View {
     let model: Model
+    /// The curve drawn: the built-in one in the popover, the cursor's in
+    /// the canvas. Only the canvas edits by pointer.
+    let curve: Curve?
+    let editable: Bool
     @SwiftUI.State private var dragging: Int?
 
-    init(model: Model) { self.model = model }
+    init(model: Model, curve: Curve?, editable: Bool) {
+        self.model = model
+        self.curve = curve
+        self.editable = editable
+    }
 
     var body: some View {
         let frame = Frame(
-            envelope: model.envelope, clouds: model.clouds.bins, curve: model.editing,
-            point: model.point, die: model.die, actuals: model.actuals, targets: model.targets)
+            envelope: model.envelope, clouds: model.clouds.bins, curve: curve,
+            point: editable ? model.point : -1, die: model.die, actuals: model.actuals,
+            targets: model.targets)
         GeometryReader { proxy in
             let geometry = PlotGeometry(size: proxy.size, envelope: frame.envelope)
             Canvas { context, size in
@@ -261,12 +296,14 @@ struct Plot: View {
                         model.place(
                             celsius: geometry.celsius(at: value.location),
                             rpm: geometry.rpm(at: value.location))
-                    }
+                    },
+                including: editable ? .all : .none
             )
             .simultaneousGesture(
                 TapGesture(count: 2).onEnded {
                     if let editing = model.editing { model.use(editing) }
-                }
+                },
+                including: editable ? .all : .none
             )
         }
         .background(
@@ -316,13 +353,17 @@ struct Plot: View {
             }
         }
 
-        // The curve, in ice: flat beyond its ends, a soft fill under it,
-        // the selected point ringed and labelled below the line.
+        // The curve, in ice, sampled every half degree from the same
+        // function the daemon writes; a soft fill under it, the selected
+        // point ringed and labelled below the line.
         if let curve = f.curve {
             var line = Path()
-            line.move(to: CGPoint(x: plot.minX, y: y(curve.points.first!.rpm)))
-            for p in curve.points { line.addLine(to: CGPoint(x: x(p.c), y: y(p.rpm))) }
-            line.addLine(to: CGPoint(x: plot.maxX, y: y(curve.points.last!.rpm)))
+            line.move(to: CGPoint(x: plot.minX, y: y(curve.rpm(at: Frame.celsius.lowerBound))))
+            for c in stride(
+                from: Frame.celsius.lowerBound, through: Frame.celsius.upperBound, by: 0.5)
+            {
+                line.addLine(to: CGPoint(x: x(c), y: y(curve.rpm(at: c))))
+            }
             var under = line
             under.addLine(to: CGPoint(x: plot.maxX, y: plot.maxY))
             under.addLine(to: CGPoint(x: plot.minX, y: plot.maxY))
@@ -347,19 +388,29 @@ struct Plot: View {
             }
         }
 
-        // Live, in ember: the hottest die as a hairline labelled at its
-        // foot, each fan's actual (open) and target (filled) on it.
+        // Live: the hottest die as a hairline in its heat's color,
+        // labelled at the top; on it, each fan's actual rpm as an open
+        // ring with its name and number, and chill's target as a filled
+        // ice dot while chill holds the fan.
         if let die = f.die {
+            let heat = Palette.heat(die)
             var line = Path()
             line.move(to: CGPoint(x: x(die), y: plot.minY))
             line.addLine(to: CGPoint(x: x(die), y: plot.maxY))
-            context.stroke(line, with: .color(Palette.ember.opacity(0.6)), lineWidth: 1)
+            context.stroke(line, with: .color(heat.opacity(0.6)), lineWidth: 1)
             context.draw(
-                Text("die \(Status.degrees(die))").font(.meta).foregroundStyle(Palette.ember),
-                at: CGPoint(x: x(die) + 30, y: plot.maxY - 10))
-            for actual in f.actuals {
+                Text("die \(Status.degrees(die))").font(.meta).foregroundStyle(heat),
+                at: CGPoint(x: x(die) + 34, y: plot.minY + 8))
+            // Labels stack from the marker outward so two fans a few
+            // hundred rpm apart stay readable.
+            for (i, actual) in f.actuals.enumerated() {
                 let dot = CGRect(x: x(die) - 5, y: y(actual) - 5, width: 10, height: 10)
-                context.stroke(Path(ellipseIn: dot), with: .color(Palette.ember), lineWidth: 1.5)
+                context.stroke(Path(ellipseIn: dot), with: .color(heat), lineWidth: 1.5)
+                let text = Text("fan \(i + 1) · \(Int(actual)) rpm").font(.meta)
+                    .foregroundStyle(heat)
+                let dy: CGFloat = f.actuals.count > 1 && i == 0 ? -9 : 9
+                context.draw(
+                    text, at: CGPoint(x: x(die) + 12, y: y(actual) + dy), anchor: .leading)
             }
             for target in f.targets {
                 let dot = CGRect(x: x(die) - 4, y: y(target) - 4, width: 8, height: 8)
