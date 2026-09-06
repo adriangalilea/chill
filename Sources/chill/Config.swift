@@ -8,8 +8,6 @@ import Foundation
 /// curve, the one most people never leave.
 struct Config: Codable, Equatable {
     var lastCurve: String?
-    /// Apple's cloud on the plot, the `a` toggle.
-    var showCloud = true
     /// The die temperature (°C) below which the built-in curve sits at
     /// the fan's minimum.
     var kickIn: Double = Config.defaultKickIn
@@ -26,7 +24,6 @@ struct Config: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         lastCurve = try c.decodeIfPresent(String.self, forKey: .lastCurve)
-        showCloud = try c.decodeIfPresent(Bool.self, forKey: .showCloud) ?? true
         kickIn = try c.decodeIfPresent(Double.self, forKey: .kickIn) ?? Config.defaultKickIn
         slope =
             try c.decodeIfPresent(Double.self, forKey: .slope) ?? Config.defaultSlope

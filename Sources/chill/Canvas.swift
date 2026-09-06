@@ -48,8 +48,6 @@ enum Palette {
     static let ember = Color(red: 0xFF / 255.0, green: 0x74 / 255.0, blue: 0x20 / 255.0)
     static let hot = Color(red: 0xFF / 255.0, green: 0x4F / 255.0, blue: 0x12 / 255.0)
     static let apple = Color.primary
-    /// Terminal phosphor green: Apple's cloud, and nothing else.
-    static let phosphor = Color(red: 0x5E / 255.0, green: 0xE0 / 255.0, blue: 0x8A / 255.0)
 
     /// The die's color IS its temperature: ice at 45 °C and below, ember
     /// by 75 °C, red at 100 °C, blended in between.
