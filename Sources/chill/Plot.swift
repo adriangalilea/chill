@@ -298,10 +298,11 @@ struct Plot: View {
                 if let geometry, let curve = frame.curve {
                     CurveLayer(
                         curve: curve, point: frame.point, geometry: geometry,
-                        hot: editable
-                            ? (dragging.flatMap { $0 >= 0 ? $0 : nil }
-                                ?? hover.flatMap { geometry.hit(curve, at: $0) })
-                            : nil,
+                        // Under the pointer a point rings and says its
+                        // numbers on every plot; only moving it is the
+                        // editable plot's.
+                        hot: dragging.flatMap { $0 >= 0 ? $0 : nil }
+                            ?? hover.flatMap { geometry.hit(curve, at: $0) },
                         ghost: ghost(frame, geometry), editable: editable,
                         heldNote: dragging.flatMap { i in
                             i >= 0 && curve.points.indices.contains(i)
