@@ -407,10 +407,26 @@ struct TipView: View {
                 ShortcutBadge(tip.key)
                 Text("toggle from any app").font(.meta).foregroundStyle(.secondary)
             }
-            Button("got it", action: gotIt)
-                .buttonStyle(.plain)
-                .font(.meta)
-                .foregroundStyle(Palette.dune)
+            // A subtle button: a check and the words, on its own faint
+            // plate, so it reads as something to press.
+            Button(action: gotIt) {
+                HStack(spacing: .inkTight) {
+                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+                    Text("got it").font(.meta)
+                }
+                .padding(.horizontal, .inkGap)
+                .padding(.vertical, .inkTight)
+                .background(
+                    Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: .inkRow)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: .inkRow)
+                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(Give())
+            .foregroundStyle(Palette.dune)
         }
         .fixedSize()
         .padding(.inkLane)
