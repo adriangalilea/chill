@@ -149,6 +149,28 @@ struct Plot: View {
     let editable: Bool
     @SwiftUI.State private var dragging: Int?
     @SwiftUI.State private var hover: CGPoint?
+    @SwiftUI.State private var rightClicks: Any?
+
+    /// How near the line the pointer must be for the ghost point.
+    static let ghostReach: CGFloat = 14
+
+    /// Where a point would be born: on the curve at the pointer's
+    /// temperature, while the pointer is near the line and not on a
+    /// point.
+    static func ghost(at p: CGPoint, _ f: Frame, _ g: PlotGeometry) -> Curve.Point? {
+        guard let curve = f.curve, g.plot.contains(p), g.hit(curve, at: p) == nil else {
+            return nil
+        }
+        let c = g.celsius(at: p)
+        let rpm = curve.rpm(at: c)
+        guard abs(g.y(rpm) - p.y) < ghostReach else { return nil }
+        return Curve.Point(c: c, rpm: rpm)
+    }
+
+    private func ghost(_ f: Frame, _ g: PlotGeometry?) -> Curve.Point? {
+        guard editable, dragging == nil, let hover, let g else { return nil }
+        return Plot.ghost(at: hover, f, g)
+    }
 
     /// Fans closer than this read as one rule; apart, each gets its name.
     static let togetherRPM = 225.0
@@ -181,12 +203,13 @@ struct Plot: View {
         case open, closed
     }
 
-    /// A hand over a draggable point, closed while one is being dragged.
+    /// A hand over a draggable point or the ghost, closed while dragging.
     private func cursorWants(_ f: Frame, _ g: PlotGeometry?) -> Hand? {
         guard editable, let g else { return nil }
         if let dragging, dragging >= 0 { return .closed }
-        guard let hover, g.hit(f.curve, at: hover) != nil else { return nil }
-        return .open
+        guard let hover else { return nil }
+        if g.hit(f.curve, at: hover) != nil || Plot.ghost(at: hover, f, g) != nil { return .open }
+        return nil
     }
 
     static func hoveredNow(_ p: CGPoint?, _ f: Frame, _ g: PlotGeometry?, editable: Bool)
@@ -216,7 +239,8 @@ struct Plot: View {
                 if let geometry, let curve = frame.curve {
                     CurveLayer(
                         curve: curve, point: frame.point, geometry: geometry,
-                        hot: editable ? hover.flatMap { geometry.hit(curve, at: $0) } : nil
+                        hot: editable ? hover.flatMap { geometry.hit(curve, at: $0) } : nil,
+                        ghost: ghost(frame, geometry)
                     )
                     .animation(.easeOut(duration: 0.5), value: CurveLayer.encode(curve))
                     .transition(.opacity)
@@ -228,17 +252,38 @@ struct Plot: View {
                     )
                     .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
                 }
-                if let geometry, let hover,
-                    let on = Plot.hovered(hover, frame, geometry, editable: editable)
+            }
+            // The label grows into its card in place, and shrinks back:
+            // one element, not a second one appearing beside the first.
+            .overlay(alignment: .topLeading) {
+                if let geometry, let die = frame.die, let hover,
+                    Plot.hovered(hover, frame, geometry, editable: editable) == .die
                 {
-                    HoverCard(model: model, frame: frame, on: on)
+                    let box = LiveLayer.dieLabelBox(die, geometry)
+                    let right = LiveLayer.dieLabelRight(die, geometry)
+                    HoverCard(model: model, frame: frame, on: .die)
                         .fixedSize()
-                        .position(
-                            x: hover.x + (hover.x < proxy.size.width / 2 ? 110 : -110),
-                            y: hover.y + (hover.y < proxy.size.height / 2 ? 44 : -44)
-                        )
+                        .alignmentGuide(.leading) { d in right ? -box.minX : d.width - box.maxX }
+                        .alignmentGuide(.top) { _ in -box.minY }
                         .allowsHitTesting(false)
-                        .transition(.opacity)
+                        .transition(
+                            .scale(scale: 0.6, anchor: right ? .topLeading : .topTrailing)
+                                .combined(with: .opacity))
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if let geometry, let hover,
+                    Plot.hovered(hover, frame, geometry, editable: editable) == .fans,
+                    let rpm = LiveLayer.marks(frame.actuals).first?.1
+                {
+                    let box = LiveLayer.fanLabelBox(rpm, geometry)
+                    HoverCard(model: model, frame: frame, on: .fans)
+                        .fixedSize()
+                        .alignmentGuide(.leading) { d in d.width - box.maxX + 4 }
+                        .alignmentGuide(.top) { _ in -(box.midY - 20) }
+                        .allowsHitTesting(false)
+                        .transition(
+                            .scale(scale: 0.6, anchor: .topTrailing).combined(with: .opacity))
                 }
             }
             .animation(
@@ -261,12 +306,26 @@ struct Plot: View {
                 }
             }
             .contentShape(Rectangle())
+            // One motion: press a point (or the ghost on the line, which
+            // becomes a point at the press), drag it, release, it stays.
+            // Empty plot does nothing.
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         guard let geometry else { return }
                         if dragging == nil {
-                            dragging = geometry.hit(frame.curve, at: value.startLocation) ?? -1
+                            if let hit = geometry.hit(frame.curve, at: value.startLocation) {
+                                dragging = hit
+                            } else if let born = Plot.ghost(
+                                at: value.startLocation, frame, geometry)
+                            {
+                                model.place(celsius: born.c, rpm: born.rpm)
+                                dragging =
+                                    model.editing?.points.firstIndex { $0.c == born.c.rounded() }
+                                    ?? -1
+                            } else {
+                                dragging = -1
+                            }
                         }
                         guard let index = dragging, index >= 0 else { return }
                         model.point = index
@@ -274,17 +333,32 @@ struct Plot: View {
                             index, celsius: geometry.celsius(at: value.location),
                             rpm: geometry.rpm(at: value.location))
                     }
-                    .onEnded { value in
-                        defer { dragging = nil }
-                        guard let geometry, dragging == -1,
-                            hypot(value.translation.width, value.translation.height) < 3
-                        else { return }
-                        model.place(
-                            celsius: geometry.celsius(at: value.location),
-                            rpm: geometry.rpm(at: value.location))
-                    },
+                    .onEnded { _ in dragging = nil },
                 including: editable ? .all : .none
             )
+            // Right-click on a point removes it: an event monitor, since
+            // SwiftUI gestures do not see the secondary button.
+            .onAppear {
+                guard editable else { return }
+                rightClicks = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) {
+                    event in
+                    guard let geometry, let window = event.window,
+                        let content = window.contentView
+                    else { return event }
+                    let inPlot = proxy.frame(in: .global)
+                    let p = CGPoint(
+                        x: event.locationInWindow.x - inPlot.minX,
+                        y: content.bounds.height - event.locationInWindow.y - inPlot.minY)
+                    guard let hit = geometry.hit(model.editing, at: p) else { return event }
+                    model.point = hit
+                    model.removePoint()
+                    return nil
+                }
+            }
+            .onDisappear {
+                if let rightClicks { NSEvent.removeMonitor(rightClicks) }
+                rightClicks = nil
+            }
             .simultaneousGesture(
                 TapGesture(count: 2).onEnded {
                     if let editing = model.editing { model.use(editing) }
@@ -342,12 +416,16 @@ struct CurveLayer: View, @MainActor Animatable {
     /// The point under the pointer: it grows and rings, the sign that it
     /// can be dragged.
     let hot: Int?
+    /// Where a press would put a new point: hollow, on the line, following
+    /// the pointer.
+    let ghost: Curve.Point?
 
-    init(curve: Curve, point: Int, geometry: PlotGeometry, hot: Int?) {
+    init(curve: Curve, point: Int, geometry: PlotGeometry, hot: Int?, ghost: Curve.Point?) {
         self.curve = curve
         self.point = point
         self.geometry = geometry
         self.hot = hot
+        self.ghost = ghost
         vec = CurveLayer.encode(curve)
     }
 
@@ -401,6 +479,15 @@ struct CurveLayer: View, @MainActor Animatable {
         context.stroke(
             line, with: .color(Palette.dune.opacity(0.95)),
             style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+        // The ghost: hollow, on the line, where a press would bear a point.
+        if let ghost {
+            let dot = CGRect(x: g.x(ghost.c) - 5, y: g.y(ghost.rpm) - 5, width: 10, height: 10)
+            context.fill(
+                Path(ellipseIn: dot), with: .color(Color(nsColor: .windowBackgroundColor)))
+            context.stroke(
+                Path(ellipseIn: dot), with: .color(Palette.dune),
+                style: StrokeStyle(lineWidth: 1.5, dash: [2, 2]))
+        }
         // A flat curve (gust) has one point at 0 °C, off the axis: no dot.
         for (i, p) in points.enumerated() where Frame.celsius.contains(p.c) {
             // A dark edge lifts the point off the line and off the live
@@ -531,11 +618,14 @@ struct LiveLayer: View, @MainActor Animatable {
                 line, with: .color(heat.opacity(lit == .die ? 1 : 0.7)),
                 lineWidth: lit == .die ? 2 : 1)
             // Right of the line, or left of it near the right edge.
-            let rightRoom = LiveLayer.dieLabelRight(die, g)
-            context.plated(
-                Text("die \(Status.degrees(die))").font(.meta).foregroundStyle(heat),
-                at: CGPoint(x: g.x(die) + (rightRoom ? 6 : -6), y: plot.minY + 8),
-                anchor: rightRoom ? .leading : .trailing)
+            // The label, unless it is the card right now.
+            if lit != .die {
+                let rightRoom = LiveLayer.dieLabelRight(die, g)
+                context.plated(
+                    Text("die \(Status.degrees(die))").font(.meta).foregroundStyle(heat),
+                    at: CGPoint(x: g.x(die) + (rightRoom ? 6 : -6), y: plot.minY + 8),
+                    anchor: rightRoom ? .leading : .trailing)
+            }
             // The die is a vertical hairline, so a fan is a horizontal
             // one at its rpm, the two crossing at the live point, a small
             // ring there. Fans running together are one line, "fans · N
@@ -590,10 +680,12 @@ struct LiveLayer: View, @MainActor Animatable {
                     Path(ellipseIn: core.insetBy(dx: -0.75, dy: -0.75)),
                     with: .color(.white.opacity(0.85)), lineWidth: 1.5)
                 let dy: CGFloat = marks.count > 1 && i == 1 ? 9 : -9
-                context.plated(
-                    Text("\(mark.0) · \(Int(mark.1)) rpm").font(.meta)
-                        .foregroundStyle(Palette.dune),
-                    at: CGPoint(x: plot.maxX - 4, y: g.y(mark.1) + dy), anchor: .trailing)
+                if lit != .fans {
+                    context.plated(
+                        Text("\(mark.0) · \(Int(mark.1)) rpm").font(.meta)
+                            .foregroundStyle(Palette.dune),
+                        at: CGPoint(x: plot.maxX - 4, y: g.y(mark.1) + dy), anchor: .trailing)
+                }
             }
             // chill's target, a dashed rule at the rpm it asked for.
             for target in targets {

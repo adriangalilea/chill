@@ -130,7 +130,7 @@ struct CanvasView: View {
         let s = model.store
         func k(_ a: ChillAction) -> String { s.displayPrimary(for: a) }
         return
-            "click the plot: a point · drag: move it · double-click: use the curve · \(k(.pointUp))\(k(.pointDown)) rpm · \(k(.pointLeft))\(k(.pointRight)) °C · \(k(.nextPoint)) next point · \(k(.removePoint)) remove · \(k(.help)) all keys"
+            "press the line: a new point, drag it · right-click: remove it · double-click: use the curve · \(k(.pointUp))\(k(.pointDown)) rpm · \(k(.pointLeft))\(k(.pointRight)) °C · \(k(.nextPoint)) next point · \(k(.help)) all keys"
     }
 }
 

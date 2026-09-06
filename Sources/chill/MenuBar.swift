@@ -124,7 +124,7 @@ struct PopoverView: View {
                     Knobs(model: model).transition(.opacity)
                 case .custom:
                     HStack(spacing: .inkLane) {
-                        Text("click adds a point · drag moves it · \(key(.removePoint)) removes it")
+                        Text("press the line to add a point and drag it · right-click removes one")
                             .font(.meta).foregroundStyle(.tertiary)
                         Spacer(minLength: 0)
                         Button {
@@ -262,7 +262,8 @@ struct Tabs: View {
         case .gust:
             return "every fan flat out for \(Wire.boostMinutes) minutes, then back to apple"
         case .custom:
-            return "your curve \"\(name)\": click the plot to add a point, drag to move it"
+            return
+                "your curve \"\(name)\": press the line to add a point and drag it, right-click removes one"
         }
     }
 }
