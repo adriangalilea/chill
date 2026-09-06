@@ -283,7 +283,7 @@ firmware rejected, 0x84 = no such key; `KERN_SUCCESS` alone means nothing.
   reconciliation and every exit path run this exact routine.
 - **target**: clamp to the cached envelope, hysteresis 50 rpm, then the
   curve's value whole: the ramp from wherever the fan was is the
-  firmware's, and a softened target lingers (a gust's ceiling outlived
+  firmware's, and a softened target lingers (a boost's ceiling outlived
   the tab that ended it). The
   read-back judges the write: the firmware answers some `F{n}Tg` writes
   with a result byte (0x87 seen) and applies the value anyway, which is
@@ -397,10 +397,12 @@ Hysteresis is a constant in code, not a per-curve field.
   is the running one), ⌘1-9 pick by list order, `s` system, `t`
   take over, `?` the cheat sheet, ⎋ closes.
 - **Menu bar glyph**: EFFECT, read from the daemon, never intent: outline
-  = Apple holds the fans · filled = a curve does · bar = gust · slashed
-  outline = no daemon (not installed, awaiting approval, unreachable) ·
-  dotted = foreign. Left-click opens the popover, right-click toggles
-  apple ↔ chill (MenuBarExtra has no right-click). With no daemon the
+  = Apple holds the fans · filled = a curve does · bar = a CLI boost ·
+  slashed outline = no daemon (not installed, awaiting approval,
+  unreachable) · dotted = foreign. Left-click opens the popover;
+  right-click opens the app menu (version, the daemon line, canvas,
+  shortcuts, start at login, about, quit; MenuBarExtra has no
+  right-click, hence NSStatusItem). With no daemon the
   popover leads with the one action that fixes it (`Fixer`): "install
   chilld" (`register()`) or "approve chilld in System Settings › General
   › Login Items & Extensions" (`openSystemSettingsLoginItems()`), polling

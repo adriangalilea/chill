@@ -115,9 +115,11 @@ and lid gates below.
       --license MIT --command "brew install --cask adriangalilea/tap/chill"
       --platform macos --stack swift`; `vercel domains add
       chill.untitled.garden untitled-garden`.
-- [ ] Retire SoloFan from the fleet: Brewfile/apps script,
-      `/etc/sudoers.d/smc-fan-helper` (sudo, pbcopy to Adrian),
-      `/usr/local/bin/smc-helper` trashed.
+- [ ] Retire SoloFan from the fleet: on this Mac it no longer runs but
+      `/Applications/SoloFan.app` is still installed, with the
+      `onboard.sh` apps entry, `/etc/sudoers.d/smc-fan-helper` (sudo,
+      pbcopy to Adrian) and `/usr/local/bin/smc-helper` (still handy as an
+      independent fan read while chilld is young).
 
 ## Deferred, for fun
 
