@@ -152,25 +152,48 @@ struct Plot: View {
 
     /// Fans closer than this read as one rule; apart, each gets its name.
     static let togetherRPM = 225.0
-    /// How near a rule the pointer must rest for its hover card.
+    /// How near a line the pointer must rest for its card.
     static let hoverReach: CGFloat = 10
 
-    /// What the pointer rests on: the die's vertical, or a fan's
-    /// horizontal. The vertical wins where they cross.
+    /// What the pointer rests on: the die's vertical (line or label), or
+    /// a fan's horizontal. A curve point within reach wins outright: no
+    /// card, no highlight, the point is what the pointer is there for.
     enum Hovered: Equatable {
         case die, fans
     }
 
-    static func hovered(_ p: CGPoint, _ f: Frame, _ g: PlotGeometry) -> Hovered? {
+    static func hovered(_ p: CGPoint, _ f: Frame, _ g: PlotGeometry, editable: Bool) -> Hovered? {
         guard g.plot.contains(p) else { return nil }
-        if let die = f.die, abs(p.x - g.x(die)) < hoverReach { return .die }
-        if f.actuals.contains(where: { abs(p.y - g.y($0)) < hoverReach }) { return .fans }
+        if editable, g.hit(f.curve, at: p) != nil { return nil }
+        if let die = f.die,
+            abs(p.x - g.x(die)) < hoverReach || LiveLayer.dieLabelBox(die, g).contains(p)
+        {
+            return .die
+        }
+        for rpm in LiveLayer.marks(f.actuals).map(\.1)
+        where abs(p.y - g.y(rpm)) < hoverReach || LiveLayer.fanLabelBox(rpm, g).contains(p) {
+            return .fans
+        }
         return nil
     }
 
-    static func hoveredNow(_ p: CGPoint?, _ f: Frame, _ g: PlotGeometry?) -> Hovered? {
+    enum Hand: Equatable {
+        case open, closed
+    }
+
+    /// A hand over a draggable point, closed while one is being dragged.
+    private func cursorWants(_ f: Frame, _ g: PlotGeometry?) -> Hand? {
+        guard editable, let g else { return nil }
+        if let dragging, dragging >= 0 { return .closed }
+        guard let hover, g.hit(f.curve, at: hover) != nil else { return nil }
+        return .open
+    }
+
+    static func hoveredNow(_ p: CGPoint?, _ f: Frame, _ g: PlotGeometry?, editable: Bool)
+        -> Hovered?
+    {
         guard let p, let g else { return nil }
-        return hovered(p, f, g)
+        return hovered(p, f, g, editable: editable)
     }
 
     init(model: Model, curve: Curve?, editable: Bool) {
@@ -191,15 +214,23 @@ struct Plot: View {
                     if let geometry { Plot.drawStatic(frame, geometry, in: context) }
                 }
                 if let geometry, let curve = frame.curve {
-                    CurveLayer(curve: curve, point: frame.point, geometry: geometry)
-                        .animation(.easeOut(duration: 0.5), value: CurveLayer.encode(curve))
-                        .transition(.opacity)
+                    CurveLayer(
+                        curve: curve, point: frame.point, geometry: geometry,
+                        hot: editable ? hover.flatMap { geometry.hit(curve, at: $0) } : nil
+                    )
+                    .animation(.easeOut(duration: 0.5), value: CurveLayer.encode(curve))
+                    .transition(.opacity)
                 }
                 if let geometry {
-                    LiveLayer(frame: frame, geometry: geometry)
-                        .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
+                    LiveLayer(
+                        frame: frame, geometry: geometry,
+                        lit: Plot.hoveredNow(hover, frame, geometry, editable: editable)
+                    )
+                    .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
                 }
-                if let geometry, let hover, let on = Plot.hovered(hover, frame, geometry) {
+                if let geometry, let hover,
+                    let on = Plot.hovered(hover, frame, geometry, editable: editable)
+                {
                     HoverCard(model: model, frame: frame, on: on)
                         .fixedSize()
                         .position(
@@ -210,12 +241,23 @@ struct Plot: View {
                         .transition(.opacity)
                 }
             }
-            .animation(.inkSettle, value: Plot.hoveredNow(hover, frame, geometry))
+            .animation(
+                .inkSettle, value: Plot.hoveredNow(hover, frame, geometry, editable: editable)
+            )
             .animation(.inkSettle, value: frame.curve?.name)
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let p): hover = p
                 case .ended: hover = nil
+                }
+            }
+            // The cursor says it too: a hand over a point, closed while
+            // it drags.
+            .onChange(of: cursorWants(frame, geometry)) { _, hand in
+                switch hand {
+                case .open: NSCursor.openHand.set()
+                case .closed: NSCursor.closedHand.set()
+                case .none: NSCursor.arrow.set()
                 }
             }
             .contentShape(Rectangle())
@@ -297,10 +339,15 @@ struct CurveLayer: View, @MainActor Animatable {
     let geometry: PlotGeometry
     var vec: Vec
 
-    init(curve: Curve, point: Int, geometry: PlotGeometry) {
+    /// The point under the pointer: it grows and rings, the sign that it
+    /// can be dragged.
+    let hot: Int?
+
+    init(curve: Curve, point: Int, geometry: PlotGeometry, hot: Int?) {
         self.curve = curve
         self.point = point
         self.geometry = geometry
+        self.hot = hot
         vec = CurveLayer.encode(curve)
     }
 
@@ -359,12 +406,17 @@ struct CurveLayer: View, @MainActor Animatable {
             // A dark edge lifts the point off the line and off the live
             // point's dune; the selected one is ringed and labelled to
             // its upper right, clear of the live point's halo.
-            let r: CGFloat = i == point ? 6 : 4
+            let r: CGFloat = i == point || i == hot ? 6 : 4
             let dot = CGRect(x: g.x(p.c) - r, y: g.y(p.rpm) - r, width: r * 2, height: r * 2)
             context.fill(Path(ellipseIn: dot), with: .color(Palette.dune))
             context.stroke(
                 Path(ellipseIn: dot), with: .color(Color(nsColor: .windowBackgroundColor)),
                 lineWidth: 1.5)
+            if i == hot && i != point {
+                context.stroke(
+                    Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
+                    with: .color(Palette.dune.opacity(0.35)), lineWidth: 1.5)
+            }
             if i == point {
                 context.stroke(
                     Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
@@ -386,10 +438,40 @@ struct LiveLayer: View, @MainActor Animatable {
     let geometry: PlotGeometry
     var vec: Vec
 
-    init(frame: Frame, geometry: PlotGeometry) {
+    /// The element under the pointer, drawn brighter: the affordance
+    /// that says a card is one rest away.
+    let lit: Plot.Hovered?
+
+    init(frame: Frame, geometry: PlotGeometry, lit: Plot.Hovered?) {
         self.frame = frame
         self.geometry = geometry
+        self.lit = lit
         vec = LiveLayer.encode(frame)
+    }
+
+    /// One rule per fan, or one for both while they run within
+    /// `Plot.togetherRPM` of each other.
+    static func marks(_ actuals: [Double]) -> [(String, Double)] {
+        let spread = (actuals.max() ?? 0) - (actuals.min() ?? 0)
+        return actuals.count > 1 && spread <= Plot.togetherRPM
+            ? [("fans", actuals.reduce(0, +) / Double(actuals.count))]
+            : actuals.enumerated().map { ("fan \($0.offset + 1)", $0.element) }
+    }
+
+    /// The die's label sits right of its line unless the edge is near.
+    static func dieLabelRight(_ die: Double, _ g: PlotGeometry) -> Bool {
+        g.plot.maxX - g.x(die) > 90
+    }
+
+    static func dieLabelBox(_ die: Double, _ g: PlotGeometry) -> CGRect {
+        let x = g.x(die)
+        return dieLabelRight(die, g)
+            ? CGRect(x: x, y: g.plot.minY, width: 96, height: 20)
+            : CGRect(x: x - 96, y: g.plot.minY, width: 96, height: 20)
+    }
+
+    static func fanLabelBox(_ rpm: Double, _ g: PlotGeometry) -> CGRect {
+        CGRect(x: g.plot.maxX - 120, y: g.y(rpm) - 20, width: 120, height: 40)
     }
 
     var animatableData: Vec {
@@ -445,9 +527,11 @@ struct LiveLayer: View, @MainActor Animatable {
             var line = Path()
             line.move(to: CGPoint(x: g.x(die), y: plot.minY))
             line.addLine(to: CGPoint(x: g.x(die), y: plot.maxY))
-            context.stroke(line, with: .color(heat.opacity(0.7)), lineWidth: 1)
+            context.stroke(
+                line, with: .color(heat.opacity(lit == .die ? 1 : 0.7)),
+                lineWidth: lit == .die ? 2 : 1)
             // Right of the line, or left of it near the right edge.
-            let rightRoom = plot.maxX - g.x(die) > 90
+            let rightRoom = LiveLayer.dieLabelRight(die, g)
             context.plated(
                 Text("die \(Status.degrees(die))").font(.meta).foregroundStyle(heat),
                 at: CGPoint(x: g.x(die) + (rightRoom ? 6 : -6), y: plot.minY + 8),
@@ -457,11 +541,7 @@ struct LiveLayer: View, @MainActor Animatable {
             // ring there. Fans running together are one line, "fans · N
             // rpm"; only a real spread names them apart. The hover card
             // has the exact numbers either way.
-            let spread = (actuals.max() ?? 0) - (actuals.min() ?? 0)
-            let marks: [(String, Double)] =
-                actuals.count > 1 && spread <= Plot.togetherRPM
-                ? [("fans", actuals.reduce(0, +) / Double(actuals.count))]
-                : actuals.enumerated().map { ("fan \($0.offset + 1)", $0.element) }
+            let marks = LiveLayer.marks(actuals)
             // The afterglow: this frame's animated position joins the
             // path, then the path is stroked stretch by stretch in the
             // heat it had, blurred into a glow, oldest faintest.
@@ -489,7 +569,9 @@ struct LiveLayer: View, @MainActor Animatable {
                 var rule = Path()
                 rule.move(to: CGPoint(x: plot.minX, y: g.y(mark.1)))
                 rule.addLine(to: CGPoint(x: plot.maxX, y: g.y(mark.1)))
-                context.stroke(rule, with: .color(Palette.dune.opacity(0.7)), lineWidth: 1)
+                context.stroke(
+                    rule, with: .color(Palette.dune.opacity(lit == .fans ? 1 : 0.7)),
+                    lineWidth: lit == .fans ? 2 : 1)
                 // The live point: a soft halo in the die's heat, wide
                 // enough to read over the rules and the heatmap, and a
                 // small dune core.
@@ -541,9 +623,14 @@ struct HoverCard: View {
         VStack(alignment: .leading, spacing: 3) {
             switch on {
             case .die:
-                let sensors = model.temperatures()
+                // Several sensors share a name (one per die block); one
+                // line per name, its hottest.
+                let all = model.temperatures()
+                let sensors = Dictionary(grouping: all, by: \.name)
+                    .map { name, group in (name: name, celsius: group.map(\.celsius).max()!) }
+                    .sorted { $0.celsius > $1.celsius }
                 if let die = frame.die {
-                    Text("die \(String(format: "%.1f", die)) °C · hottest of \(sensors.count)")
+                    Text("die \(String(format: "%.1f", die)) °C · hottest of \(all.count)")
                         .foregroundStyle(Palette.heat(die))
                 }
                 ForEach(sensors.prefix(HoverCard.sensorsShown), id: \.name) { sensor in
