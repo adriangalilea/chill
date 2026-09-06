@@ -413,8 +413,21 @@ struct LiveLayer: View, @MainActor Animatable {
                 rule.move(to: CGPoint(x: plot.minX, y: g.y(mark.1)))
                 rule.addLine(to: CGPoint(x: plot.maxX, y: g.y(mark.1)))
                 context.stroke(rule, with: .color(Palette.dune.opacity(0.7)), lineWidth: 1)
-                let ring = CGRect(x: g.x(die) - 4, y: g.y(mark.1) - 4, width: 8, height: 8)
-                context.stroke(Path(ellipseIn: ring), with: .color(Palette.dune), lineWidth: 1.5)
+                // The live point: a soft halo in the die's heat, wide
+                // enough to read over the rules and the heatmap, and a
+                // small dune core.
+                let center = CGPoint(x: g.x(die), y: g.y(mark.1))
+                let halo = CGRect(x: center.x - 14, y: center.y - 14, width: 28, height: 28)
+                context.fill(
+                    Path(ellipseIn: halo),
+                    with: .radialGradient(
+                        Gradient(colors: [heat.opacity(0.55), heat.opacity(0)]),
+                        center: center, startRadius: 0, endRadius: 14))
+                let core = CGRect(x: center.x - 3.5, y: center.y - 3.5, width: 7, height: 7)
+                context.fill(Path(ellipseIn: core), with: .color(Palette.dune))
+                context.stroke(
+                    Path(ellipseIn: core.insetBy(dx: -1.5, dy: -1.5)), with: .color(heat),
+                    lineWidth: 1)
                 let dy: CGFloat = marks.count > 1 && i == 1 ? 9 : -9
                 context.draw(
                     Text("\(mark.0) · \(Int(mark.1)) rpm").font(.meta)
