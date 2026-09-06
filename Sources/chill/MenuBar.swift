@@ -110,20 +110,25 @@ struct PopoverView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Fixer(model: model)
+            Plot(model: model, curve: plotted, editable: editable)
+                .frame(height: 200)
+                .onChange(of: model.tab, initial: true) { _, tab in
+                    if case .custom(let name) = tab { model.cursor = name }
+                }
             switch model.tab {
             case .apple:
-                Plot(model: model, curve: nil, editable: false)
-                    .frame(height: 200)
                 Text("Apple's own curve, drawn from what it does; nothing here to set")
                     .font(.meta).foregroundStyle(.tertiary)
+                    .transition(.opacity)
+            case .storm:
+                Text(
+                    "every fan at its maximum for \(Wire.boostMinutes) minutes, then back to Apple"
+                )
+                .font(.meta).foregroundStyle(.tertiary)
+                .transition(.opacity)
             case .tuned:
-                Plot(model: model, curve: model.tuned, editable: false)
-                    .frame(height: 200)
-                Knobs(model: model)
-            case .custom(let name):
-                Plot(model: model, curve: model.curves.first { $0.name == name }, editable: true)
-                    .frame(height: 200)
-                    .onChange(of: model.tab, initial: true) { _, _ in model.cursor = name }
+                Knobs(model: model).transition(.opacity)
+            case .custom:
                 HStack(spacing: .inkLane) {
                     Text("click adds a point · drag moves it · \(key(.removePoint)) removes it")
                         .font(.meta).foregroundStyle(.tertiary)
@@ -139,83 +144,109 @@ struct PopoverView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                 }
+                .transition(.opacity)
             }
         }
         .padding(.inkBlock)
         .frame(width: 460)
+        .animation(.inkSettle, value: model.tab)
+    }
+
+    /// What the plot draws for the tab: nothing over Apple's cloud, the
+    /// built-in curve, the custom curve, or the ceiling during a storm.
+    private var plotted: Curve? {
+        switch model.tab {
+        case .apple: return nil
+        case .tuned: return model.tuned
+        case .custom(let name): return model.curves.first { $0.name == name }
+        case .storm:
+            return model.envelope.flatMap { try? Curve.flat(name: "storm", rpm: $0.upperBound) }
+        }
+    }
+
+    private var editable: Bool {
+        if case .custom = model.tab { return true }
+        return false
     }
 
     private func key(_ action: ChillAction) -> String { model.store.displayPrimary(for: action) }
 }
 
-/// The tab strip: intents left, boost and `?` right. A tab wears dune
-/// while the daemon runs it.
+/// The tab bar: one rail holding every intent, `apple · chill · <custom>
+/// · storm`, plus `+`; the selected segment is a dune plate that slides
+/// to whichever the daemon runs. `?` sits apart on the right.
 struct Tabs: View {
     let model: Model
+    @Namespace private var rail
 
     var body: some View {
-        HStack(spacing: .inkTight) {
-            tab("apple", .apple)
-            tab("chill", .tuned)
-            ForEach(model.customCurves, id: \.name) { curve in
-                tab(curve.name, .custom(curve.name))
+        HStack(spacing: .inkGap) {
+            HStack(spacing: 2) {
+                tab("apple", .apple)
+                tab("chill", .tuned)
+                ForEach(model.customCurves, id: \.name) { curve in
+                    tab(curve.name, .custom(curve.name))
+                }
+                tab("storm", .storm)
+                Button {
+                    model.newCurveTab()
+                } label: {
+                    Text("+").font(.system(size: 14, weight: .medium))
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("a new curve, born as a copy of chill's, yours to draw")
             }
-            Button {
-                model.newCurveTab()
-            } label: {
-                Text("+").font(.system(size: 14, weight: .medium))
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("a new curve, born as a copy of chill's, yours to draw")
+            .padding(3)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: .inkField))
+            .overlay(
+                RoundedRectangle(cornerRadius: .inkField)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
             if model.demo.on {
                 Text("demo").font(.meta).foregroundStyle(.tertiary)
             }
             Spacer(minLength: .inkLane)
             Button {
-                model.perform(.boost)
-            } label: {
-                Text(model.boosting ? "boosting" : "boost \(Wire.boostMinutes) min")
-                    .font(.system(size: 12))
-                    .padding(.horizontal, .inkGap)
-                    .padding(.vertical, .inkTight)
-                    .background(
-                        model.boosting ? Palette.dune.opacity(0.18) : Color.inkRest.opacity(0.5),
-                        in: RoundedRectangle(cornerRadius: .inkRow))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(model.boosting ? Palette.dune : .primary)
-            .help(ChillAction.boost.spec.title)
-            Button {
                 model.perform(.help)
             } label: {
                 Text("?").font(.system(size: 12))
-                    .frame(width: 24, height: 24)
+                    .frame(width: 26, height: 26)
                     .background(
-                        Color.inkRest.opacity(0.5), in: RoundedRectangle(cornerRadius: .inkRow))
+                        Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: .inkRow)
+                    )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
             .help("every key, and quit")
         }
         .disabled(model.state == nil)
+        .animation(.inkSettle, value: model.tab)
     }
 
     private func tab(_ name: String, _ tab: Model.Tab) -> some View {
-        let selected = model.tab == tab && !model.boosting
+        let selected = model.tab == tab
         return Button {
             model.select(tab)
         } label: {
             Text(name)
                 .font(.system(size: 13, weight: selected ? .semibold : .regular))
                 .padding(.horizontal, .inkLane)
-                .padding(.vertical, .inkTight)
-                .background(
-                    selected ? Palette.dune.opacity(0.18) : .clear,
-                    in: RoundedRectangle(cornerRadius: .inkRow))
+                .frame(height: 26)
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: .inkRow)
+                            .fill(Palette.dune.opacity(0.22))
+                            .matchedGeometryEffect(id: "plate", in: rail)
+                    }
+                }
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(selected ? Palette.dune : .secondary)
+        .help(tab == .storm ? ChillAction.boost.spec.title : "run \(name)")
     }
 }
 
@@ -231,14 +262,14 @@ struct Knobs: View {
                 label: "kicks in at", value: kickIn, range: Config.kickInRange, step: 1,
                 reading: "\(Int(model.config.kickIn)) °C")
             Knob(
-                label: "aggression", value: aggression, range: 0...1, step: 0.05,
-                reading: Knobs.word(model.config.aggression))
+                label: "slope", value: slope, range: 0...1, step: 0.05,
+                reading: Knobs.word(model.config.slope))
         }
         .disabled(model.envelope == nil)
     }
 
-    static func word(_ aggression: Double) -> String {
-        switch aggression {
+    static func word(_ slope: Double) -> String {
+        switch slope {
         case ..<0.25: return "gentle"
         case ..<0.5: return "easy"
         case ..<0.75: return "firm"
@@ -249,12 +280,12 @@ struct Knobs: View {
     private var kickIn: Binding<Double> {
         Binding(
             get: { model.config.kickIn },
-            set: { model.retune(kickIn: $0, aggression: model.config.aggression) })
+            set: { model.retune(kickIn: $0, slope: model.config.slope) })
     }
-    private var aggression: Binding<Double> {
+    private var slope: Binding<Double> {
         Binding(
-            get: { model.config.aggression },
-            set: { model.retune(kickIn: model.config.kickIn, aggression: $0) })
+            get: { model.config.slope },
+            set: { model.retune(kickIn: model.config.kickIn, slope: $0) })
     }
 }
 

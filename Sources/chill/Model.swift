@@ -213,15 +213,15 @@ final class Model {
 
     /// The curve most people run: the fan's minimum until `kickIn`, then a
     /// ramp to its maximum over 45 °C (gentle) down to 15 °C (steep), with
-    /// a knee that `aggression` lifts. Named `chill`, on disk like any
+    /// a knee that `slope` lifts. Named `chill`, on disk like any
     /// curve, so `chill curve use chill` and the canvas see the same one.
     static let tunedName = "chill"
 
-    static func tuned(kickIn: Double, aggression: Double, envelope: ClosedRange<Double>) -> Curve {
-        let span = 45 - 30 * aggression
+    static func tuned(kickIn: Double, slope: Double, envelope: ClosedRange<Double>) -> Curve {
+        let span = 45 - 30 * slope
         let lift =
             envelope.lowerBound + (envelope.upperBound - envelope.lowerBound)
-            * (0.2 + 0.3 * aggression)
+            * (0.2 + 0.3 * slope)
         return try! Curve(
             name: tunedName,
             points: [
@@ -233,7 +233,7 @@ final class Model {
 
     var tuned: Curve? {
         envelope.map {
-            Model.tuned(kickIn: config.kickIn, aggression: config.aggression, envelope: $0)
+            Model.tuned(kickIn: config.kickIn, slope: config.slope, envelope: $0)
         }
     }
 
@@ -249,9 +249,9 @@ final class Model {
     }
 
     /// A knob moved: the file follows, and the daemon when it runs it.
-    func retune(kickIn: Double, aggression: Double) {
+    func retune(kickIn: Double, slope: Double) {
         config.kickIn = kickIn
-        config.aggression = aggression
+        config.slope = slope
         saveConfig()
         guard let tuned else { return }
         do {
@@ -267,7 +267,7 @@ final class Model {
     /// one, each custom curve. The selected tab is read from the daemon,
     /// never remembered; picking one sends it.
     enum Tab: Hashable {
-        case apple, tuned
+        case apple, tuned, storm
         case custom(String)
     }
 
@@ -275,14 +275,11 @@ final class Model {
         switch state?.intent {
         case .curve(let curve)?:
             return curve.name == Model.tunedName ? .tuned : .custom(curve.name)
+        case .boost?:
+            return .storm
         default:
             return .apple
         }
-    }
-
-    var boosting: Bool {
-        if case .boost? = state?.intent { return true }
-        return false
     }
 
     var customCurves: [Curve] { curves.filter { $0.name != Model.tunedName } }
@@ -302,6 +299,8 @@ final class Model {
             cursor = name
             point = 0
             use(curve)
+        case .storm:
+            boost()
         }
     }
 
