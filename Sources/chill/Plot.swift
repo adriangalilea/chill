@@ -223,6 +223,9 @@ struct Plot: View {
     static let togetherRPM = 225.0
     /// How near a line the pointer must rest for its card.
     static let hoverReach: CGFloat = 10
+    /// The plot's coordinate space, the one the badges report their
+    /// frames in.
+    nonisolated static let space = "plot"
 
     /// What the pointer rests on: the die's vertical (line or label), or
     /// a fan's horizontal. A curve point within reach wins outright: no
@@ -309,54 +312,44 @@ struct Plot: View {
                         .transition(.opacity)
                 }
             }
-            // The labels are badges: one view each, pinned beside its
-            // mark and kept inside the plot whatever it grows into, so the
-            // same view expands under the pointer and shrinks back in
-            // place, never past an edge. The die's badge rides the die's
-            // animation. Both live in one stack so the expanded one is
-            // always on top.
+            // The labels are badges: one view each on the pinboard, which
+            // places each beside its mark for the size it has right now
+            // and keeps it inside the plot, so the same view expands under
+            // the pointer and shrinks back in place, its anchored edge
+            // still, never past an edge. The expanded one is on top.
             .overlay {
                 if let geometry {
                     let lit = lit(frame, geometry)
-                    let bounds = CGRect(origin: .zero, size: proxy.size)
-                    ZStack {
+                    Pinboard {
                         if let die = frame.die {
                             let right = LiveLayer.dieLabelRight(die, geometry)
                             let x = geometry.x(die)
-                            Pinned(
-                                within: bounds,
-                                origin: { size in
+                            Badge(model: model, frame: frame, on: .die, expanded: lit == .die)
+                                .pinned { size in
                                     CGPoint(
                                         x: right ? x + 6 : x - 6 - size.width,
                                         y: geometry.plot.minY - 2)
-                                },
-                                placed: { boxes[.die] = $0 }
-                            ) {
-                                Badge(model: model, frame: frame, on: .die, expanded: lit == .die)
-                            }
-                            .animation(.easeOut(duration: 0.9), value: die)
-                            .zIndex(lit == .die ? 1 : 0)
+                                }
+                                .placed { boxes[.die] = $0 }
+                                .zIndex(lit == .die ? 1 : 0)
                         }
                         if let rpm = LiveLayer.marks(frame.actuals).first?.1 {
                             let y = geometry.y(rpm)
-                            Pinned(
-                                within: bounds,
-                                origin: { size in
+                            Badge(model: model, frame: frame, on: .fans, expanded: lit == .fans)
+                                .pinned { size in
                                     CGPoint(
                                         x: geometry.plot.maxX - 4 - size.width,
                                         y: y - 3 - size.height)
-                                },
-                                placed: { boxes[.fans] = $0 }
-                            ) {
-                                Badge(model: model, frame: frame, on: .fans, expanded: lit == .fans)
-                            }
-                            .animation(.easeOut(duration: 0.9), value: rpm)
-                            .zIndex(lit == .fans ? 1 : 0)
+                                }
+                                .placed { boxes[.fans] = $0 }
+                                .zIndex(lit == .fans ? 1 : 0)
                         }
                     }
+                    .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
                     .allowsHitTesting(false)
                 }
             }
+            .coordinateSpace(.named(Plot.space))
             .animation(.inkSettle, value: lit(frame, geometry))
             .animation(.inkSettle, value: frame.curve?.name)
             .animation(.inkSettle, value: frame.die != nil && !frame.actuals.isEmpty)
@@ -807,36 +800,53 @@ struct LiveLayer: View, @MainActor Animatable {
 /// A label on the plot that is also its own card: the one line at rest,
 /// the details under it when the pointer is on its line, the same view
 /// growing and shrinking in place.
-/// A view pinned beside a point and kept inside its bounds whatever its
-/// size: the content measures itself, `origin` says where its top-left
-/// wants to be for that size, and the result is clamped into `within`,
-/// so a badge that grows past an edge slides in instead of leaving.
-/// `placed` reports the final frame, the truth the hover reads.
-struct Pinned<Content: View>: View {
-    let within: CGRect
-    let origin: (CGSize) -> CGPoint
-    let placed: (CGRect) -> Void
-    @ViewBuilder let content: Content
-    @SwiftUI.State private var size = CGSize.zero
+/// Where a pinboard child wants its top-left, for the size it has.
+struct Pin: LayoutValueKey {
+    static let defaultValue: @Sendable (CGSize) -> CGPoint = { _ in .zero }
+}
 
-    var body: some View {
-        let rect = CGRect(origin: clamped(origin(size)), size: size)
-        content
-            .fixedSize()
-            .onGeometryChange(for: CGSize.self) {
-                $0.size
-            } action: {
-                size = $0
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .offset(x: rect.minX, y: rect.minY)
-            .onChange(of: rect, initial: true) { placed(rect) }
+extension View {
+    func pinned(_ origin: @escaping @Sendable (CGSize) -> CGPoint) -> some View {
+        layoutValue(key: Pin.self, value: origin)
     }
 
-    private func clamped(_ p: CGPoint) -> CGPoint {
-        CGPoint(
-            x: min(max(p.x, within.minX), max(within.minX, within.maxX - size.width)),
-            y: min(max(p.y, within.minY), max(within.minY, within.maxY - size.height)))
+    /// The frame this view ended up with, in the plot's space: the truth
+    /// the hover reads.
+    func placed(_ report: @escaping (CGRect) -> Void) -> some View {
+        onGeometryChange(for: CGRect.self) {
+            $0.frame(in: .named(Plot.space))
+        } action: {
+            report($0)
+        }
+    }
+}
+
+/// Places each child where it asks to be for its own size, measured in
+/// the same pass, and clamps it into the bounds: a badge that grows
+/// past an edge slides in instead of leaving, its anchored edge still,
+/// with no frame of lag between growing and moving. A layout, not a
+/// stack of offsets, because only a layout sees a child's size before
+/// placing it.
+struct Pinboard: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) {
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let wanted = subview[Pin.self](size)
+            let at = CGPoint(
+                x: min(
+                    max(bounds.minX + wanted.x, bounds.minX),
+                    max(bounds.minX, bounds.maxX - size.width)),
+                y: min(
+                    max(bounds.minY + wanted.y, bounds.minY),
+                    max(bounds.minY, bounds.maxY - size.height)))
+            subview.place(at: at, anchor: .topLeading, proposal: .unspecified)
+        }
     }
 }
 
