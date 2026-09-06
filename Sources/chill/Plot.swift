@@ -228,17 +228,19 @@ struct Plot: View {
     nonisolated static let space = "plot"
 
     /// What the pointer rests on: the die's vertical (line or label), or
-    /// a fan's horizontal. A curve point within reach wins outright: no
-    /// card, no highlight, the point is what the pointer is there for.
+    /// a fan's horizontal. The curve wins outright, a point within reach
+    /// or the line itself within the ghost's reach: no card, no
+    /// highlight, the curve is what the pointer is there for, and a card
+    /// opening over it would take it away.
     enum Hovered: Equatable {
         case die, fans
     }
 
-    static func hovered(
-        _ p: CGPoint, _ f: Frame, _ g: PlotGeometry, editable: Bool, boxes: [Hovered: CGRect]
-    ) -> Hovered? {
+    static func hovered(_ p: CGPoint, _ f: Frame, _ g: PlotGeometry, boxes: [Hovered: CGRect])
+        -> Hovered?
+    {
         guard g.plot.contains(p) else { return nil }
-        if editable, g.hit(f.curve, at: p) != nil { return nil }
+        if g.hit(f.curve, at: p) != nil || ghost(at: p, f, g) != nil { return nil }
         if let die = f.die, abs(p.x - g.x(die)) < hoverReach || boxes[.die]?.contains(p) == true {
             return .die
         }
@@ -265,7 +267,7 @@ struct Plot: View {
     /// What the pointer rests on right now.
     private func lit(_ f: Frame, _ g: PlotGeometry?) -> Hovered? {
         guard let hover, let g else { return nil }
-        return Plot.hovered(hover, f, g, editable: editable, boxes: boxes)
+        return Plot.hovered(hover, f, g, boxes: boxes)
     }
 
     init(model: Model, curve: Curve?, editable: Bool) {
