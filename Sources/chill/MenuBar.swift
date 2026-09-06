@@ -90,29 +90,17 @@ final class MenuBar: NSObject {
     }
 }
 
-/// The popover: the one switch (Apple ↔ chill), the status, the fixer
-/// when no daemon answers, the plot, the two knobs that shape the
-/// built-in curve, the actions. Same model, same keys as the canvas.
+/// The popover. Tabs across the top ARE the intents: `apple`, `chill`
+/// (the built-in curve and its two knobs), one per custom curve, `+`
+/// for a new one; picking a tab sends it, the selected tab is what the
+/// daemon runs. Right of the tabs: boost and `?`. Under them the status,
+/// the fixer when no daemon answers, and the tab's plot.
 struct PopoverView: View {
     let model: Model
 
     var body: some View {
         VStack(alignment: .leading, spacing: .inkLane) {
-            HStack(spacing: .inkLane) {
-                Picker("", selection: holds) {
-                    Text("apple").tag(false)
-                    Text("chill").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 160)
-                .disabled(model.state == nil)
-                if model.demo.on {
-                    Text("demo").font(.meta).foregroundStyle(.tertiary)
-                }
-                Spacer(minLength: 0)
-                ActionBar(model: model, popover: true)
-            }
+            Tabs(model: model)
             Text(model.statusLine)
                 .font(.meta)
                 .foregroundStyle(.secondary)
@@ -122,53 +110,140 @@ struct PopoverView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Fixer(model: model)
-            Plot(model: model, curve: model.tuned, editable: false)
-                .frame(height: 200)
-            Knobs(model: model)
+            switch model.tab {
+            case .apple:
+                Plot(model: model, curve: nil, editable: false)
+                    .frame(height: 200)
+                Text("Apple's own curve, drawn from what it does; nothing here to set")
+                    .font(.meta).foregroundStyle(.tertiary)
+            case .tuned:
+                Plot(model: model, curve: model.tuned, editable: false)
+                    .frame(height: 200)
+                Knobs(model: model)
+            case .custom(let name):
+                Plot(model: model, curve: model.curves.first { $0.name == name }, editable: true)
+                    .frame(height: 200)
+                    .onChange(of: model.tab, initial: true) { _, _ in model.cursor = name }
+                HStack(spacing: .inkLane) {
+                    Text("click adds a point · drag moves it · \(key(.removePoint)) removes it")
+                        .font(.meta).foregroundStyle(.tertiary)
+                    Spacer(minLength: 0)
+                    Button {
+                        model.perform(.deleteCurve)
+                    } label: {
+                        HStack(spacing: .inkTight) {
+                            Text("trash").font(.system(size: 12))
+                            ShortcutBadge(key(.deleteCurve))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(.inkBlock)
         .frame(width: 460)
     }
 
-    private var holds: Binding<Bool> {
-        Binding(get: { model.holdsFans }, set: { model.hold($0) })
+    private func key(_ action: ChillAction) -> String { model.store.displayPrimary(for: action) }
+}
+
+/// The tab strip: intents left, boost and `?` right. A tab wears dune
+/// while the daemon runs it.
+struct Tabs: View {
+    let model: Model
+
+    var body: some View {
+        HStack(spacing: .inkTight) {
+            tab("apple", .apple)
+            tab("chill", .tuned)
+            ForEach(model.customCurves, id: \.name) { curve in
+                tab(curve.name, .custom(curve.name))
+            }
+            Button {
+                model.newCurveTab()
+            } label: {
+                Text("+").font(.system(size: 14, weight: .medium))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("a new curve, born as a copy of chill's, yours to draw")
+            if model.demo.on {
+                Text("demo").font(.meta).foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: .inkLane)
+            Button {
+                model.perform(.boost)
+            } label: {
+                Text(model.boosting ? "boosting" : "boost \(Wire.boostMinutes) min")
+                    .font(.system(size: 12))
+                    .padding(.horizontal, .inkGap)
+                    .padding(.vertical, .inkTight)
+                    .background(
+                        model.boosting ? Palette.dune.opacity(0.18) : Color.inkRest.opacity(0.5),
+                        in: RoundedRectangle(cornerRadius: .inkRow))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(model.boosting ? Palette.dune : .primary)
+            .help(ChillAction.boost.spec.title)
+            Button {
+                model.perform(.help)
+            } label: {
+                Text("?").font(.system(size: 12))
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Color.inkRest.opacity(0.5), in: RoundedRectangle(cornerRadius: .inkRow))
+            }
+            .buttonStyle(.plain)
+            .help("every key, and quit")
+        }
+        .disabled(model.state == nil)
+    }
+
+    private func tab(_ name: String, _ tab: Model.Tab) -> some View {
+        let selected = model.tab == tab && !model.boosting
+        return Button {
+            model.select(tab)
+        } label: {
+            Text(name)
+                .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                .padding(.horizontal, .inkLane)
+                .padding(.vertical, .inkTight)
+                .background(
+                    selected ? Palette.dune.opacity(0.18) : .clear,
+                    in: RoundedRectangle(cornerRadius: .inkRow))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(selected ? Palette.dune : .secondary)
     }
 }
 
 /// The two knobs of the built-in curve: where it kicks in, how steep it
-/// climbs. Live: every move lands on disk and, when chill runs this
-/// curve, on the daemon. A custom curve under the cursor is said so.
+/// climbs. Live: every move lands on disk and, while chill runs this
+/// curve, on the daemon.
 struct Knobs: View {
     let model: Model
 
     var body: some View {
         VStack(alignment: .leading, spacing: .inkGap) {
-            HStack(spacing: .inkLane) {
-                Text("kicks in at \(Int(model.config.kickIn)) °C")
-                    .font(.meta).foregroundStyle(.secondary)
-                    .frame(width: 130, alignment: .leading)
-                Slider(value: kickIn, in: Config.kickInRange, step: 1)
-            }
-            HStack(spacing: .inkLane) {
-                Text("aggression")
-                    .font(.meta).foregroundStyle(.secondary)
-                    .frame(width: 130, alignment: .leading)
-                Slider(value: aggression, in: 0...1) {
-                    EmptyView()
-                } minimumValueLabel: {
-                    Text("gentle").font(.meta).foregroundStyle(.tertiary)
-                } maximumValueLabel: {
-                    Text("steep").font(.meta).foregroundStyle(.tertiary)
-                }
-            }
-            if let custom = model.intentCurve, custom != Model.tunedName {
-                Text(
-                    "running your curve \"\(custom)\" from the canvas; the switch returns to this one"
-                )
-                .font(.meta).foregroundStyle(.tertiary)
-            }
+            Knob(
+                label: "kicks in at", value: kickIn, range: Config.kickInRange, step: 1,
+                reading: "\(Int(model.config.kickIn)) °C")
+            Knob(
+                label: "aggression", value: aggression, range: 0...1, step: 0.05,
+                reading: Knobs.word(model.config.aggression))
         }
         .disabled(model.envelope == nil)
+    }
+
+    static func word(_ aggression: Double) -> String {
+        switch aggression {
+        case ..<0.25: return "gentle"
+        case ..<0.5: return "easy"
+        case ..<0.75: return "firm"
+        default: return "steep"
+        }
     }
 
     private var kickIn: Binding<Double> {
@@ -180,6 +255,48 @@ struct Knobs: View {
         Binding(
             get: { model.config.aggression },
             set: { model.retune(kickIn: model.config.kickIn, aggression: $0) })
+    }
+}
+
+/// The house slider: a hairline track, the run so far in dune, a small
+/// knob, the reading in mono at the end. Click anywhere sets, drag
+/// follows.
+struct Knob: View {
+    let label: String
+    let value: Binding<Double>
+    let range: ClosedRange<Double>
+    let step: Double
+    let reading: String
+
+    var body: some View {
+        HStack(spacing: .inkLane) {
+            Text(label).font(.meta).foregroundStyle(.secondary)
+                .frame(width: 96, alignment: .leading)
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                let t =
+                    (value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.12)).frame(height: 2)
+                    Capsule().fill(Palette.dune.opacity(0.7)).frame(width: width * t, height: 2)
+                    Circle().fill(Palette.dune).frame(width: 10, height: 10)
+                        .offset(x: width * t - 5)
+                }
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0).onChanged { drag in
+                        let raw =
+                            range.lowerBound
+                            + (range.upperBound - range.lowerBound)
+                            * min(1, max(0, drag.location.x / width))
+                        value.wrappedValue = (raw / step).rounded() * step
+                    })
+            }
+            .frame(height: 16)
+            Text(reading).font(.meta).foregroundStyle(Palette.dune)
+                .frame(width: 56, alignment: .trailing)
+        }
     }
 }
 
@@ -229,29 +346,20 @@ struct Fixer: View {
     }
 }
 
-/// Every action the surface offers, as a button wearing its live key.
-/// The pointer's path and the keyboard's are the same registry entry.
+/// The canvas window's actions, buttons wearing their live keys. The
+/// pointer's path and the keyboard's are the same registry entry.
 struct ActionBar: View {
     let model: Model
-    let popover: Bool
 
     var body: some View {
         HStack(spacing: .inkGap) {
-            if popover {
-                button(.boost, "boost")
-                if model.heldBy != nil { button(.takeOver, "take over") }
-                button(.canvas, "curves")
-                button(.help, "?")
-                button(.quit, "quit")
-            } else {
-                button(.newCurve, "new curve")
-                if model.editing != nil { button(.useCurve, "use") }
-                button(.boost, "boost")
-                button(.system, "apple")
-                if model.heldBy != nil { button(.takeOver, "take over") }
-                Spacer(minLength: 0)
-                button(.help, "?")
-            }
+            button(.newCurve, "new curve")
+            if model.editing != nil { button(.useCurve, "use") }
+            button(.boost, "boost")
+            button(.system, "apple")
+            if model.heldBy != nil { button(.takeOver, "take over") }
+            Spacer(minLength: 0)
+            button(.help, "?")
         }
     }
 

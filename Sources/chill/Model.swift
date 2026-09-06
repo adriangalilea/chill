@@ -263,21 +263,66 @@ final class Model {
         }
     }
 
-    /// The one switch: Apple holds the fans, or chill does with the
-    /// built-in curve. A custom curve is chosen on the canvas, never here.
-    var holdsFans: Bool { (state?.intent ?? .system) != .system }
+    /// The popover's tabs ARE the intents: Apple's curve, the built-in
+    /// one, each custom curve. The selected tab is read from the daemon,
+    /// never remembered; picking one sends it.
+    enum Tab: Hashable {
+        case apple, tuned
+        case custom(String)
+    }
 
-    func hold(_ on: Bool) {
-        guard on else {
-            system()
-            return
+    var tab: Tab {
+        switch state?.intent {
+        case .curve(let curve)?:
+            return curve.name == Model.tunedName ? .tuned : .custom(curve.name)
+        default:
+            return .apple
         }
+    }
+
+    var boosting: Bool {
+        if case .boost? = state?.intent { return true }
+        return false
+    }
+
+    var customCurves: [Curve] { curves.filter { $0.name != Model.tunedName } }
+
+    func select(_ tab: Tab) {
+        switch tab {
+        case .apple:
+            system()
+        case .tuned:
+            guard let tuned else {
+                notice = "no fan envelope yet: no daemon and no SMC"
+                return
+            }
+            call { try await $0.use(tuned) }
+        case .custom(let name):
+            guard let curve = curves.first(where: { $0.name == name }) else { return }
+            cursor = name
+            point = 0
+            use(curve)
+        }
+    }
+
+    /// `+`: a custom curve born as a copy of the built-in one, run at
+    /// once, edited in place by pointer or keys.
+    func newCurveTab() {
         guard let tuned else {
             notice = "no fan envelope yet: no daemon and no SMC"
             return
         }
-        call { try await $0.use(tuned) }
+        let name = freshName()
+        commit(name, tuned.points, select: tuned.points[0])
+        cursor = name
+        point = 0
+        if let curve = curves.first(where: { $0.name == name }) { use(curve) }
     }
+
+    /// Right-click on the status item: Apple ↔ the built-in curve.
+    var holdsFans: Bool { (state?.intent ?? .system) != .system }
+
+    func hold(_ on: Bool) { select(on ? .tuned : .apple) }
 
     private func drop(_ error: Error) {
         link = .down(error as? ClientError ?? .unreachable("\(error)"))
@@ -545,7 +590,7 @@ final class Model {
             },
             perform: { [weak self] in self?.perform($0) },
             performFamily: { [weak self] _, key in self?.pick(Int(key)!) })
-        store.publish(appName: "chill", accent: Palette.iceHex)
+        store.publish(appName: "chill", accent: Palette.duneHex)
     }
 
     func perform(_ action: ChillAction) {
