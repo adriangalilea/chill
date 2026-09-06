@@ -12,16 +12,20 @@ struct Config: Codable, Equatable {
     /// climb starts earlier and gets steeper; at 1 the curve is the
     /// ceiling, every fan flat out.
     var push: Double = Config.defaultPush
+    /// The dot on the tab the toggle would press, and its tip: shown
+    /// until "got it", then never.
+    var keyHintDismissed = false
 
     static let defaultPush = 0.0
 
     init(lastCurve: String?) { self.lastCurve = lastCurve }
 
-    /// The knob reads its first-run value when the file predates it.
+    /// Fields read their first-run value when the file predates them.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         lastCurve = try c.decodeIfPresent(String.self, forKey: .lastCurve)
         push = try c.decodeIfPresent(Double.self, forKey: .push) ?? Config.defaultPush
+        keyHintDismissed = try c.decodeIfPresent(Bool.self, forKey: .keyHintDismissed) ?? false
     }
 
     /// The file, or the first-run value (the demo world starts on its

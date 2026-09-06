@@ -803,6 +803,13 @@ final class Model {
     /// you draw one.
     var yourCurve: Curve? { curves.first(where: { $0.name == config.lastCurve }) ?? tuned }
 
+    /// "got it" under the shortcut tip: the dot and the tip are gone for
+    /// good; the app menu still says the combo.
+    func dismissKeyHint() {
+        config.keyHintDismissed = true
+        saveConfig()
+    }
+
     /// The tab the toggle would press right now: yours while Apple's
     /// runs, Apple's otherwise. That tab wears the shortcut.
     var toggleTarget: Tab {

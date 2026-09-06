@@ -324,13 +324,18 @@ struct Tabs: View {
             GeometryReader { proxy in
                 Pinboard {
                     if let tip {
-                        TipView(tip: tip)
-                            .pinned { _ in CGPoint(x: tip.at.minX, y: Tabs.railHeight + .inkGap) }
-                            .transition(.opacity)
+                        TipView(
+                            tip: tip, hover: { settle(tip: $0) },
+                            gotIt: {
+                                model.dismissKeyHint()
+                                self.tip = nil
+                            }
+                        )
+                        .pinned { _ in CGPoint(x: tip.at.minX, y: Tabs.railHeight + .inkGap) }
+                        .transition(.opacity)
                     }
                 }
                 .frame(width: proxy.size.width, height: Tabs.railHeight + 120)
-                .allowsHitTesting(false)
             }
         }
         .zIndex(1)
@@ -346,9 +351,29 @@ struct Tabs: View {
         let key = model.store.displayPrimary(for: .toggle)
         return TabCell(
             model: model, name: name, tab: tab, glyph: glyph, rail: rail,
-            mark: model.toggleTarget == tab && !key.isEmpty
+            mark: model.toggleTarget == tab && !key.isEmpty && !model.config.keyHintDismissed
         ) { on, at in
-            tip = on ? Tip(key: key, at: at) : nil
+            overDot = on
+            if on { tip = Tip(key: key, at: at) }
+            settle(tip: overTip)
+        }
+    }
+
+    /// The tip has a button, so it stays while the pointer is on the
+    /// dot or on the tip itself, and closes a beat after it left both:
+    /// long enough to cross the gap between them.
+    @SwiftUI.State private var overDot = false
+    @SwiftUI.State private var overTip = false
+    @SwiftUI.State private var closing: Task<Void, Never>?
+
+    private func settle(tip over: Bool) {
+        overTip = over
+        closing?.cancel()
+        guard !overDot, !overTip else { return }
+        closing = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled, !overDot, !overTip else { return }
+            tip = nil
         }
     }
 
@@ -368,18 +393,29 @@ struct Tip: Equatable {
     let at: CGRect
 }
 
-/// The tip itself: the combo as a key cap and what it does, on a plate
-/// in the window's background, hugging its content.
+/// The tip itself: the combo as a key cap, what it does, and "got it",
+/// which retires the dot and the tip for good. On a plate in the
+/// window's background, hugging its content.
 struct TipView: View {
     let tip: Tip
+    let hover: (Bool) -> Void
+    let gotIt: () -> Void
 
     var body: some View {
-        HStack(spacing: .inkGap) {
-            ShortcutBadge(tip.key)
-            Text("toggle from any app").font(.meta).foregroundStyle(.secondary)
+        HStack(spacing: .inkLane) {
+            HStack(spacing: .inkGap) {
+                ShortcutBadge(tip.key)
+                Text("toggle from any app").font(.meta).foregroundStyle(.secondary)
+            }
+            Button("got it", action: gotIt)
+                .buttonStyle(.plain)
+                .font(.meta)
+                .foregroundStyle(Palette.dune)
         }
         .fixedSize()
         .padding(.inkLane)
+        .contentShape(Rectangle())
+        .onHover(perform: hover)
         .background(
             Color(nsColor: .windowBackgroundColor).opacity(0.95),
             in: RoundedRectangle(cornerRadius: .inkRow)
@@ -417,15 +453,13 @@ struct TabCell: View {
                 Image(systemName: glyph).font(.system(size: 11, weight: .medium))
                 Text(name)
                 if mark {
-                    // The key mark, in the row after the name: a small
-                    // solid dune pill, the glyph in the window's ink.
-                    // Static: no glow, no fade, nothing that reads as
-                    // motion. The cell widens for it.
-                    Image(systemName: "keyboard")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(Color(nsColor: .windowBackgroundColor))
-                        .frame(width: 16, height: 12)
-                        .background(Palette.dune, in: Capsule())
+                    // A neutral dot after the name, until "got it": the
+                    // one dot in the app that carries meaning, the tip
+                    // under it says the shortcut. Static.
+                    Circle()
+                        .fill(Color.secondary.opacity(0.7))
+                        .frame(width: 5, height: 5)
+                        .frame(width: 12, height: 12)
                         .contentShape(Rectangle())
                         .onHover { hover($0, frame) }
                 }
