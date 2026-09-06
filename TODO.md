@@ -5,7 +5,7 @@ nothing below starts before the one above is green.
 
 ## 0 · seam and birth
 
-- [ ] In `apps/mach` (its own private repo): add the `MachSensors` library
+- [x] In `apps/mach` (its own private repo): add the `MachSensors` library
       product beside MachCore (HIDSensors + a rewritten SMC reader: `info`
       via READ_KEYINFO, typed reads `flt `/`ui8`/`ui16`, `fans()` from
       `FNum`, public 80-byte codec, typed errors from the result byte, no
@@ -13,7 +13,7 @@ nothing below starts before the one above is green.
       float). MachCore and the App depend on it; `mach sensors` FNum line
       is the regression check; `mach check` stays green. Push from the
       mount, bump the pointer here. License header on the lifted files.
-- [ ] `apps/chill`: Package.swift (`.package(path: "../mach")`, product
+- [x] `apps/chill`: Package.swift (`.package(path: "../mach")`, product
       MachSensors; swift-utils by versioned URL; macOS 26), targets
       ChillKit · chilld · chill; `apps/chill/package.json` with the
       two-line `check`; root `pnpm chill` / `pnpm chill:install` aliases;
@@ -23,6 +23,12 @@ nothing below starts before the one above is green.
 - [ ] `garden genesis chill --desc "..."` (private + DRAFT).
 
 ## 1 · chilld: registration, then the writer, then the nets
+
+Everything below is written and compiles (`mise check` at 0 warnings);
+the gates need a signed install on real fans. Human gates, in order:
+`mise run install` (Developer ID) → approve chilld in System Settings ›
+Login Items → `chill daemon status` → quit SoloFan → first `chill curve
+use <name> --watch` on real fans → `garden genesis chill --desc "..."`.
 
 - [ ] Hello-world chilld: bundle assembled by `mise run install`
       (Developer ID required), plist under `Contents/Library/LaunchDaemons`
@@ -50,16 +56,16 @@ nothing below starts before the one above is green.
       → auto before exit; sleep → auto before the ack, no 30 s delay in
       `pmset -g log`; `chill daemon uninstall` → fans on Apple's curve,
       registration gone.
-- [ ] `chill status`, `system`, `daemon install|uninstall|status`, `log`.
+- [x] `chill status`, `system`, `daemon install|uninstall|status`, `log`.
 
 ## 2 · curves and the CLI
 
-- [ ] `Curve` in ChillKit: named, points (°C, rpm), interpolation, per-fan
+- [x] `Curve` in ChillKit: named, points (°C, rpm), interpolation, per-fan
       clamp to the envelope shipped in `hello`; files under
       `~/.local/state/chill/curves`; `chill curve list|show|use [--watch]`;
       flat curve = constant; `boost [minutes] [--watch]` self-ending in the
       daemon.
-- [ ] `status --json` = `State`; foreign detection from the read-back;
+- [x] `status --json` = `State`; foreign detection from the read-back;
       `take` for a second client.
 - [ ] Refine `SMCWriter.slewPerSample` (300 rpm/s today) from the `F{n}Ac`
       slew the reference cloud records.
@@ -69,21 +75,21 @@ nothing below starts before the one above is green.
 
 ## 3 · the app
 
-- [ ] Menu bar (Ink + Keymap, `ActionID` registry): effect glyph with the
+- [x] Menu bar (Ink + Keymap, `ActionID` registry): effect glyph with the
       five states, curve picker, boost, system, `?` bindings, right-click
       toggles system ↔ last curve, the no-daemon menu that leads with the
       fixing action and polls `SMAppService.status`.
-- [ ] Canvas: reference clouds, active curve, live markers, keyboard point
+- [x] Canvas: reference clouds, active curve, live markers, keyboard point
       editing, Ink.CursorScrollView list, envelope from `hello`.
-- [ ] Presence at 1 Hz gated on console session + screens awake; the
+- [x] Presence at 1 Hz gated on console session + screens awake; the
       persisted intent resumes at login.
-- [ ] `--demo`: forked `chill-demo` roots, scripted trace, in-process fake
+- [x] `--demo`: forked `chill-demo` roots, scripted trace, in-process fake
       daemon, `demo` kicker, CLI `· demo` headers.
 - [ ] Update check: a daily appcast GET from the app (awake's model), a
       `config.json` switch, `chill updates on|off` in main.swift and the
       verb list; the README's Network section then declares it. Until it
       exists nothing claims it.
-- [ ] `mise check` at 0 warnings, format-clean.
+- [x] `mise check` at 0 warnings, format-clean.
 
 ## 4 · ship
 
