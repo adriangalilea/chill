@@ -347,7 +347,9 @@ Hysteresis is a constant in code, not a per-curve field.
   SwiftUI's ideal): a tab rail on top whose tabs ARE the intents, `apple ·
   chill | <each custom curve> · +`; pressing one sends it, the dune plate
   slides to whichever the daemon reads back as running, never to the
-  press. `?` apart on the right. Under it the plot, and a foot of ONE
+  press. Two custom curves at most (`Model.maxCustom`), so every tab
+  keeps its name whole; `+` leaves the rail at the cap. Under it the
+  plot, and a foot of ONE
   height on every tab so the popover never resizes: `chill` shows the
   push knob (`Knob`: hairline, dune run, mono reading) and a line saying
   the floor and where the climb starts; a custom curve shows the trash
@@ -373,40 +375,58 @@ Hysteresis is a constant in code, not a per-curve field.
   length for every curve, so any curve morphs into any other) and
   `LiveLayer` (die, fans, targets, one fixed-length vector so a change of
   intent glides like any sample). The labels are `Badge`s, one SwiftUI
-  view each pinned by a corner: at rest the one line, under the pointer
-  (on their line or plate) the same view grows into its details, the
-  die's into cpu/gpu/memory/ssd/battery, the fans' into actual, target,
-  mode and holder. Editing, on a custom tab only: near the line a hollow
-  ghost point follows the pointer ON the curve; pressing it bears the
-  point, the same motion drags it, release lands it; a point under the
-  pointer grows and rings (cursor: hand); right-click removes it (an
-  NSEvent local monitor, since SwiftUI sees no secondary button, reading
-  the hover's last plot-space position). Nothing lands from a press on
-  empty plot. A point within reach always wins over the hover cards. The
-  keyboard's selection has no look of its own. Three hues, alpha the only
+  view each on the `Pinboard`, a Layout that measures each and places
+  it beside its mark in the same pass, clamped into the plot: at rest
+  the one line, under the pointer (on their line, a faint band the
+  width of the reach, or the badge itself) the same view grows into its
+  details in place, the die's into cpu/gpu/memory/ssd/battery, the
+  fans' into actual, target, mode and holder, the expanded one on top.
+  The `pinned` modifier must be the OUTERMOST on a pinboard child: an
+  `onGeometryChange` between it and the layout drops the value. On any
+  tab a point under the pointer grows and says its numbers; the curve
+  wins the hover outright (a point within reach, or the line within the
+  ghost's reach) and rides above the live marks and the badges, so no
+  card ever opens over it. Editing, on a custom tab only: near the line
+  a hollow ghost point follows the pointer ON the curve; pressing it
+  bears the point, the same motion drags it, release lands it; the
+  point under the pointer rings, the handle, only here (cursor: hand);
+  right-click removes it (an NSEvent local monitor, since SwiftUI sees
+  no secondary button, reading the hover's last plot-space position).
+  Nothing lands from a press on empty plot. Three hues, alpha the only
   other variable: dune `#cfc5b4` (tempo's minutes) for what chill does,
   heat for the die, a neutral for Apple. Every edit LANDS: validated by
   `Curve`, written to its file, re-sent with `use` when it is the curve
   the daemon runs; no save step, no draft. Without a daemon the plot
   still shows the machine through `LocalSensors`; with one, `State` is
   the only source. Nothing animates indefinitely.
-- **The lab** (`CanvasWindow`, `l`): the same plot larger beside
-  the curve list (Ink.CursorScrollView) and an action bar; the keyboard
-  surface. Every key is a `ChillAction` (`Actions.swift`): arrows move
-  the selected point (1 °C / 50 rpm), ⇥ / ⇧⇥ cycle points, `n` adds one
-  after, ⌫ removes it, `[` / `]` walk the curve list, ↩ uses the cursor's
-  curve, ⌘N draws a new one, ⌘⌫ trashes one (Apple's curve first when it
-  is the running one), ⌘1-9 pick by list order, `s` system, `t`
-  take over, `?` the cheat sheet, ⎋ closes.
+- **The keyboard, by decision: one key from anywhere, nothing to walk.**
+  chill opts out of the studio's keyboard-navigation rule: the popover
+  is drawn with the pointer, and a key that needs the mouse in hand
+  first (moving points, walking tabs) is worth nothing, so none exist.
+  `ChillAction` (`Actions.swift`) holds `toggle`, the app's identity
+  verb on the system-wide plane (`GlobalHotkeys`, Carbon, no
+  permission): Apple's curve if a curve runs, else yours, the last one
+  used (`config.lastCurve`, chill until you draw one). Default ⌃⌥⌘C,
+  the studio's heavy-chord convention for a global; remapped in the
+  app menu's shortcut panel (`KeysPanel`, Keymap's grid for that one
+  row, which dims a combo another app owns and warns on one macOS
+  uses). The rest are what every Mac app has, shown where they act and
+  in no panel: ⌘N a new curve, ⌘⌫ trash it (badge on the button), ⎋
+  closes, ⌘Q quits. Spotlight/Shortcuts through App Intents is the
+  other keyboard for a menu bar app and is pending (TODO: the metadata
+  extraction SwiftPM lacks).
+- **The lab** (`CanvasWindow`, app menu): the same plot larger beside
+  the curve list and an action bar; parked until it becomes the lab.
 - **Menu bar glyph**: EFFECT, read from the daemon, never intent: outline
   = Apple holds the fans · filled = a curve does · bar = a CLI boost ·
   slashed outline = no daemon (not installed, awaiting approval,
   unreachable) · dotted = foreign. Left-click opens the popover;
   right-click opens the app menu (version with the daemon's pid, or the
-  daemon's trouble on its own line; the lab; start at login; about, on
-  the cheat sheet's glass, because AppKit's standard panel opens behind
-  the front window for an accessory app; quit. MenuBarExtra has no
-  right-click, hence NSStatusItem). With no daemon the
+  daemon's trouble on its own line; the lab; the shortcut with its live
+  combo, opening its panel; start at login; about, on the floating
+  glass, because AppKit's standard panel opens behind the front window
+  for an accessory app; quit. MenuBarExtra has no right-click, hence
+  NSStatusItem). With no daemon the
   popover leads with the one action that fixes it (`Fixer`): "install
   chilld" (`register()`) or "approve chilld in System Settings › General
   › Login Items & Extensions" (`openSystemSettingsLoginItems()`), polling

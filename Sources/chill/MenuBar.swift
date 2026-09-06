@@ -91,10 +91,10 @@ final class MenuBar: NSObject {
     // MARK: - the app menu (right-click)
 
     /// What the popover is not for: the app itself. Version and daemon,
-    /// the lab, start at login, about, quit. Rebuilt on every open from
-    /// the live state. No item for what does not exist yet (an update
-    /// check comes with the appcast); the keys are the popover's, so `?`
-    /// lives there, not here.
+    /// the lab, the one shortcut (shown with its live combo, remapped in
+    /// its panel), start at login, about, quit. Rebuilt on every open
+    /// from the live state. No item for what does not exist yet (an
+    /// update check comes with the appcast).
     private func appMenu() -> NSMenu {
         let menu = NSMenu()
         func add(_ title: String, _ selector: Selector?, key: String = "") -> NSMenuItem {
@@ -113,8 +113,9 @@ final class MenuBar: NSObject {
             _ = add(model.daemonLine, nil)
         }
         menu.addItem(.separator())
-        _ = add(ChillAction.canvas.spec.title, #selector(canvas), key: "l")
+        _ = add(ChillAction.canvas.spec.title, #selector(canvas))
         menu.addItem(.separator())
+        _ = add("shortcut · \(model.store.displayPrimary(for: .toggle))", #selector(keys))
         let login = add("start at login", #selector(toggleLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         _ = add("about", #selector(about))
@@ -126,6 +127,7 @@ final class MenuBar: NSObject {
     @objc private func canvas() { model.perform(.canvas) }
     @objc private func quit() { model.perform(.quit) }
     @objc private func toggleLogin() { model.toggleLogin() }
+    @objc private func keys() { model.showKeys = true }
     @objc private func about() { model.showAbout = true }
 
     /// Membership of the `admin` group, the one that can approve a
@@ -159,8 +161,17 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: .inkLane) {
             Tabs(model: model)
             if let aside = model.aside {
-                Text(aside).font(.meta).foregroundStyle(tone.opacity(0.8))
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: .inkLane) {
+                    Text(aside).font(.meta).foregroundStyle(tone.opacity(0.8))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if model.heldBy != nil {
+                        Button("take over") { model.perform(.takeOver) }
+                            .buttonStyle(.plain)
+                            .font(.meta)
+                            .foregroundStyle(tone)
+                            .help(ChillAction.takeOver.spec.title)
+                    }
+                }
             }
             Fixer(model: model)
             Plot(model: model, curve: plotted, editable: editable)
@@ -260,9 +271,9 @@ struct Foot: View {
     }
 }
 
-/// The tab bar: one rail holding every intent, `apple · chill · <custom>
-/// · gust`, plus `+`; the selected segment is a dune plate that slides
-/// to whichever the daemon runs. `?` sits apart on the right.
+/// The tab bar: one rail holding every intent, `apple · chill | <yours>`,
+/// plus `+` while the rail has room for another; the selected segment
+/// is a dune plate that slides to whichever the daemon runs.
 struct Tabs: View {
     let model: Model
     @Namespace private var rail
@@ -281,16 +292,18 @@ struct Tabs: View {
                 ForEach(model.customCurves, id: \.name) { curve in
                     tab(curve.name, .custom(curve.name), glyph: "hand.draw")
                 }
-                Button {
-                    model.newCurveTab()
-                } label: {
-                    Text("+").font(.system(size: 14, weight: .medium))
-                        .frame(width: 26, height: 26)
-                        .contentShape(Rectangle())
+                if model.customCurves.count < Model.maxCustom {
+                    Button {
+                        model.newCurveTab()
+                    } label: {
+                        Text("+").font(.system(size: 14, weight: .medium))
+                            .frame(width: 26, height: 26)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("a new curve, born as a copy of chill, yours to draw")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("a new curve, born as a copy of chill, yours to draw")
             }
             .padding(3)
             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: .inkField))
@@ -300,20 +313,7 @@ struct Tabs: View {
             if model.demo.on {
                 Text("demo").font(.meta).foregroundStyle(.tertiary)
             }
-            Spacer(minLength: .inkLane)
-            Button {
-                model.perform(.help)
-            } label: {
-                Text("?").font(.system(size: 12))
-                    .frame(width: 26, height: 26)
-                    .background(
-                        Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: .inkRow)
-                    )
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("every key, and quit")
+            Spacer(minLength: 0)
         }
         .disabled(model.state == nil)
         .onChange(of: model.state == nil) { _, off in
@@ -498,17 +498,17 @@ struct ActionBar: View {
             button(.system, "apple")
             if model.heldBy != nil { button(.takeOver, "take over") }
             Spacer(minLength: 0)
-            button(.help, "?")
         }
     }
 
     private func button(_ action: ChillAction, _ short: String) -> some View {
-        Button {
+        let key = model.store.displayPrimary(for: action)
+        return Button {
             model.perform(action)
         } label: {
             HStack(spacing: .inkTight) {
                 Text(short).font(.system(size: 12))
-                if short != "?" { ShortcutBadge(model.store.displayPrimary(for: action)) }
+                if !key.isEmpty { ShortcutBadge(key) }
             }
             .fixedSize()
         }
@@ -517,6 +517,52 @@ struct ActionBar: View {
         .padding(.vertical, .inkTight)
         .background(Color.inkRest.opacity(0.5), in: RoundedRectangle(cornerRadius: .inkRow))
         .help(action.spec.title)
+    }
+}
+
+/// The one shortcut and its recorder, on the floating glass: Keymap's
+/// grid for the toggle alone, which warns live when macOS or another app
+/// owns the combo. The popover's keys (⌘N, ⌘⌫, ⎋, ⌘Q) are what every
+/// Mac app has and are shown where they act, so they are not here.
+struct KeysPanel: View {
+    static let size = NSSize(width: 460, height: 220)
+    let store: KeymapStore<ChillAction>
+    let close: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: .inkLane) {
+            Text("shortcut")
+                .font(.system(size: 16, weight: .semibold))
+            Text("from any app: Apple's curve if yours runs, yours if Apple's does")
+                .font(.meta)
+                .foregroundStyle(.secondary)
+            KeymapGrid(store: store, sections: ChillAction.shortcutSections)
+            Spacer(minLength: 0)
+        }
+        .padding(.inkBlock)
+        .frame(width: KeysPanel.size.width, height: KeysPanel.size.height, alignment: .topLeading)
+        .overlay(alignment: .topTrailing) {
+            CloseButton(close: close)
+        }
+    }
+}
+
+/// The floating panels' close: a small circled x, top right.
+struct CloseButton: View {
+    let close: () -> Void
+
+    var body: some View {
+        Button(action: close) {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+                .background(.quaternary.opacity(0.85), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(.inkLane)
+        .help("close (escape)")
     }
 }
 
@@ -549,17 +595,7 @@ struct AboutPanel: View {
         .padding(.top, .inkLane)
         .frame(width: AboutPanel.size.width, height: AboutPanel.size.height)
         .overlay(alignment: .topTrailing) {
-            Button(action: close) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
-                    .background(.quaternary.opacity(0.85), in: Circle())
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .padding(.inkLane)
-            .help("close (escape)")
+            CloseButton(close: close)
         }
     }
 }

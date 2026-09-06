@@ -81,12 +81,21 @@ the M4's `Ftst` gates, the lid gate below.
 
 ## 3 · the app
 
-- [x] Menu bar (Ink + Keymap, `ActionID` registry): effect glyph with the
-      five states, curve picker, boost, system, `?` bindings, right-click
-      toggles system ↔ last curve, the no-daemon menu that leads with the
-      fixing action and polls `SMAppService.status`.
-- [x] Canvas: reference clouds, active curve, live markers, keyboard point
-      editing, Ink.CursorScrollView list, envelope from `hello`.
+- [x] Menu bar (Ink + Keymap, `ChillAction` registry): effect glyph with
+      the five states, the tab rail as the intents, the one system-wide
+      toggle (Apple ↔ your curve) with its recorder panel, the no-daemon
+      popover that leads with the fixing action and polls
+      `SMAppService.status`.
+- [ ] Spotlight, Shortcuts and Siri through App Intents (`toggle`,
+      `chill`, `apple`, `use <curve>`, `status`), lore's pattern over
+      Keymap's `IntentSupport`. Blocked on build plumbing, not code: the
+      intent metadata Spotlight reads is extracted by Xcode's
+      `appintentsmetadataprocessor`, which `swift build` never runs. The
+      tool is invocable by hand (`xcrun appintentsmetadataprocessor`,
+      wants a source-file list and the compiler's const-values); wire it
+      into `assemble.sh`, then write the intents.
+- [x] The lab window: the same plot larger, the curve list, an action
+      bar; parked until it becomes the lab.
 - [x] Presence at 1 Hz gated on console session + screens awake; the
       persisted intent resumes at login.
 - [x] `--demo`: forked `chill-demo` roots, scripted trace, in-process fake

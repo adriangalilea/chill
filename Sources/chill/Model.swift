@@ -43,25 +43,24 @@ enum Link: Equatable {
     }
 }
 
-/// The app's one brain: the daemon link, the curves on disk, the canvas
-/// cursor and the point under edit, the key registry and its router. Every
-/// surface (status item, menu, canvas, cheat sheet) reads it and every
-/// action funnels through `perform`.
+/// The app's one brain: the daemon link, the curves on disk, the curve
+/// and the point under the pointer, the key registry with its router
+/// and the system-wide toggle. Every surface (status item, menu, lab)
+/// reads it and every action funnels through `perform`.
 @MainActor @Observable
 final class Model {
-    nonisolated static let rpmStep = Double(Cloud.rpmBin)
-    nonisolated static let celsiusStep = 1.0
 
     let demo: Demo
-    let store = KeymapStore<ChillAction>(families: [ChillAction.curveFamily])
+    let store = KeymapStore<ChillAction>()
     @ObservationIgnored var router: LocalKeyRouter<ChillAction>?
+    @ObservationIgnored var hotkeys: GlobalHotkeys<ChillAction>?
     @ObservationIgnored let float = FloatingPanel()
     @ObservationIgnored var canvas: CanvasWindow?
-    /// The status item's popover, the surface most keys land on.
+    /// The status item's popover, the surface the local keys land on.
     @ObservationIgnored weak var popover: NSPopover?
-    var showHelp = false { didSet { presentHelp(showHelp) } }
-    /// The about panel shares the one floating panel with the cheat
-    /// sheet; showing either dismisses the other.
+    /// The shortcut panel and the about panel share the one floating
+    /// panel; showing either dismisses the other.
+    var showKeys = false { didSet { presentKeys(showKeys) } }
     var showAbout = false { didSet { presentAbout(showAbout) } }
 
     var link: Link?
@@ -142,13 +141,12 @@ final class Model {
     var die: Double? { state?.die ?? local?.die }
 
     /// What the status line cannot say: another watcher holds the fans
-    /// (and the key that takes over), else the last verb's refusal or
-    /// error (both clear on the next good exchange), else why this app,
-    /// open as it is, claims no presence.
+    /// (the take-over button sits beside it), else the last verb's
+    /// refusal or error (both clear on the next good exchange), else why
+    /// this app, open as it is, claims no presence.
     var aside: String? {
         if let held = heldBy {
-            return
-                "held by \(held.name) (pid \(held.pid)) · \(store.displayPrimary(for: .takeOver)) takes over"
+            return "held by \(held.name) (pid \(held.pid))"
         }
         if let notice { return notice }
         if !watching, let state, state.presence == nil {
@@ -413,7 +411,7 @@ final class Model {
                 notice = "no fan envelope yet: no daemon and no SMC"
                 return
             }
-            call("use chill") { try await $0.use(tuned) }
+            use(tuned)
         case .custom(let name):
             guard let curve = curves.first(where: { $0.name == name }) else { return }
             cursor = name
@@ -425,10 +423,18 @@ final class Model {
         }
     }
 
+    /// How many curves of your own the tab rail holds: two, so every tab
+    /// keeps its name whole at the popover's width.
+    static let maxCustom = 2
+
     /// `+`: a custom curve born as a copy of the built-in one, run at
-    /// once, edited in place by pointer or keys.
+    /// once, drawn in place with the pointer.
     func newCurveTab() {
         log.info("+ pressed")
+        guard customCurves.count < Model.maxCustom else {
+            notice = "two curves of your own is the rail; trash one to draw another"
+            return
+        }
         guard let tuned else {
             notice = "no fan envelope yet: no daemon and no SMC"
             return
@@ -612,46 +618,6 @@ final class Model {
         if let editing { point = min(point, editing.points.count - 1) }
     }
 
-    func moveCursor(_ delta: Int) {
-        guard !curves.isEmpty else { return }
-        let index = curves.firstIndex { $0.name == cursor } ?? 0
-        cursor = curves[max(0, min(curves.count - 1, index + delta))].name
-        point = 0
-    }
-
-    func pick(_ number: Int) {
-        guard curves.indices.contains(number - 1) else { return }
-        cursor = curves[number - 1].name
-        point = 0
-        use(curves[number - 1])
-    }
-
-    func movePoint(_ delta: Int) {
-        guard let editing else { return }
-        point = (point + delta + editing.points.count) % editing.points.count
-    }
-
-    func nudge(celsius: Double, rpm: Double) {
-        guard let editing, editing.points.indices.contains(point) else { return }
-        var others = editing.points
-        let old = others.remove(at: point)
-        let moved = Model.held(
-            Curve.Point(c: old.c + celsius, rpm: max(0, old.rpm + rpm)), among: others)
-        commit(editing.name, others + [moved], select: moved)
-    }
-
-    func addPoint() {
-        guard let editing, editing.points.indices.contains(point) else { return }
-        var points = editing.points
-        let here = points[point]
-        let next = point + 1 < points.count ? points[point + 1] : nil
-        let added = Curve.Point(
-            c: next.map { (here.c + $0.c) / 2 } ?? here.c + 5,
-            rpm: next.map { (here.rpm + $0.rpm) / 2 } ?? here.rpm)
-        points.insert(added, at: point + 1)
-        commit(editing.name, points, select: added)
-    }
-
     /// The pointer's way to draw: a click on the plot lands a point there.
     /// No curve under the cursor means the click founds one; a point
     /// within a degree of the click is moved to it instead of doubled.
@@ -734,18 +700,6 @@ final class Model {
         }
     }
 
-    func newCurve() {
-        guard let span = envelope else {
-            notice = "no fan envelope yet: no daemon and no SMC"
-            return
-        }
-        let name = freshName()
-        let fresh = Curve.Point(c: 50, rpm: span.lowerBound)
-        commit(name, [fresh, Curve.Point(c: 90, rpm: span.upperBound)], select: fresh)
-        cursor = name
-        point = 0
-    }
-
     /// `custom`, then `custom-2`, `custom-3`: the first name not on disk.
     private func freshName() -> String {
         var name = "custom"
@@ -810,41 +764,53 @@ final class Model {
                 }
                 return ours
             },
-            perform: { [weak self] in self?.perform($0) },
-            performFamily: { [weak self] _, key in self?.pick(Int(key)!) })
+            perform: { [weak self] in self?.perform($0) })
+        // The system-wide plane: the toggle, from any app. Carbon, so no
+        // accessibility permission; a combo another app owns is inert,
+        // said in the log and dimmed in the shortcut panel.
+        hotkeys = GlobalHotkeys(store: store) { [weak self] in self?.perform($0) }
+        for dead in store.deadGlobals {
+            log.error("global \(dead.display, privacy: .public) is owned by another app; inert")
+        }
         store.publish(appName: "chill", accent: Palette.duneHex)
     }
 
     func perform(_ action: ChillAction) {
         log.info("action \(action.rawValue, privacy: .public)")
         switch action {
-        case .pointUp: nudge(celsius: 0, rpm: Model.rpmStep)
-        case .pointDown: nudge(celsius: 0, rpm: -Model.rpmStep)
-        case .pointLeft: nudge(celsius: -Model.celsiusStep, rpm: 0)
-        case .pointRight: nudge(celsius: Model.celsiusStep, rpm: 0)
-        case .nextPoint: movePoint(1)
-        case .previousPoint: movePoint(-1)
-        case .addPoint: addPoint()
-        case .removePoint: removePoint()
-        case .previousCurve: moveCursor(-1)
-        case .nextCurve: moveCursor(1)
+        case .toggle: toggle()
         case .useCurve: if let editing { use(editing) }
-        case .newCurve: newCurve()
+        case .newCurve: newCurveTab()
         case .deleteCurve: deleteCurve()
         case .system: system()
         case .takeOver: takeOver()
         case .canvas: openCanvas()
         case .back:
-            if showHelp {
-                showHelp = false
+            if showKeys {
+                showKeys = false
+            } else if showAbout {
+                showAbout = false
             } else if let popover, popover.isShown {
                 popover.performClose(nil)
             } else {
                 canvas?.close()
             }
-        case .help: showHelp.toggle()
         case .quit: NSApp.terminate(nil)
         }
+    }
+
+    /// The one key from anywhere: a curve runs, so Apple's; Apple's runs,
+    /// so yours, the last one used, chill until you draw one.
+    func toggle() {
+        guard tab == .apple else {
+            system()
+            return
+        }
+        guard let yours = curves.first(where: { $0.name == config.lastCurve }) ?? tuned else {
+            notice = "no fan envelope yet: no daemon and no SMC"
+            return
+        }
+        use(yours)
     }
 
     func openCanvas() {
@@ -852,38 +818,24 @@ final class Model {
         canvas!.open()
     }
 
-    private func presentHelp(_ on: Bool) {
+    private func presentKeys(_ on: Bool) {
         guard on else {
             float.dismiss()
             store.keyboardCaptured = false
-            log.info("help: dismissed")
+            log.info("keys: dismissed")
             return
         }
-        log.info("help: showing")
+        log.info("keys: showing")
         if showAbout { showAbout = false }
-        float.onDismissRequest = { [weak self] in
-            log.info("help: dismiss requested by the panel")
-            self?.showHelp = false
-        }
+        float.onDismissRequest = { [weak self] in self?.showKeys = false }
         // Not on app switch: opening from the status item ACTIVATES this
         // app, and that activation lands after the panel is up, which
         // dismissed it before it was seen. The panel's own click and
         // escape monitors still close it.
         float.show(
-            CheatSheetPanel(
-                store: store, perform: { [weak self] in self?.perform($0) },
-                extras: [
-                    (
-                        name: "pointer",
-                        rows: [StaticShortcut("right-click the menu bar", "the app menu")]
-                    )
-                ]
-            )
-            .frame(width: 640, height: 560)
-            // The floating panel is a clear window; the sheet brings its
-            // own glass, as mach's surfaces do.
-            .glassEffect(.regular, in: .rect(cornerRadius: .inkPanel)),
-            size: NSSize(width: 640, height: 560), on: NSApp.keyWindow?.screen,
+            KeysPanel(store: store, close: { [weak self] in self?.showKeys = false })
+                .glassEffect(.regular, in: .rect(cornerRadius: .inkPanel)),
+            size: KeysPanel.size, on: NSApp.keyWindow?.screen,
             dismissOnAppSwitch: false)
     }
 
@@ -894,7 +846,7 @@ final class Model {
             return
         }
         log.info("about: showing")
-        if showHelp { showHelp = false }
+        if showKeys { showKeys = false }
         float.onDismissRequest = { [weak self] in self?.showAbout = false }
         float.show(
             AboutPanel(close: { [weak self] in self?.showAbout = false })

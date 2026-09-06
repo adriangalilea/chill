@@ -125,12 +125,9 @@ struct CanvasView: View {
         .padding(.top, 8)
     }
 
-    /// The affordances this surface has: the pointer's, then the keys.
+    /// The affordances this surface has, the pointer's.
     private var hint: String {
-        let s = model.store
-        func k(_ a: ChillAction) -> String { s.displayPrimary(for: a) }
-        return
-            "press the line: a new point, drag it · right-click: remove it · double-click: use the curve · \(k(.pointUp))\(k(.pointDown)) rpm · \(k(.pointLeft))\(k(.pointRight)) °C · \(k(.nextPoint)) next point · \(k(.help)) all keys"
+        "press the line: a new point, drag it · right-click: remove it · double-click: use the curve"
     }
 }
 

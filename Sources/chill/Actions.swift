@@ -3,74 +3,45 @@ import Keymap
 import SwiftUI
 
 /// THE registry of user-facing actions, on the studio's Keymap spine:
-/// identity, title, symbol and default key, once. The status menu shows
-/// the live keys, `?` renders the cheat sheet from it, the canvas routes
-/// the same combos through `LocalKeyRouter`. Adding an action = one
-/// case + one spec + one section + one branch in `Model.perform`; the
-/// exhaustive switch is the compiler naming what is missing. The pointer
-/// is the fallback: every one of these is reachable from the keyboard.
+/// identity, title, symbol and default key, once. chill is a pointer app
+/// by decision: the popover is drawn with the mouse, and a key that
+/// needs the mouse in hand first is worth nothing. What the keyboard is
+/// for here is ONE thing, from anywhere: `toggle`, Apple's curve or
+/// yours, the app's identity verb on a heavy chord (the studio's
+/// convention for a system-wide default), remappable from the app menu.
+/// The rest are the keys every Mac user expects without being told,
+/// shown where they act (the trash button's badge) and nowhere else.
+/// Adding an action = one case + one spec + one section + one branch in
+/// `Model.perform`; the exhaustive switch is the compiler naming what is
+/// missing.
 enum ChillAction: String, CaseIterable, ActionSet {
-    case pointUp, pointDown, pointLeft, pointRight, nextPoint, previousPoint, addPoint,
-        removePoint
-    case previousCurve, nextCurve, useCurve, newCurve, deleteCurve
+    case toggle
+    case newCurve, deleteCurve, useCurve
     case system, takeOver
-    case canvas, back, help, quit
+    case canvas, back, quit
 
     var spec: Spec {
         switch self {
-        case .pointUp:
+        case .toggle:
             return Spec(
-                title: "point: \(Int(Model.rpmStep)) rpm up", symbol: "arrow.up",
-                local: [KeyCombo("up")])
-        case .pointDown:
-            return Spec(
-                title: "point: \(Int(Model.rpmStep)) rpm down", symbol: "arrow.down",
-                local: [KeyCombo("down")])
-        case .pointLeft:
-            return Spec(
-                title: "point: \(Int(Model.celsiusStep)) °C cooler", symbol: "arrow.left",
-                local: [KeyCombo("left")])
-        case .pointRight:
-            return Spec(
-                title: "point: \(Int(Model.celsiusStep)) °C hotter", symbol: "arrow.right",
-                local: [KeyCombo("right")])
-        case .nextPoint:
-            return Spec(
-                title: "next point", symbol: "arrow.right.to.line", local: [KeyCombo("tab")])
-        case .previousPoint:
-            return Spec(
-                title: "previous point", symbol: "arrow.left.to.line",
-                local: [KeyCombo("tab", .shift)])
-        case .addPoint:
-            return Spec(title: "add a point after", symbol: "plus", local: [KeyCombo("n")])
-        case .removePoint:
-            return Spec(title: "remove the point", symbol: "minus", local: [KeyCombo("delete")])
-        case .previousCurve:
-            return Spec(title: "curve above", symbol: "chevron.up", local: [KeyCombo("[")])
-        case .nextCurve:
-            return Spec(title: "curve below", symbol: "chevron.down", local: [KeyCombo("]")])
-        case .useCurve:
-            return Spec(
-                title: "use this curve", symbol: "checkmark", local: [KeyCombo("return")])
+                title: "apple or your curve", symbol: "fan",
+                global: [KeyCombo("c", [.control, .option, .command])])
         case .newCurve:
             return Spec(
                 title: "new curve", symbol: "plus.square", local: [KeyCombo("n", .command)])
         case .deleteCurve:
             return Spec(
                 title: "trash this curve", symbol: "trash", local: [KeyCombo("delete", .command)])
+        case .useCurve:
+            return Spec(title: "use this curve", symbol: "checkmark")
         case .system:
-            return Spec(
-                title: "system: Apple's curve", symbol: "apple.logo", local: [KeyCombo("s")])
+            return Spec(title: "system: Apple's curve", symbol: "apple.logo")
         case .takeOver:
-            return Spec(
-                title: "take over from the other watcher", symbol: "hand.raised",
-                local: [KeyCombo("t")])
+            return Spec(title: "take over from the other watcher", symbol: "hand.raised")
         case .canvas:
-            return Spec(title: "lab", symbol: "flask", local: [KeyCombo("l")])
+            return Spec(title: "lab", symbol: "flask")
         case .back:
             return Spec(title: "close", symbol: "xmark", local: [KeyCombo("escape")])
-        case .help:
-            return Spec(title: "shortcuts", symbol: "questionmark.circle", local: [KeyCombo("?")])
         case .quit:
             return Spec(title: "quit", symbol: "power", local: [KeyCombo("q", .command)])
         }
@@ -78,23 +49,14 @@ enum ChillAction: String, CaseIterable, ActionSet {
 
     static var sections: [ActionSection<ChillAction>] {
         [
-            ActionSection(
-                "point",
-                [
-                    .pointUp, .pointDown, .pointLeft, .pointRight, .nextPoint, .previousPoint,
-                    .addPoint, .removePoint,
-                ]),
-            ActionSection(
-                "curves", [.previousCurve, .nextCurve, .useCurve, .newCurve, .deleteCurve]),
-            ActionSection("fans", [.system, .takeOver]),
-            ActionSection("app", [.canvas, .back, .help, .quit]),
+            ActionSection("fans", [.toggle, .system, .takeOver]),
+            ActionSection("curves", [.newCurve, .deleteCurve, .useCurve]),
+            ActionSection("app", [.canvas, .back, .quit]),
         ]
     }
 
-    /// ⌘1 to ⌘9 pick the Nth curve in list order; the digits are the
-    /// targets, only the modifier remaps. No global plane: the app installs
-    /// no system-wide hotkeys, so an empty modifier reserves nothing.
-    static let curveFamily = ComboFamily(
-        id: "curve", name: "the numbered curve picks", keys: (1...9).map(String.init),
-        localModifier: .command, globalModifier: [])
+    /// The one row the shortcut panel shows: the toggle, system-wide.
+    static var shortcutSections: [ActionSection<ChillAction>] {
+        [ActionSection("from anywhere", [.toggle])]
+    }
 }
