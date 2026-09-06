@@ -1,4 +1,5 @@
 import ChillKit
+import MachSensors
 import SwiftUI
 
 /// What one frame of the plot draws, snapshotted from the model so the
@@ -732,6 +733,22 @@ struct Badge: View {
     let on: Plot.Hovered
     let expanded: Bool
 
+    /// The sensors whose name means something, said plainly. `PMU tcal`
+    /// is a calibration reference, not a part; the die's spots are the
+    /// strip.
+    struct Named: Hashable {
+        let name: String
+        let celsius: Double
+    }
+
+    static func named(_ sensors: [Sensor]) -> [Named] {
+        sensors.compactMap { s in
+            if s.name.hasPrefix("NAND") { return Named(name: "ssd", celsius: s.celsius) }
+            if s.name.contains("battery") { return Named(name: "battery", celsius: s.celsius) }
+            return nil
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             switch on {
@@ -745,30 +762,42 @@ struct Badge: View {
                     .foregroundStyle(Palette.heat(die))
                 }
                 if expanded {
-                    // Several sensors share a name (one per die block):
-                    // one cell per name, its hottest, in a FIXED order
-                    // (by name, numerically) so rows never trade places
-                    // as the numbers move. All of them, two columns.
+                    // Apple names the die's sensors tdie1…n and says nothing
+                    // about what each covers, so no names: how many spots,
+                    // how the heat spreads across them (a strip of cells in
+                    // fixed order, the hottest ringed), and the sensors
+                    // that DO have a name.
                     let all = model.temperatures()
-                    let sensors = Dictionary(grouping: all, by: \.name)
-                        .map { name, group in (name: name, celsius: group.map(\.celsius).max()!) }
-                        .sorted {
-                            $0.name.localizedStandardCompare($1.name) == .orderedAscending
-                        }
-                    let rows = (sensors.count + 1) / 2
-                    Grid(alignment: .leading, horizontalSpacing: .inkLane, verticalSpacing: 3) {
-                        ForEach(0..<rows, id: \.self) { row in
-                            GridRow {
-                                ForEach(
-                                    [row, row + rows].filter { $0 < sensors.count }, id: \.self
-                                ) { i in
-                                    Text(sensors[i].name.replacingOccurrences(of: "PMU ", with: ""))
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.1f", sensors[i].celsius))
-                                        .foregroundStyle(Palette.heat(sensors[i].celsius))
-                                        .gridColumnAlignment(.trailing)
-                                }
+                    let spots = all.filter { $0.name.hasPrefix("PMU tdie") }
+                        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                    if let coolest = spots.map(\.celsius).min(),
+                        let hottest = spots.map(\.celsius).max()
+                    {
+                        Text(
+                            "\(spots.count) spots on the die · \(String(format: "%.1f", coolest)) to \(String(format: "%.1f", hottest)) °C"
+                        )
+                        .foregroundStyle(.secondary)
+                        HStack(spacing: 2) {
+                            ForEach(spots, id: \.name) { spot in
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(Palette.heat(spot.celsius))
+                                    .frame(width: 12, height: 8)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .strokeBorder(
+                                                spot.celsius == hottest
+                                                    ? Color.white.opacity(0.9) : .clear,
+                                                lineWidth: 1))
                             }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    ForEach(Badge.named(all), id: \.name) { part in
+                        HStack(spacing: .inkGap) {
+                            Text(part.name).foregroundStyle(.secondary)
+                            Spacer(minLength: .inkLane)
+                            Text(String(format: "%.1f °C", part.celsius))
+                                .foregroundStyle(Palette.heat(part.celsius))
                         }
                     }
                 }

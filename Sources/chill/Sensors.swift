@@ -61,8 +61,9 @@ final class LocalSensors {
             fans: (try? smc.fans()) ?? [])
     }
 
-    /// Every die sensor, hottest first, for the temperature hover card.
+    /// Every thermal sensor the machine names, for the temperature badge:
+    /// the die's spots and the few with a real name (ssd, battery).
     func temperatures() -> [Sensor] {
-        (hid?.readings() ?? []).filter { $0.block != .other }.sorted { $0.celsius > $1.celsius }
+        hid?.readings() ?? []
     }
 }
