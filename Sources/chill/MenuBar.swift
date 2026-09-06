@@ -7,9 +7,8 @@ import ServiceManagement
 import SwiftUI
 
 /// The status item: the effect glyph, a left-click popover that IS the
-/// product (the plot over Apple's cloud, the curves, the actions with
-/// their keys, and whatever fixes a missing daemon first), a right-click
-/// that toggles system ↔ the last curve.
+/// product (the tab rail, the plot, the tab's foot, and whatever fixes
+/// a missing daemon first), a right-click that opens the app menu.
 @MainActor
 final class MenuBar: NSObject {
     private let model: Model
@@ -150,10 +149,11 @@ final class MenuBar: NSObject {
 }
 
 /// The popover. Tabs across the top ARE the intents: `apple`, `chill`
-/// (the built-in curve and its two knobs), one per custom curve, `+`
-/// for a new one; picking a tab sends it, the selected tab is what the
-/// daemon runs. Right of the tabs: boost and `?`. Under them the status,
-/// the fixer when no daemon answers, and the tab's plot.
+/// (the built-in curve and its knob), one per custom curve, `+` beside
+/// the rail for a new one; picking a tab sends it, the selected tab is
+/// what the daemon runs. Under them a notice when there is one, the
+/// fixer when no daemon answers, the tab's plot, and a foot of one
+/// height with the toggle's key cap at its bottom right on every tab.
 struct PopoverView: View {
     let model: Model
 
@@ -185,16 +185,13 @@ struct PopoverView: View {
             ZStack(alignment: .topLeading) {
                 switch model.tab {
                 case .apple:
-                    // A veto in force takes the line; otherwise the one
-                    // shortcut is said here, where it is found.
-                    Foot(
-                        first: vetoNote.isEmpty ? model.toggleLine : vetoNote,
-                        second: model.partsLine
-                    )
-                    .transition(.opacity)
-                case .gust:
-                    Foot(first: gustLine + vetoNote, second: model.partsLine)
+                    Foot(first: vetoNote, second: model.partsLine) { ToggleHint(model: model) }
                         .transition(.opacity)
+                case .gust:
+                    Foot(first: gustLine + vetoNote, second: model.partsLine) {
+                        ToggleHint(model: model)
+                    }
+                    .transition(.opacity)
                 case .tuned:
                     Knobs(model: model).transition(.opacity)
                 case .custom:
@@ -263,15 +260,41 @@ struct PopoverView: View {
 }
 
 /// The foot of the apple and gust tabs: two mono lines in the knobs'
-/// space, what the plot cannot say at a glance.
-struct Foot: View {
+/// space, what the plot cannot say at a glance, and at the end of the
+/// bottom line whatever the tab pins there (the toggle hint).
+struct Foot<Trailing: View>: View {
     let first: String
     let second: String
+    @ViewBuilder let trailing: Trailing
 
     var body: some View {
         VStack(alignment: .leading, spacing: .inkGap) {
             Text(first).font(.meta).foregroundStyle(.secondary).frame(height: 16)
-            Text(second).font(.meta).foregroundStyle(.tertiary).frame(height: 16)
+            HStack(spacing: .inkLane) {
+                Text(second).font(.meta).foregroundStyle(.tertiary).lineLimit(1)
+                Spacer(minLength: 0)
+                trailing
+            }
+            .frame(height: 16)
+        }
+    }
+}
+
+/// The one shortcut, as a key cap, at the bottom right of every tab's
+/// foot: the same place on `apple` and on `chill`, so it is found on
+/// either. Says what it toggles to, since that follows the last curve.
+struct ToggleHint: View {
+    let model: Model
+
+    var body: some View {
+        let key = model.store.displayPrimary(for: .toggle)
+        if !key.isEmpty {
+            HStack(spacing: .inkGap) {
+                ShortcutBadge(key)
+                Text("apple ↔ \(model.yourCurve?.name ?? Model.tunedName)")
+                    .font(.meta).foregroundStyle(.tertiary)
+            }
+            .help(ChillAction.toggle.spec.title + ", from any app")
         }
     }
 }
@@ -286,39 +309,33 @@ struct Tabs: View {
     var body: some View {
         HStack(spacing: .inkGap) {
             HStack(spacing: 2) {
-                // The house's three, each with its glyph, then a hairline,
+                // The house's two, each with its glyph, then a hairline,
                 // then yours by name.
-                tab("apple", .apple, glyph: "apple.logo")
-                tab("chill", .tuned, glyph: "snowflake")
+                TabCell(model: model, name: "apple", tab: .apple, glyph: "apple.logo", rail: rail)
+                TabCell(model: model, name: "chill", tab: .tuned, glyph: "snowflake", rail: rail)
                 Rectangle()
                     .fill(Color.primary.opacity(0.12))
                     .frame(width: 1, height: 16)
                     .padding(.horizontal, 3)
                 ForEach(model.customCurves, id: \.name) { curve in
-                    tab(curve.name, .custom(curve.name), glyph: "hand.draw")
+                    TabCell(
+                        model: model, name: curve.name, tab: .custom(curve.name),
+                        glyph: "hand.draw", rail: rail)
                 }
             }
-            .padding(3)
+            .padding(Tabs.railPadding)
             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: .inkField))
             .overlay(
                 RoundedRectangle(cornerRadius: .inkField)
                     .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
             // `+` beside the rail, not in it: the rail holds what runs,
-            // this makes a new one.
+            // this makes a new one. The rail's height, so the two align.
             if model.customCurves.count < Model.maxCustom {
-                Button {
+                RailButton(help: "a new curve, born as a copy of chill, yours to draw") {
                     model.newCurveTab()
                 } label: {
-                    Text("+").font(.system(size: 14, weight: .medium))
-                        .frame(width: 26, height: 26)
-                        .background(
-                            Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: .inkRow)
-                        )
-                        .contentShape(Rectangle())
+                    Text("+").font(.system(size: 15, weight: .medium))
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("a new curve, born as a copy of chill, yours to draw")
             }
             if model.demo.on {
                 Text("demo").font(.meta).foregroundStyle(.tertiary)
@@ -332,33 +349,11 @@ struct Tabs: View {
         .animation(.inkSettle, value: model.tab)
     }
 
-    private func tab(_ name: String, _ tab: Model.Tab, glyph: String?) -> some View {
-        let selected = model.tab == tab
-        return Button {
-            model.select(tab)
-        } label: {
-            HStack(spacing: 5) {
-                if let glyph {
-                    Image(systemName: glyph).font(.system(size: 11, weight: .medium))
-                }
-                Text(name)
-            }
-            .font(.system(size: 13, weight: selected ? .semibold : .regular))
-            .padding(.horizontal, .inkLane)
-            .frame(height: 26)
-            .background {
-                if selected {
-                    RoundedRectangle(cornerRadius: .inkRow)
-                        .fill(Palette.dune.opacity(0.22))
-                        .matchedGeometryEffect(id: "plate", in: rail)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(selected ? Palette.dune : .secondary)
-        .help(Tabs.about(tab, name))
-    }
+    static let cellHeight: CGFloat = 26
+    static let railPadding: CGFloat = 3
+    /// A cell plus the rail's padding: what stands beside the rail is
+    /// this tall.
+    static var railHeight: CGFloat { cellHeight + railPadding * 2 }
 
     /// What a tab means, on hover: the one place this is said.
     static func about(_ tab: Model.Tab, _ name: String) -> String {
@@ -376,6 +371,90 @@ struct Tabs: View {
     }
 }
 
+/// One tab: glyph and name, the dune plate under the one that runs
+/// (matched across the rail, so it slides), a wash under the pointer,
+/// the text stepping up from secondary to primary on hover and to dune
+/// when selected, and a small give on press. Alive, never loud.
+struct TabCell: View {
+    let model: Model
+    let name: String
+    let tab: Model.Tab
+    let glyph: String
+    let rail: Namespace.ID
+    @SwiftUI.State private var hovering = false
+
+    var body: some View {
+        let selected = model.tab == tab
+        Button {
+            model.select(tab)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: glyph).font(.system(size: 11, weight: .medium))
+                Text(name)
+            }
+            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+            .padding(.horizontal, .inkLane)
+            .frame(height: Tabs.cellHeight)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: .inkRow)
+                        .fill(Palette.dune.opacity(0.22))
+                        .matchedGeometryEffect(id: "plate", in: rail)
+                } else if hovering {
+                    RoundedRectangle(cornerRadius: .inkRow)
+                        .fill(Color.primary.opacity(0.07))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(Give())
+        .foregroundStyle(selected ? Palette.dune : hovering ? .primary : .secondary)
+        .onHover { hovering = $0 }
+        .animation(.inkSettle, value: hovering)
+        .help(Tabs.about(tab, name))
+    }
+}
+
+/// A square button the rail's height, beside it: the same wash on
+/// hover, the same give on press.
+struct RailButton<Label: View>: View {
+    let help: String
+    let action: () -> Void
+    @ViewBuilder let label: Label
+    @SwiftUI.State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            label
+                .frame(width: Tabs.railHeight, height: Tabs.railHeight)
+                .background(
+                    Color.primary.opacity(hovering ? 0.12 : 0.06),
+                    in: RoundedRectangle(cornerRadius: .inkField)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: .inkField)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(Give())
+        .foregroundStyle(hovering ? .primary : .secondary)
+        .onHover { hovering = $0 }
+        .animation(.inkSettle, value: hovering)
+        .help(help)
+    }
+}
+
+/// The press: a slight give and a dip, back on release.
+struct Give: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
 /// The one knob of the built-in curve: how hard it pushes. The whole
 /// curve moves with it, floor, kick-in and climb; the reading says the
 /// floor and where the climb starts. Live: every move lands on disk and,
@@ -388,7 +467,12 @@ struct Knobs: View {
             // No reading: the knob picks a curve, and the curve above moves
             // with it; a number here would read as an rpm being chosen.
             Knob(label: "push", value: push, range: 0...1, step: 0.02, reading: "")
-            Text(hint).font(.meta).foregroundStyle(.tertiary).frame(height: 16)
+            HStack(spacing: .inkLane) {
+                Text(hint).font(.meta).foregroundStyle(.tertiary).lineLimit(1)
+                Spacer(minLength: 0)
+                ToggleHint(model: model)
+            }
+            .frame(height: 16)
         }
         .disabled(model.envelope == nil)
     }
@@ -398,7 +482,7 @@ struct Knobs: View {
         else { return "" }
         return first.rpm >= last.rpm
             ? "every fan flat out"
-            : "floor until \(Int(first.c)) °C, full at \(Int(last.c)) °C · \(model.store.displayPrimary(for: .toggle)) toggles apple"
+            : "floor until \(Int(first.c)) °C, full at \(Int(last.c)) °C"
     }
 
     private var push: Binding<Double> {
