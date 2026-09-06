@@ -13,6 +13,7 @@ struct Frame {
     let actuals: [Double]
     let targets: [Double]
     let trail: Trail
+    let showCloud: Bool
 
     static let celsius: ClosedRange<Double> = 30...110
     static let celsiusSpan = celsius.upperBound - celsius.lowerBound
@@ -184,7 +185,7 @@ struct Plot: View {
         let frame = Frame(
             envelope: model.envelope, clouds: model.clouds.bins, curve: curve,
             point: editable ? model.point : -1, die: model.die, actuals: model.actuals,
-            targets: model.targets, trail: model.trail)
+            targets: model.targets, trail: model.trail, showCloud: model.config.showCloud)
         GeometryReader { proxy in
             let geometry = PlotGeometry(size: proxy.size, envelope: frame.envelope)
             ZStack {
@@ -252,7 +253,28 @@ struct Plot: View {
             )
         }
         .background(
-            RoundedRectangle(cornerRadius: .inkField).fill(Color.inkRest.opacity(0.4)))
+            RoundedRectangle(cornerRadius: .inkField).fill(Color.inkRest.opacity(0.4))
+        )
+        .overlay(alignment: .topTrailing) {
+            // The history's switch, in its own green while it shows.
+            Button {
+                model.perform(.cloud)
+            } label: {
+                Text("apple history").font(.meta)
+                    .padding(.horizontal, .inkGap)
+                    .padding(.vertical, 2)
+                    .background(
+                        model.config.showCloud
+                            ? Palette.phosphor.opacity(0.18) : Color.primary.opacity(0.06),
+                        in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(model.config.showCloud ? Palette.phosphor : .secondary)
+            .padding(.inkGap)
+            .help(
+                "where macOS has kept the fans while it held them: one cell per degree and 50 rpm, deeper the more often"
+            )
+        }
     }
 
     /// The grid, the heatmap at rest, Apple's cloud.
@@ -287,25 +309,23 @@ struct Plot: View {
         }
 
         // Apple's cloud: where macOS has run the fans while it held them,
-        // one 1 °C × 50 rpm bin per cell, alpha by density, the second fan
-        // half as strong, blurred so the cells read as one soft cloud
-        // instead of a stack of bars.
-        context.drawLayer { layer in
-            layer.addFilter(.blur(radius: 3))
-            for fan in f.clouds.keys.sorted() {
-                let table = f.clouds[fan]!
-                guard let peak = table.values.max(), peak > 0 else { continue }
-                let weight = fan == 0 ? 1.0 : 0.5
-                for (bin, count) in table {
-                    let rect = CGRect(
-                        x: g.x(Double(bin.c)), y: g.y(Double(bin.rpm + Cloud.rpmBin)),
-                        width: g.x(Double(bin.c) + 1) - g.x(Double(bin.c)),
-                        height: g.y(Double(bin.rpm)) - g.y(Double(bin.rpm + Cloud.rpmBin)))
-                    let alpha = (0.06 + 0.5 * sqrt(Double(count) / Double(peak))) * weight
-                    layer.fill(
-                        Path(rect.insetBy(dx: -1.5, dy: -1.5)),
-                        with: .color(Palette.apple.opacity(alpha)))
-                }
+        // one 1 °C × 50 rpm cell each, crisp, in terminal phosphor green so
+        // it is never mistaken for the afterglow, bold by density, the
+        // second fan half as strong. Off with `a`.
+        guard f.showCloud else { return }
+        for fan in f.clouds.keys.sorted() {
+            let table = f.clouds[fan]!
+            guard let peak = table.values.max(), peak > 0 else { continue }
+            let weight = fan == 0 ? 1.0 : 0.5
+            for (bin, count) in table {
+                let rect = CGRect(
+                    x: g.x(Double(bin.c)), y: g.y(Double(bin.rpm + Cloud.rpmBin)),
+                    width: g.x(Double(bin.c) + 1) - g.x(Double(bin.c)),
+                    height: g.y(Double(bin.rpm)) - g.y(Double(bin.rpm + Cloud.rpmBin)))
+                let alpha = (0.18 + 0.7 * sqrt(Double(count) / Double(peak))) * weight
+                context.fill(
+                    Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 1),
+                    with: .color(Palette.phosphor.opacity(alpha)))
             }
         }
     }

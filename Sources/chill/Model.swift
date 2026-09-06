@@ -698,6 +698,9 @@ final class Model {
         case .boost: boost()
         case .system: system()
         case .takeOver: takeOver()
+        case .cloud:
+            config.showCloud.toggle()
+            saveConfig()
         case .canvas: openCanvas()
         case .back:
             if showHelp {

@@ -14,6 +14,7 @@ enum ChillAction: String, CaseIterable, ActionSet {
         removePoint
     case previousCurve, nextCurve, useCurve, newCurve, deleteCurve
     case boost, system, takeOver
+    case cloud
     case canvas, back, help, quit
 
     var spec: Spec {
@@ -69,6 +70,10 @@ enum ChillAction: String, CaseIterable, ActionSet {
             return Spec(
                 title: "take over from the other watcher", symbol: "hand.raised",
                 local: [KeyCombo("t")])
+        case .cloud:
+            return Spec(
+                title: "apple history: where macOS has kept the fans, show or hide",
+                symbol: "clock.arrow.circlepath", local: [KeyCombo("a")])
         case .canvas:
             return Spec(title: "canvas", symbol: "chart.xyaxis.line", local: [KeyCombo("c")])
         case .back:
@@ -91,6 +96,7 @@ enum ChillAction: String, CaseIterable, ActionSet {
             ActionSection(
                 "curves", [.previousCurve, .nextCurve, .useCurve, .newCurve, .deleteCurve]),
             ActionSection("fans", [.boost, .system, .takeOver]),
+            ActionSection("plot", [.cloud]),
             ActionSection("app", [.canvas, .back, .help, .quit]),
         ]
     }
