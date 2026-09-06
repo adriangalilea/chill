@@ -1,6 +1,7 @@
 import AppKit
 import ChillKit
 import Keymap
+import MachSensors
 import Observation
 import ServiceManagement
 import SwiftUI
@@ -149,6 +150,16 @@ final class Model {
     }
 
     var actuals: [Double] { state?.fans.map(\.actual) ?? local?.fans.map(\.actual) ?? [] }
+
+    /// The die sensors by heat, read from the machine on demand for the
+    /// temperature hover card (the daemon ships one number, the hottest;
+    /// the names live only in the HID reader). Opens the local sensors
+    /// once, the same object the daemon-less canvas samples.
+    func temperatures() -> [Sensor] {
+        if sensors == nil { sensors = Result { try LocalSensors() } }
+        guard case .success(let local)? = sensors else { return [] }
+        return local.temperatures()
+    }
 
     /// The exact numbers behind the plot's marks, one line per fan, for
     /// the hover card: actual, target, and who holds it by its mode.

@@ -91,10 +91,28 @@ struct Plot: View {
     @SwiftUI.State private var dragging: Int?
     @SwiftUI.State private var hover: CGPoint?
 
-    /// Fans closer than this read as one ring; apart, each gets its name.
-    static let togetherRPM = 150.0
-    /// How near the die's column the pointer must be for the hover card.
-    static let hoverReach: CGFloat = 28
+    /// Fans closer than this read as one rule; apart, each gets its name.
+    static let togetherRPM = 225.0
+    /// How near a rule the pointer must rest for its hover card.
+    static let hoverReach: CGFloat = 10
+
+    /// What the pointer rests on: the die's vertical, or a fan's
+    /// horizontal. The vertical wins where they cross.
+    enum Hovered: Equatable {
+        case die, fans
+    }
+
+    static func hovered(_ p: CGPoint, _ f: Frame, _ g: PlotGeometry) -> Hovered? {
+        guard g.plot.contains(p) else { return nil }
+        if let die = f.die, abs(p.x - g.x(die)) < hoverReach { return .die }
+        if f.actuals.contains(where: { abs(p.y - g.y($0)) < hoverReach }) { return .fans }
+        return nil
+    }
+
+    static func hoveredNow(_ p: CGPoint?, _ f: Frame, _ g: PlotGeometry?) -> Hovered? {
+        guard let p, let g else { return nil }
+        return hovered(p, f, g)
+    }
 
     init(model: Model, curve: Curve?, editable: Bool) {
         self.model = model
@@ -117,24 +135,18 @@ struct Plot: View {
                     LiveLayer(frame: frame, geometry: geometry)
                         .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
                 }
-                if let geometry, let hover, let die = frame.die,
-                    abs(hover.x - geometry.x(die)) < Plot.hoverReach
-                {
-                    HoverCard(
-                        die: die, lines: model.fanLines,
-                        holder: frame.targets.isEmpty
-                            ? "apple holds the fans" : "chill holds the fans"
-                    )
-                    .fixedSize()
-                    .position(
-                        x: hover.x + (hover.x < proxy.size.width / 2 ? 120 : -120),
-                        y: min(max(hover.y, 40), proxy.size.height - 40)
-                    )
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
+                if let geometry, let hover, let on = Plot.hovered(hover, frame, geometry) {
+                    HoverCard(model: model, frame: frame, on: on)
+                        .fixedSize()
+                        .position(
+                            x: hover.x + (hover.x < proxy.size.width / 2 ? 110 : -110),
+                            y: hover.y + (hover.y < proxy.size.height / 2 ? 44 : -44)
+                        )
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
                 }
             }
-            .animation(.inkSettle, value: hover == nil)
+            .animation(.inkSettle, value: Plot.hoveredNow(hover, frame, geometry))
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let p): hover = p
@@ -376,18 +388,41 @@ struct LiveLayer: View, @MainActor Animatable {
 /// the die to a tenth, each fan's actual, target and holder, who holds
 /// the fans. A thin mono card, nothing to click.
 struct HoverCard: View {
-    let die: Double
-    let lines: [String]
-    let holder: String
+    let model: Model
+    let frame: Frame
+    let on: Plot.Hovered
+
+    /// How many sensors the temperature card lists under the hottest.
+    static let sensorsShown = 6
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("die \(String(format: "%.1f", die)) °C")
-                .foregroundStyle(Palette.heat(die))
-            ForEach(lines, id: \.self) { line in
-                Text(line).foregroundStyle(Palette.dune)
+            switch on {
+            case .die:
+                let sensors = model.temperatures()
+                if let die = frame.die {
+                    Text("die \(String(format: "%.1f", die)) °C · hottest of \(sensors.count)")
+                        .foregroundStyle(Palette.heat(die))
+                }
+                ForEach(sensors.prefix(HoverCard.sensorsShown), id: \.name) { sensor in
+                    HStack(spacing: .inkGap) {
+                        Text(sensor.name).foregroundStyle(.secondary)
+                        Spacer(minLength: .inkLane)
+                        Text(String(format: "%.1f °C", sensor.celsius))
+                            .foregroundStyle(Palette.heat(sensor.celsius))
+                    }
+                }
+                if sensors.count > HoverCard.sensorsShown {
+                    Text("and \(sensors.count - HoverCard.sensorsShown) cooler")
+                        .foregroundStyle(.tertiary)
+                }
+            case .fans:
+                ForEach(model.fanLines, id: \.self) { line in
+                    Text(line).foregroundStyle(Palette.dune)
+                }
+                Text(frame.targets.isEmpty ? "apple holds the fans" : "chill holds the fans")
+                    .foregroundStyle(.secondary)
             }
-            Text(holder).foregroundStyle(.secondary)
         }
         .font(.meta)
         .padding(.horizontal, .inkLane)

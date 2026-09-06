@@ -60,4 +60,9 @@ final class LocalSensors {
             die: hid?.hottest()?.celsius,
             fans: (try? smc.fans()) ?? [])
     }
+
+    /// Every die sensor, hottest first, for the temperature hover card.
+    func temperatures() -> [Sensor] {
+        (hid?.readings() ?? []).filter { $0.block != .other }.sorted { $0.celsius > $1.celsius }
+    }
 }

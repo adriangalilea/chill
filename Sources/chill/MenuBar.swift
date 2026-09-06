@@ -101,10 +101,6 @@ struct PopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: .inkLane) {
             Tabs(model: model)
-            Text(model.statusLine)
-                .font(.meta)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
             if let aside = model.aside {
                 Text(aside).font(.meta).foregroundStyle(tone.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
@@ -116,16 +112,8 @@ struct PopoverView: View {
                     if case .custom(let name) = tab { model.cursor = name }
                 }
             switch model.tab {
-            case .apple:
-                Text("Apple's own curve, drawn from what it does; nothing here to set")
-                    .font(.meta).foregroundStyle(.tertiary)
-                    .transition(.opacity)
-            case .storm:
-                Text(
-                    "every fan at its maximum for \(Wire.boostMinutes) minutes, then back to Apple"
-                )
-                .font(.meta).foregroundStyle(.tertiary)
-                .transition(.opacity)
+            case .apple, .storm:
+                EmptyView()
             case .tuned:
                 Knobs(model: model).transition(.opacity)
             case .custom:
@@ -246,7 +234,19 @@ struct Tabs: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(selected ? Palette.dune : .secondary)
-        .help(tab == .storm ? ChillAction.boost.spec.title : "run \(name)")
+        .help(Tabs.about(tab, name))
+    }
+
+    /// What a tab means, on hover: the one place this is said.
+    static func about(_ tab: Model.Tab, _ name: String) -> String {
+        switch tab {
+        case .apple: return "Apple's own curve, drawn here from what it does"
+        case .tuned:
+            return "chill's curve: the fan's minimum until it kicks in, then a smooth climb"
+        case .storm:
+            return "every fan at its maximum for \(Wire.boostMinutes) minutes, then back to Apple"
+        case .custom: return "your curve \"\(name)\", drawn point by point"
+        }
     }
 }
 
