@@ -12,7 +12,7 @@ struct Frame {
     let die: Double?
     let actuals: [Double]
     let targets: [Double]
-    let trail: [Trail.Sample]
+    let trail: Trail
 
     static let celsius: ClosedRange<Double> = 30...110
     static let celsiusSpan = celsius.upperBound - celsius.lowerBound
@@ -62,28 +62,42 @@ struct PlotGeometry {
     }
 }
 
-/// The afterglow: where the live point has been, each sample a halo of
-/// the point's own shape in the heat it had, fading with age like
-/// phosphor under a lamp that moved on.
-enum Trail {
-    struct Sample: Hashable {
+/// The afterglow: the path the live point has travelled, recorded by
+/// the animated layer itself on every frame it draws, so the trail ends
+/// exactly where the point is and moves at its exact pace. A soft
+/// blurred stroke in the heat the die had along the way, fading with
+/// age like phosphor after the lamp moved on.
+final class Trail {
+    struct Mark {
         let at: Date
         let die: Double
-        let actuals: [Double]
+        let rpm: Double
     }
 
-    /// How long a sample glows.
-    static let span: TimeInterval = 45
-    static let radius: CGFloat = 11
-    /// A sample lands only once the point has moved this far from the
-    /// last one, so a still point does not pile halos into a burn.
-    static let stepCelsius = 1.0
-    static let stepRPM = 60.0
+    private(set) var marks: [Mark] = []
 
-    /// The glow left at `age`: faint even fresh, since many overlap on a
-    /// slow path, gone at `span`.
+    /// How long a stretch glows.
+    static let span: TimeInterval = 45
+    /// Below this travel a frame adds no mark (a still point, a jitter).
+    static let stepCelsius = 0.15
+    static let stepRPM = 8.0
+
+    /// Called from the live layer's draw with the point's animated
+    /// position: appends when it moved, prunes what has faded.
+    func record(die: Double, rpm: Double) {
+        let now = Date()
+        marks.removeAll { now.timeIntervalSince($0.at) > Trail.span }
+        if let last = marks.last,
+            abs(die - last.die) < Trail.stepCelsius, abs(rpm - last.rpm) < Trail.stepRPM
+        {
+            return
+        }
+        marks.append(Mark(at: now, die: die, rpm: rpm))
+    }
+
+    /// The glow of a stretch at `age`: faint fresh, gone at `span`.
     static func alpha(age: TimeInterval) -> Double {
-        0.12 * pow(max(0, 1 - age / span), 2)
+        0.35 * pow(max(0, 1 - age / span), 2)
     }
 }
 
@@ -434,30 +448,27 @@ struct LiveLayer: View, @MainActor Animatable {
                 actuals.count > 1 && spread <= Plot.togetherRPM
                 ? [("fans", actuals.reduce(0, +) / Double(actuals.count))]
                 : actuals.enumerated().map { ("fan \($0.offset + 1)", $0.element) }
-            // The afterglow first, oldest deepest, one halo per sample
-            // where the point was, merged the way the marks are.
+            // The afterglow: this frame's animated position joins the
+            // path, then the path is stroked stretch by stretch in the
+            // heat it had, blurred into a glow, oldest faintest.
+            if let lead = marks.first {
+                frame.trail.record(die: die, rpm: lead.1)
+            }
             let now = Date()
-            for sample in frame.trail {
-                let age = now.timeIntervalSince(sample.at)
-                let alpha = Trail.alpha(age: age)
-                guard alpha > 0.01, !sample.actuals.isEmpty else { continue }
-                let together =
-                    sample.actuals.count > 1
-                    && (sample.actuals.max()! - sample.actuals.min()!) <= Plot.togetherRPM
-                let rpms =
-                    together
-                    ? [sample.actuals.reduce(0, +) / Double(sample.actuals.count)]
-                    : sample.actuals
-                let glow = Palette.heat(sample.die)
-                for rpm in rpms {
-                    let c = CGPoint(x: g.x(sample.die), y: g.y(rpm))
-                    let r = Trail.radius
-                    context.fill(
-                        Path(
-                            ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
-                        with: .radialGradient(
-                            Gradient(colors: [glow.opacity(alpha), glow.opacity(0)]),
-                            center: c, startRadius: 0, endRadius: r))
+            let path = frame.trail.marks
+            if path.count > 1 {
+                context.drawLayer { layer in
+                    layer.addFilter(.blur(radius: 4))
+                    for (a, b) in zip(path, path.dropFirst()) {
+                        let alpha = Trail.alpha(age: now.timeIntervalSince(b.at))
+                        guard alpha > 0.005 else { continue }
+                        var stretch = Path()
+                        stretch.move(to: CGPoint(x: g.x(a.die), y: g.y(a.rpm)))
+                        stretch.addLine(to: CGPoint(x: g.x(b.die), y: g.y(b.rpm)))
+                        layer.stroke(
+                            stretch, with: .color(Palette.heat(b.die).opacity(alpha)),
+                            style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                    }
                 }
             }
             for (i, mark) in marks.enumerated() {

@@ -151,23 +151,10 @@ final class Model {
 
     var actuals: [Double] { state?.fans.map(\.actual) ?? local?.fans.map(\.actual) ?? [] }
 
-    /// Where the live point has been: one sample per pulse, the last
-    /// `Trail.span`, drawn as the afterglow behind it.
-    var trail: [Trail.Sample] = []
-
-    private func remember() {
-        guard let die else { return }
-        let now = Date()
-        trail.removeAll { now.timeIntervalSince($0.at) > Trail.span }
-        if let last = trail.last {
-            let moved =
-                abs(die - last.die) >= Trail.stepCelsius
-                || zip(actuals, last.actuals).contains { abs($0 - $1) >= Trail.stepRPM }
-                || actuals.count != last.actuals.count
-            guard moved else { return }
-        }
-        trail.append(Trail.Sample(at: now, die: die, actuals: actuals))
-    }
+    /// Where the live point has been, fed by the plot's animated layer
+    /// frame by frame; a reference, since the layer writes into it while
+    /// drawing.
+    @ObservationIgnored let trail = Trail()
 
     /// The die sensors by heat, read from the machine on demand for the
     /// temperature hover card (the daemon ships one number, the hottest;
@@ -265,7 +252,6 @@ final class Model {
         }
         link = Link.live(state)
         local = nil
-        remember()
         if let hello { clouds.absorb(state.clouds, from: hello.pid) }
     }
 
@@ -416,7 +402,6 @@ final class Model {
         switch sensors! {
         case .success(let sensors):
             local = sensors.sample()
-            remember()
         case .failure(let error):
             if local == nil { Verbs.note("chill: \(error); no local telemetry") }
             local = LocalSample(die: nil, fans: [])
