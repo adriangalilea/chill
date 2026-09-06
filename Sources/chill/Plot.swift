@@ -150,6 +150,13 @@ struct Plot: View {
     @SwiftUI.State private var dragging: Int?
     @SwiftUI.State private var hover: CGPoint?
     @SwiftUI.State private var rightClicks: Any?
+    /// The pointer's last position in the plot, readable from the
+    /// right-click monitor's closure without capturing a stale value.
+    @SwiftUI.State private var pointer = Pointer()
+
+    final class Pointer {
+        var at: CGPoint?
+    }
 
     /// How near the line the pointer must be for the ghost point.
     static let ghostReach: CGFloat = 14
@@ -292,7 +299,9 @@ struct Plot: View {
             .animation(.inkSettle, value: frame.curve?.name)
             .onContinuousHover { phase in
                 switch phase {
-                case .active(let p): hover = p
+                case .active(let p):
+                    hover = p
+                    pointer.at = p
                 case .ended: hover = nil
                 }
             }
@@ -340,16 +349,22 @@ struct Plot: View {
             // SwiftUI gestures do not see the secondary button.
             .onAppear {
                 guard editable else { return }
+                // The pointer is where the last hover put it, in the
+                // plot's own space: no window arithmetic, and the curve
+                // and geometry are read live, never captured.
                 rightClicks = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) {
                     event in
-                    guard let geometry, let window = event.window,
-                        let content = window.contentView
-                    else { return event }
-                    let inPlot = proxy.frame(in: .global)
-                    let p = CGPoint(
-                        x: event.locationInWindow.x - inPlot.minX,
-                        y: content.bounds.height - event.locationInWindow.y - inPlot.minY)
-                    guard let hit = geometry.hit(model.editing, at: p) else { return event }
+                    guard let p = pointer.at,
+                        let g = PlotGeometry(size: proxy.size, envelope: model.envelope)
+                    else {
+                        log.debug("right-click: pointer unknown or no geometry")
+                        return event
+                    }
+                    guard let hit = g.hit(model.editing, at: p) else {
+                        log.debug("right-click at \(Int(p.x)),\(Int(p.y)): no point in reach")
+                        return event
+                    }
+                    log.info("right-click: removing point \(hit)")
                     model.point = hit
                     model.removePoint()
                     return nil
