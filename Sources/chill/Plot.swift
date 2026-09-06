@@ -73,13 +73,17 @@ enum Trail {
     }
 
     /// How long a sample glows.
-    static let span: TimeInterval = 90
-    static let radius: CGFloat = 14
+    static let span: TimeInterval = 45
+    static let radius: CGFloat = 11
+    /// A sample lands only once the point has moved this far from the
+    /// last one, so a still point does not pile halos into a burn.
+    static let stepCelsius = 1.0
+    static let stepRPM = 60.0
 
-    /// The glow left at `age`: bright and full-size just behind the
-    /// point, gone at `span`.
+    /// The glow left at `age`: faint even fresh, since many overlap on a
+    /// slow path, gone at `span`.
     static func alpha(age: TimeInterval) -> Double {
-        0.45 * pow(max(0, 1 - age / span), 2)
+        0.12 * pow(max(0, 1 - age / span), 2)
     }
 }
 

@@ -158,8 +158,15 @@ final class Model {
     private func remember() {
         guard let die else { return }
         let now = Date()
-        trail.append(Trail.Sample(at: now, die: die, actuals: actuals))
         trail.removeAll { now.timeIntervalSince($0.at) > Trail.span }
+        if let last = trail.last {
+            let moved =
+                abs(die - last.die) >= Trail.stepCelsius
+                || zip(actuals, last.actuals).contains { abs($0 - $1) >= Trail.stepRPM }
+                || actuals.count != last.actuals.count
+            guard moved else { return }
+        }
+        trail.append(Trail.Sample(at: now, die: die, actuals: actuals))
     }
 
     /// The die sensors by heat, read from the machine on demand for the
