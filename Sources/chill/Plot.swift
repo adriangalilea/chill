@@ -264,37 +264,41 @@ struct Plot: View {
                     .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
                 }
             }
-            // The label grows into its card in place, and shrinks back:
-            // one element, not a second one appearing beside the first.
+            // The labels are badges: one view each, pinned by a corner
+            // whose offset never depends on their size, so the same view
+            // grows into its details under the pointer and shrinks back,
+            // in place. The die's badge rides the die's animation.
             .overlay(alignment: .topLeading) {
-                if let geometry, let die = frame.die, let hover,
-                    Plot.hovered(hover, frame, geometry, editable: editable) == .die
-                {
-                    let box = LiveLayer.dieLabelBox(die, geometry)
+                if let geometry, let die = frame.die {
+                    let lit = Plot.hoveredNow(hover, frame, geometry, editable: editable)
                     let right = LiveLayer.dieLabelRight(die, geometry)
-                    HoverCard(model: model, frame: frame, on: .die)
+                    Badge(model: model, frame: frame, on: .die, expanded: lit == .die)
                         .fixedSize()
-                        .alignmentGuide(.leading) { d in right ? -box.minX : d.width - box.maxX }
-                        .alignmentGuide(.top) { _ in -box.minY }
+                        .frame(
+                            maxWidth: .infinity, maxHeight: .infinity,
+                            alignment: right ? .topLeading : .topTrailing
+                        )
+                        .offset(
+                            x: right
+                                ? geometry.x(die) + 6
+                                : geometry.x(die) - 6 - proxy.size.width,
+                            y: geometry.plot.minY - 2
+                        )
+                        .animation(.easeOut(duration: 0.9), value: die)
                         .allowsHitTesting(false)
-                        .transition(
-                            .scale(scale: 0.6, anchor: right ? .topLeading : .topTrailing)
-                                .combined(with: .opacity))
                 }
             }
-            .overlay(alignment: .topLeading) {
-                if let geometry, let hover,
-                    Plot.hovered(hover, frame, geometry, editable: editable) == .fans,
-                    let rpm = LiveLayer.marks(frame.actuals).first?.1
-                {
-                    let box = LiveLayer.fanLabelBox(rpm, geometry)
-                    HoverCard(model: model, frame: frame, on: .fans)
+            .overlay(alignment: .bottomTrailing) {
+                if let geometry, let rpm = LiveLayer.marks(frame.actuals).first?.1 {
+                    let lit = Plot.hoveredNow(hover, frame, geometry, editable: editable)
+                    Badge(model: model, frame: frame, on: .fans, expanded: lit == .fans)
                         .fixedSize()
-                        .alignmentGuide(.leading) { d in d.width - box.maxX + 4 }
-                        .alignmentGuide(.top) { _ in -(box.midY - 20) }
+                        .offset(
+                            x: -(proxy.size.width - geometry.plot.maxX + 4),
+                            y: -(proxy.size.height - geometry.y(rpm) + 3)
+                        )
+                        .animation(.easeOut(duration: 0.9), value: rpm)
                         .allowsHitTesting(false)
-                        .transition(
-                            .scale(scale: 0.6, anchor: .topTrailing).combined(with: .opacity))
                 }
             }
             .animation(
@@ -516,26 +520,19 @@ struct CurveLayer: View, @MainActor Animatable {
             // A dark edge lifts the point off the line and off the live
             // point's dune; the selected one is ringed and labelled to
             // its upper right, clear of the live point's halo.
-            let r: CGFloat = i == point || i == hot ? 6 : 4
+            // Only the pointer changes a point's look: under it (or
+            // dragged by it) the point grows, rings and shows its
+            // numbers; the keyboard's selection has no look of its own.
+            let r: CGFloat = i == hot ? 6 : 4
             let dot = CGRect(x: g.x(p.c) - r, y: g.y(p.rpm) - r, width: r * 2, height: r * 2)
             context.fill(Path(ellipseIn: dot), with: .color(Palette.dune))
             context.stroke(
                 Path(ellipseIn: dot), with: .color(Color(nsColor: .windowBackgroundColor)),
                 lineWidth: 1.5)
-            if i == hot && i != point {
-                context.stroke(
-                    Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
-                    with: .color(Palette.dune.opacity(0.35)), lineWidth: 1.5)
-            }
-            if i == point {
+            if i == hot {
                 context.stroke(
                     Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
                     with: .color(Palette.dune.opacity(0.6)), lineWidth: 1.5)
-            }
-            // The numbers only while the pointer is on the point (or
-            // dragging it, which keeps it hot): a selection is not a
-            // reason to keep them up.
-            if i == hot {
                 context.plated(
                     Text("\(Int(p.c))° · \(Int(p.rpm)) rpm").font(.meta)
                         .foregroundStyle(Palette.dune),
@@ -647,13 +644,6 @@ struct LiveLayer: View, @MainActor Animatable {
                 lineWidth: lit == .die ? 2 : 1)
             // Right of the line, or left of it near the right edge.
             // The label, unless it is the card right now.
-            if lit != .die {
-                let rightRoom = LiveLayer.dieLabelRight(die, g)
-                context.plated(
-                    Text("die \(Status.degrees(die))").font(.meta).foregroundStyle(heat),
-                    at: CGPoint(x: g.x(die) + (rightRoom ? 6 : -6), y: plot.minY + 8),
-                    anchor: rightRoom ? .leading : .trailing)
-            }
             // The die is a vertical hairline, so a fan is a horizontal
             // one at its rpm, the two crossing at the live point, a small
             // ring there. Fans running together are one line, "fans · N
@@ -708,7 +698,9 @@ struct LiveLayer: View, @MainActor Animatable {
                     Path(ellipseIn: core.insetBy(dx: -0.75, dy: -0.75)),
                     with: .color(.white.opacity(0.85)), lineWidth: 1.5)
                 let dy: CGFloat = marks.count > 1 && i == 1 ? 9 : -9
-                if lit != .fans {
+                // The lead fan's label is the badge above; a second,
+                // split fan keeps its own plate below its rule.
+                if i > 0 {
                     context.plated(
                         Text("\(mark.0) · \(Int(mark.1)) rpm").font(.meta)
                             .foregroundStyle(Palette.dune),
@@ -731,54 +723,70 @@ struct LiveLayer: View, @MainActor Animatable {
 /// The exact numbers, shown while the pointer rests on the die's column:
 /// the die to a tenth, each fan's actual, target and holder, who holds
 /// the fans. A thin mono card, nothing to click.
-struct HoverCard: View {
+/// A label on the plot that is also its own card: the one line at rest,
+/// the details under it when the pointer is on its line, the same view
+/// growing and shrinking in place.
+struct Badge: View {
     let model: Model
     let frame: Frame
     let on: Plot.Hovered
+    let expanded: Bool
 
-    /// How many sensors the temperature card lists under the hottest.
+    /// How many sensors the temperature badge lists under the hottest.
     static let sensorsShown = 6
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             switch on {
             case .die:
-                // Several sensors share a name (one per die block); one
-                // line per name, its hottest.
-                let all = model.temperatures()
-                let sensors = Dictionary(grouping: all, by: \.name)
-                    .map { name, group in (name: name, celsius: group.map(\.celsius).max()!) }
-                    .sorted { $0.celsius > $1.celsius }
                 if let die = frame.die {
-                    Text("die \(String(format: "%.1f", die)) °C · hottest of \(all.count)")
-                        .foregroundStyle(Palette.heat(die))
+                    Text(
+                        expanded
+                            ? "die \(String(format: "%.1f", die)) °C"
+                            : "die \(Status.degrees(die))"
+                    )
+                    .foregroundStyle(Palette.heat(die))
                 }
-                ForEach(sensors.prefix(HoverCard.sensorsShown), id: \.name) { sensor in
-                    HStack(spacing: .inkGap) {
-                        Text(sensor.name).foregroundStyle(.secondary)
-                        Spacer(minLength: .inkLane)
-                        Text(String(format: "%.1f °C", sensor.celsius))
-                            .foregroundStyle(Palette.heat(sensor.celsius))
+                if expanded {
+                    // Several sensors share a name (one per die block);
+                    // one line per name, its hottest.
+                    let all = model.temperatures()
+                    let sensors = Dictionary(grouping: all, by: \.name)
+                        .map { name, group in (name: name, celsius: group.map(\.celsius).max()!) }
+                        .sorted { $0.celsius > $1.celsius }
+                    ForEach(sensors.prefix(Badge.sensorsShown), id: \.name) { sensor in
+                        HStack(spacing: .inkGap) {
+                            Text(sensor.name).foregroundStyle(.secondary)
+                            Spacer(minLength: .inkLane)
+                            Text(String(format: "%.1f °C", sensor.celsius))
+                                .foregroundStyle(Palette.heat(sensor.celsius))
+                        }
+                    }
+                    if sensors.count > Badge.sensorsShown {
+                        Text("and \(sensors.count - Badge.sensorsShown) cooler")
+                            .foregroundStyle(.tertiary)
                     }
                 }
-                if sensors.count > HoverCard.sensorsShown {
-                    Text("and \(sensors.count - HoverCard.sensorsShown) cooler")
-                        .foregroundStyle(.tertiary)
-                }
             case .fans:
-                ForEach(model.fanLines, id: \.self) { line in
-                    Text(line).foregroundStyle(Palette.dune)
+                if let lead = LiveLayer.marks(frame.actuals).first {
+                    Text("\(lead.0) · \(Int(lead.1)) rpm").foregroundStyle(Palette.dune)
                 }
-                Text(frame.targets.isEmpty ? "apple holds the fans" : "chill holds the fans")
-                    .foregroundStyle(.secondary)
+                if expanded {
+                    ForEach(model.fanLines, id: \.self) { line in
+                        Text(line).foregroundStyle(Palette.dune)
+                    }
+                    Text(frame.targets.isEmpty ? "apple holds the fans" : "chill holds the fans")
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .font(.meta)
-        .padding(.horizontal, .inkLane)
-        .padding(.vertical, .inkGap)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: .inkRow))
-        .overlay(
-            RoundedRectangle(cornerRadius: .inkRow)
-                .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1))
+        .padding(.horizontal, expanded ? .inkLane : 5)
+        .padding(.vertical, expanded ? .inkGap : 2)
+        .background(
+            Color(nsColor: .windowBackgroundColor).opacity(expanded ? 0.94 : 0.82),
+            in: RoundedRectangle(cornerRadius: expanded ? .inkRow : 4)
+        )
+        .animation(.inkSettle, value: expanded)
     }
 }
