@@ -264,6 +264,14 @@ struct Plot: View {
         return nil
     }
 
+    /// The pointer is on the curve: dragging a point, over one, or on the
+    /// line within the ghost's reach.
+    private func riding(_ f: Frame, _ g: PlotGeometry) -> Bool {
+        if let dragging, dragging >= 0 { return true }
+        guard let hover else { return false }
+        return g.hit(f.curve, at: hover) != nil || Plot.ghost(at: hover, f, g) != nil
+    }
+
     /// What the pointer rests on right now.
     private func lit(_ f: Frame, _ g: PlotGeometry?) -> Hovered? {
         guard let hover, let g else { return nil }
@@ -302,6 +310,10 @@ struct Plot: View {
                     )
                     .animation(.easeOut(duration: 0.5), value: CurveLayer.encode(curve))
                     .transition(.opacity)
+                    // Riding the curve, the curve is on top of everything:
+                    // its label and points over the live marks and the
+                    // badges, never under them.
+                    .zIndex(riding(frame, geometry) ? 4 : 1)
                 }
                 if let geometry {
                     // A fresh identity whenever the live numbers appear or
@@ -312,14 +324,14 @@ struct Plot: View {
                         .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
                         .id(frame.die != nil && !frame.actuals.isEmpty)
                         .transition(.opacity)
+                        .zIndex(2)
                 }
-            }
-            // The labels are badges: one view each on the pinboard, which
-            // places each beside its mark for the size it has right now
-            // and keeps it inside the plot, so the same view expands under
-            // the pointer and shrinks back in place, its anchored edge
-            // still, never past an edge. The expanded one is on top.
-            .overlay {
+                // The labels are badges: one view each on the pinboard,
+                // which places each beside its mark for the size it has
+                // right now and keeps it inside the plot, so the same view
+                // expands under the pointer and shrinks back in place, its
+                // anchored edge still, never past an edge. The expanded
+                // one is on top of the other.
                 if let geometry {
                     let lit = lit(frame, geometry)
                     Pinboard {
@@ -349,6 +361,7 @@ struct Plot: View {
                     }
                     .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
                     .allowsHitTesting(false)
+                    .zIndex(3)
                 }
             }
             .coordinateSpace(.named(Plot.space))
@@ -710,6 +723,16 @@ struct LiveLayer: View, @MainActor Animatable {
         // readable; chill's targets as filled dune dots.
         if let die {
             let heat = Palette.heat(die)
+            // Lit: the reach around the line is a faint band, the area
+            // the pointer can leave before the card closes.
+            if lit == .die {
+                context.fill(
+                    Path(
+                        CGRect(
+                            x: g.x(die) - Plot.hoverReach, y: plot.minY,
+                            width: Plot.hoverReach * 2, height: plot.height)),
+                    with: .color(heat.opacity(0.1)))
+            }
             var line = Path()
             line.move(to: CGPoint(x: g.x(die), y: plot.minY))
             line.addLine(to: CGPoint(x: g.x(die), y: plot.maxY))
@@ -749,6 +772,14 @@ struct LiveLayer: View, @MainActor Animatable {
                 }
             }
             for (i, mark) in marks.enumerated() {
+                if lit == .fans {
+                    context.fill(
+                        Path(
+                            CGRect(
+                                x: plot.minX, y: g.y(mark.1) - Plot.hoverReach,
+                                width: plot.width, height: Plot.hoverReach * 2)),
+                        with: .color(Palette.dune.opacity(0.1)))
+                }
                 var rule = Path()
                 rule.move(to: CGPoint(x: plot.minX, y: g.y(mark.1)))
                 rule.addLine(to: CGPoint(x: plot.maxX, y: g.y(mark.1)))
