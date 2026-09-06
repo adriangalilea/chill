@@ -416,6 +416,19 @@ struct TabCell: View {
             HStack(spacing: 5) {
                 Image(systemName: glyph).font(.system(size: 11, weight: .medium))
                 Text(name)
+                if mark {
+                    // The key mark, in the row after the name: a small
+                    // solid dune pill, the glyph in the window's ink.
+                    // Static: no glow, no fade, nothing that reads as
+                    // motion. The cell widens for it.
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                        .frame(width: 16, height: 12)
+                        .background(Palette.dune, in: Capsule())
+                        .contentShape(Rectangle())
+                        .onHover { hover($0, frame) }
+                }
             }
             .font(.system(size: 13, weight: selected ? .semibold : .regular))
             .padding(.horizontal, .inkLane)
@@ -428,22 +441,6 @@ struct TabCell: View {
                 } else if hovering {
                     RoundedRectangle(cornerRadius: .inkRow)
                         .fill(Color.primary.opacity(0.07))
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                if mark {
-                    // A small solid dune pill inside the cell's corner,
-                    // the glyph in the window's ink. Static: no glow, no
-                    // fade, nothing that reads as motion.
-                    Image(systemName: "keyboard")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(Color(nsColor: .windowBackgroundColor))
-                        .frame(width: 14, height: 10)
-                        .background(Palette.dune, in: Capsule())
-                        .padding(.top, 2)
-                        .padding(.trailing, 3)
-                        .contentShape(Rectangle())
-                        .onHover { hover($0, frame) }
                 }
             }
             .contentShape(Rectangle())
