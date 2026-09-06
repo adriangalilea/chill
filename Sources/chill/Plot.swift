@@ -356,17 +356,23 @@ struct CurveLayer: View, @MainActor Animatable {
             style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
         // A flat curve (gust) has one point at 0 °C, off the axis: no dot.
         for (i, p) in points.enumerated() where Frame.celsius.contains(p.c) {
+            // A dark edge lifts the point off the line and off the live
+            // point's dune; the selected one is ringed and labelled to
+            // its upper right, clear of the live point's halo.
             let r: CGFloat = i == point ? 6 : 4
             let dot = CGRect(x: g.x(p.c) - r, y: g.y(p.rpm) - r, width: r * 2, height: r * 2)
             context.fill(Path(ellipseIn: dot), with: .color(Palette.dune))
+            context.stroke(
+                Path(ellipseIn: dot), with: .color(Color(nsColor: .windowBackgroundColor)),
+                lineWidth: 1.5)
             if i == point {
                 context.stroke(
                     Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
-                    with: .color(Palette.dune.opacity(0.5)), lineWidth: 1.5)
+                    with: .color(Palette.dune.opacity(0.6)), lineWidth: 1.5)
                 context.plated(
                     Text("\(Int(p.c))° · \(Int(p.rpm)) rpm").font(.meta)
                         .foregroundStyle(Palette.dune),
-                    at: CGPoint(x: g.x(p.c), y: g.y(p.rpm) + 18))
+                    at: CGPoint(x: g.x(p.c) + 14, y: g.y(p.rpm) - 16), anchor: .leading)
             }
         }
     }
@@ -494,11 +500,13 @@ struct LiveLayer: View, @MainActor Animatable {
                     with: .radialGradient(
                         Gradient(colors: [heat.opacity(0.55), heat.opacity(0)]),
                         center: center, startRadius: 0, endRadius: 14))
+                // The core wears the heat itself with a light edge: never
+                // dune, so it reads apart from a curve point on top of it.
                 let core = CGRect(x: center.x - 3.5, y: center.y - 3.5, width: 7, height: 7)
-                context.fill(Path(ellipseIn: core), with: .color(Palette.dune))
+                context.fill(Path(ellipseIn: core), with: .color(heat))
                 context.stroke(
-                    Path(ellipseIn: core.insetBy(dx: -1.5, dy: -1.5)), with: .color(heat),
-                    lineWidth: 1)
+                    Path(ellipseIn: core.insetBy(dx: -0.75, dy: -0.75)),
+                    with: .color(.white.opacity(0.85)), lineWidth: 1.5)
                 let dy: CGFloat = marks.count > 1 && i == 1 ? 9 : -9
                 context.plated(
                     Text("\(mark.0) · \(Int(mark.1)) rpm").font(.meta)
