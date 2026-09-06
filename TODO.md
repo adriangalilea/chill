@@ -25,30 +25,31 @@ nothing below starts before the one above is green.
 ## 1 · chilld: registration, then the writer, then the nets
 
 Everything below is written and compiles (`mise check` at 0 warnings);
-the gates need a signed install on real fans. Human gates, in order:
-`mise run install` (Developer ID) → approve chilld in System Settings ›
-Login Items → `chill daemon status` → quit SoloFan → first `chill curve
-use <name> --watch` on real fans → `garden genesis chill --desc "..."`.
+the gates need a signed install on real fans. Done on the M5 Max: the
+signed install registers and is approved, chilld answers, SoloFan is
+retired from this Mac, curves force real fans. Human gates left:
+`garden genesis chill --desc "..."`, the M4's `Ftst` gates, the sleep
+and lid gates below.
 
-- [ ] Hello-world chilld: bundle assembled by `mise run install`
+- [x] Hello-world chilld: bundle assembled by `mise run install`
       (Developer ID required), plist under `Contents/Library/LaunchDaemons`
       with Label, BundleProgram, MachServices, KeepAlive, ThrottleInterval 1,
       log paths; registered, status polled to `.enabled` after approval,
       login item registered; one XPC round trip from the CLI with the
-      code-signing requirement derived from the daemon's own code. Gate:
-      `chill daemon status` reports pid and signature check; a copy of the
-      CLI re-signed with another identity is rejected; record whether a
-      signed-but-un-notarized install registers on macOS 26.
-- [ ] SMC writer as specified in CLAUDE.md (mode 0/1/3, result byte,
-      acquire with `Ftst` unlock on its own task, auto = mode 0 + `Ftst` 0
-      + read-back, envelope cached once, type assertions). Gate on an
-      M-series Mac: force a target from mode 3 and hold it 30 s; toggle
-      system ↔ curve five times with no thrash and a truthful status
-      throughout; `kill -9` during the unlock window → restart → `Ftst`
-      reads 0 and mode reads 0 or 3.
+      code-signing requirement derived from the daemon's own code. Proven:
+      `chill daemon status` reports pid and signature; a Developer-ID
+      signed, un-notarized bundle registers on macOS 26.6 (so `install`
+      need not notarize). Not yet: a re-signed CLI copy rejected.
+- [x] SMC writer as specified in CLAUDE.md (mode 0/1/3, result byte,
+      acquire on its own task, auto = mode 0 + read-back, envelope cached
+      once, type assertions). Proven on the M5 Max (no `Ftst`): targets
+      forced and held, apple ↔ chill ↔ gust toggled many times with a
+      truthful status, auto on every hand-back. The `Ftst` paths wait for
+      the M4.
 - [ ] The contract: intent persisted in `policy.json`, presence with a
       `ContinuousClock` deadline, the veto set, the 1 Hz evaluator, the
-      reference cloud for fans Apple holds. Gates: quit or `kill -9` the
+      reference cloud for fans Apple holds. Built; proven so far: the app's
+      presence and the daemon's read-back at 1 Hz. Gates: quit or `kill -9` the
       app mid-curve → Apple within 1 s (XPC invalidation); `SIGSTOP` the
       app → within 10 s; close the lid on an external display → status
       shows the veto and stays Apple for as long as the lid is closed,
@@ -67,6 +68,14 @@ use <name> --watch` on real fans → `garden genesis chill --desc "..."`.
       daemon.
 - [x] `status --json` = `State`; foreign detection from the read-back;
       `take` for a second client.
+- [ ] The die that drives the curve is the HID hottest (`PMU tdie*`);
+      the SMC's named cpu keys read hotter on the M5 Max (die 43.8 vs cpu
+      48.4 at idle). Decide which temperature the curve should follow, or
+      whether `hottest` should take the SMC parts into account; the
+      envelope (`F{n}Mn/Mx`) is thermalmonitord's and may key off either.
+- [ ] Apple's observed curve back on the plot as ONE dotted line, the
+      median rpm per degree where data exists, never as cells; only once
+      hours of use across many temperatures exist to draw it from.
 - [ ] Measure the field on one M-series Mac (Macs Fan Control, TG Pro,
       iStat Menus): `kill -9`, sleep, lid close; record whether the forced
       target survives. The strategy table and the pitch cite these numbers.

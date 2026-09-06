@@ -22,15 +22,23 @@ A fan runs a CURVE: temperature in, rpm out. That is the whole model.
 - `system` is Apple's curve. chill cannot read it, so it OBSERVES it: while a
   fan's holder reads `apple` (mode 0 or 3 with `Ftst` clear: neither a
   foreign writer nor chill's own acquire muting the servo), every sample
-  (temperature, rpm) lands in a per-fan histogram that draws Apple's real
-  behaviour on the canvas as a cloud. Read-only, default, always drawn as
-  the reference.
-- A named curve is yours: (°C, rpm) points, linear interpolation, one curve
-  for every fan, each fan clamped to its own reported envelope. Editing
-  happens ON the canvas, over the reference cloud, with the hottest die and
-  the resulting target marked live.
-- Manual is not a mode: a constant rpm is a flat curve. `boost` is a curve
-  pinned at max for N minutes that ends by itself.
+  (temperature, rpm) lands in a per-fan histogram (`State.clouds`, the
+  app persists it). Recorded, NOT drawn: as cells it read as anything but
+  a curve, and it only takes a curve's shape after hours across many
+  temperatures. If it returns to the plot it is as one dotted line, the
+  median rpm per degree where data exists (root TODO).
+- `chill` is the built-in curve, the one most people run: the fan's
+  minimum until it kicks in, then one clean S to its maximum, two knobs
+  (`kickIn`, `slope` in config.json), on disk as `chill.json` like any
+  curve.
+- A named curve is yours: (°C, rpm) points, one curve for every fan, each
+  fan clamped to its own reported envelope. Interpolation is monotone
+  cubic Hermite (`Curve.rpm(at:)`: tangents from the mean of the two
+  secants, Fritsch and Carlson's limit, flat at the ends), one function
+  for the daemon's writes and the plot's line. Editing happens ON the plot
+  with the hottest die and the resulting target marked live.
+- Manual is not a mode: a constant rpm is a flat curve. `gust` (the wire's
+  `boost`) is a curve pinned at max for N minutes that ends by itself.
 
 Who holds a fan is READ BACK, never inferred from the last write: mode 0 or
 3 = Apple · mode 1 with chill's intent = chill · mode 1 (or `Ftst` = 1)
@@ -281,8 +289,17 @@ submodule pointer; on ship day it becomes the public `swift-hw` package
 
 The temperature that drives a curve is the HOTTEST die sensor (`PMU tdie*`
 on M3 and later, `*ACC MTR` + `GPU MTR` on M1/M2). Never a mean: a 14-die
-chip spreads several degrees under load. Status shows a cpu/gpu split only
-where sensors name it.
+chip spreads several degrees under load.
+
+Names for the parts come from the SMC, not the HID path: from M3 on the
+HID sensors say only `tdie<n>` and Apple publishes no map, while the SMC
+carries per-generation keys for cpu, gpu (and memory on M4). The
+catalogue is exelban/stats' (MIT), vendored in `Sources/chill/Parts.swift`
+for M3, M4, M5, probed once at launch with READ_KEYINFO (an M5 Max answers
+18 of 18 cpu and 7 of 8 gpu keys; the probe logs the count) and read on
+demand for the temperature badge: hottest sensor per group and how many.
+`ssd` and `battery` come from the HID path by name. The HID path lists
+every sensor several times; readers dedupe by name.
 
 ## State
 
@@ -298,41 +315,74 @@ Hysteresis is a constant in code, not a per-curve field.
 
 ## Surfaces, house rules
 
-- **Canvas**: one window (`CanvasWindow`, an NSWindow hosting SwiftUI),
-  the cursor's curve over the reference clouds (one per fan, the second a
-  lighter alpha of the same tone, the mark's ink `#dff3ff` at alpha
-  tiers), y-axis from the lowest `Mn` to the highest `Mx` (`hello`; the
-  SMC's own numbers when no daemon answers), live markers for the hottest
-  die (hairline) and each fan's actual (open) and target (filled) on it.
-  Every key is a `ChillAction` (`Actions.swift`): arrows move the
-  selected point (1 °C / 50 rpm), ⇥ / ⇧⇥ cycle points, `n` adds one after,
-  ⌫ removes it, `[` / `]` walk the curve list (Ink.CursorScrollView),
-  ↩ uses the cursor's curve, ⌘N draws a new one across the envelope, ⌘⌫
-  trashes one (Apple's curve first when it is the running one), ⌘1-9
-  pick by list order, `b` boost, `s` system, `t` take over, `?` the
-  cheat sheet, ⎋ closes. Every edit LANDS: validated by `Curve`, written
-  to its file, re-sent with `use` when it is the curve the daemon runs;
-  there is no save step and no draft. Without a daemon the canvas still
-  shows the machine: `LocalSensors` reads the die and the fans through
-  the read-only package; with one, `State` is the only source. Nothing
-  animates indefinitely.
-- **Menu bar**: the glyph is EFFECT, read from the daemon, never intent:
-  outline = Apple holds the fans · filled = a curve does · bar = boost ·
-  slashed outline = no daemon (not installed, awaiting approval,
-  unreachable) · dotted = foreign. Right-click toggles system ↔ last curve.
-  With no daemon the menu leads with the one action that fixes it:
-  "install chilld" (`register()`) or "approve chilld in System Settings ›
-  General › Login Items & Extensions" (`openSystemSettingsLoginItems()`),
-  polling `SMAppService.status` until `.enabled`. Approval is admin-only; a
-  standard user (not in the `admin` group, `getgrouplist`) is told so. The
-  poll IS the pulse: every failed exchange classifies against the live
-  registration, so the status line and the fixing action follow it at
-  1 Hz. A bare build's status line says it cannot reach chilld; its menu
-  offers nothing to install (`.notFound`, no plist in the bundle). An
-  NSStatusItem + NSMenu (awake's left = menu, right = toggle; MenuBarExtra
-  has no right-click), the menu rebuilt on every open, every item wearing
-  its registry key; the glyph (`Mark.swift`) is `Glyph(Link)` re-rendered
-  through observation tracking, never on a timer.
+- **The popover IS the product** (`MenuBar.swift`, an NSPopover sized by
+  SwiftUI's ideal): a tab rail on top whose tabs ARE the intents, `apple ·
+  chill · <each custom curve> · gust · +`; pressing one sends it, the dune
+  plate slides to whichever the daemon reads back as running, never to the
+  press. `?` apart on the right. Under it the plot, and a foot of ONE
+  height on every tab (the knobs' height) so the popover never resizes:
+  `chill` shows the two house sliders (`Knob`: hairline, dune run, mono
+  reading), a custom curve shows the trash button, `apple` and `gust`
+  nothing. No status line and no prose: what a tab means is its tooltip.
+- **The plot** (`Plot.swift`): a heatmap at rest (ice to ember to red
+  across the temperature axis, 7%), lit to 25% up to the die; the curve
+  in dune, sampled every half degree from `Curve.rpm(at:)`; the die as a
+  vertical hairline in its heat's color (`Palette.heat`: ice ≤45 °C,
+  ember at 75, red at 100), each fan (or the pair while within 225 rpm)
+  as a horizontal dune rule, chill's target as a dashed rule, the live
+  point where die and rule cross as a halo in the heat with a heat core,
+  and the afterglow: the path the point travelled, recorded by the
+  animated layer on every frame it draws, a blurred stroke fading in
+  25 s. Two animatable layers: `CurveLayer` (the line as sampled rpm, one
+  length for every curve, so any curve morphs into any other) and
+  `LiveLayer` (die, fans, targets, one fixed-length vector so a change of
+  intent glides like any sample). The labels are `Badge`s, one SwiftUI
+  view each pinned by a corner: at rest the one line, under the pointer
+  (on their line or plate) the same view grows into its details, the
+  die's into cpu/gpu/memory/ssd/battery, the fans' into actual, target,
+  mode and holder. Editing, on a custom tab only: near the line a hollow
+  ghost point follows the pointer ON the curve; pressing it bears the
+  point, the same motion drags it, release lands it; a point under the
+  pointer grows and rings (cursor: hand); right-click removes it (an
+  NSEvent local monitor, since SwiftUI sees no secondary button, reading
+  the hover's last plot-space position). Nothing lands from a press on
+  empty plot. A point within reach always wins over the hover cards. The
+  keyboard's selection has no look of its own. Three hues, alpha the only
+  other variable: dune `#cfc5b4` (tempo's minutes) for what chill does,
+  heat for the die, a neutral for Apple. Every edit LANDS: validated by
+  `Curve`, written to its file, re-sent with `use` when it is the curve
+  the daemon runs; no save step, no draft. Without a daemon the plot
+  still shows the machine through `LocalSensors`; with one, `State` is
+  the only source. Nothing animates indefinitely.
+- **Canvas window** (`CanvasWindow`, `c`): the same plot larger beside
+  the curve list (Ink.CursorScrollView) and an action bar; the keyboard
+  surface. Every key is a `ChillAction` (`Actions.swift`): arrows move
+  the selected point (1 °C / 50 rpm), ⇥ / ⇧⇥ cycle points, `n` adds one
+  after, ⌫ removes it, `[` / `]` walk the curve list, ↩ uses the cursor's
+  curve, ⌘N draws a new one, ⌘⌫ trashes one (Apple's curve first when it
+  is the running one), ⌘1-9 pick by list order, `b` gust, `s` system, `t`
+  take over, `?` the cheat sheet, ⎋ closes.
+- **Menu bar glyph**: EFFECT, read from the daemon, never intent: outline
+  = Apple holds the fans · filled = a curve does · bar = gust · slashed
+  outline = no daemon (not installed, awaiting approval, unreachable) ·
+  dotted = foreign. Left-click opens the popover, right-click toggles
+  apple ↔ chill (MenuBarExtra has no right-click). With no daemon the
+  popover leads with the one action that fixes it (`Fixer`): "install
+  chilld" (`register()`) or "approve chilld in System Settings › General
+  › Login Items & Extensions" (`openSystemSettingsLoginItems()`), polling
+  `SMAppService.status` until `.enabled`. Approval is admin-only; a
+  standard user (not in the `admin` group, `getgrouplist`) is told so.
+  The poll IS the pulse: every failed exchange classifies against the
+  live registration at 1 Hz. The tabs are disabled while the link is not
+  live. The glyph (`Mark.swift`) is `Glyph(Link)` re-rendered through
+  observation tracking, never on a timer.
+- **Instrumentation**: `Log.swift`, os.Logger `garden.untitled.chill`:
+  every tab and right-click press with what the daemon ran and whether
+  the link was live, every verb with queue wait, duration and outcome,
+  link drops, tabs disabled/enabled, presence flips, skipped pulses,
+  popover open/close, the parts probe, right-click verdicts. `log stream
+  --predicate 'subsystem == "garden.untitled.chill"'` beside the daemon's.
+  A click that went nowhere is either missing there or answered there.
 - **`--demo` / `mise demo`**: every content-bearing root forks to a `-demo`
   sibling (`~/.local/state/chill-demo`: curves, config, cloud, seeded with a
   scripted cloud), sensors are a scripted temperature trace, the daemon is
