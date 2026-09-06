@@ -121,6 +121,11 @@ and lid gates below.
 
 ## Deferred, for fun
 
+- The canvas window becomes the lab. Today it duplicates the popover
+  (same plot, the curve list, the keys) and drifts from it; the popover
+  is the product. The window is where the things below live so the menu
+  bar stays lean: the heat button, Apple's observed curve, the atlas,
+  experiments. Until then it stays as it is, reachable with `c`.
 - A "heat it" button: stress the machine on purpose to WATCH the plot do
   its thing, the die climbing, the fans following, the afterglow. mach
   already has the kernels (`Bench`, `GPUKernel`); chill would call the

@@ -413,7 +413,7 @@ struct Knob: View {
     var body: some View {
         HStack(spacing: .inkLane) {
             Text(label).font(.meta).foregroundStyle(.secondary)
-                .frame(width: 96, alignment: .leading)
+                .fixedSize()
             GeometryReader { proxy in
                 let width = proxy.size.width
                 let t =
