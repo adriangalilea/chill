@@ -257,22 +257,21 @@ final class Model {
 
     // MARK: - the built-in curve
 
-    /// The curve most people run: the fan's minimum until `kickIn`, then a
-    /// ramp to its maximum over 45 °C (gentle) down to 15 °C (steep), with
-    /// a knee that `slope` lifts. Named `chill`, on disk like any
-    /// curve, so `chill curve use chill` and the canvas see the same one.
+    /// The curve most people run: the fan's minimum until `kickIn`, then
+    /// one clean S to its maximum over 45 °C (gentle) down to 15 °C
+    /// (steep). Two points only: between them the interpolation's flat
+    /// end tangents make an exact smoothstep, and a third point would
+    /// put a hump on either side of itself. Named `chill`, on disk like
+    /// any curve, so `chill curve use chill` and the canvas see the same
+    /// one.
     static let tunedName = "chill"
 
     static func tuned(kickIn: Double, slope: Double, envelope: ClosedRange<Double>) -> Curve {
         let span = 45 - 30 * slope
-        let lift =
-            envelope.lowerBound + (envelope.upperBound - envelope.lowerBound)
-            * (0.2 + 0.3 * slope)
         return try! Curve(
             name: tunedName,
             points: [
                 Curve.Point(c: kickIn, rpm: envelope.lowerBound),
-                Curve.Point(c: kickIn + span * 0.45, rpm: lift),
                 Curve.Point(c: kickIn + span, rpm: envelope.upperBound),
             ])
     }
@@ -284,8 +283,12 @@ final class Model {
     }
 
     /// The built-in curve exists on disk from the first envelope on.
+    /// The file on disk is the computed curve, always: written when it is
+    /// missing and rewritten when the knobs' shape has changed under it.
     private func ensureTuned() {
-        guard !curves.contains(where: { $0.name == Model.tunedName }), let tuned else { return }
+        guard let tuned, curves.first(where: { $0.name == Model.tunedName }) != tuned else {
+            return
+        }
         do {
             try curveStore.save(tuned)
             reload()
