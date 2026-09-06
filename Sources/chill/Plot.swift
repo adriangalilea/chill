@@ -176,8 +176,11 @@ struct Plot: View {
         return Curve.Point(c: c, rpm: rpm)
     }
 
+    /// On any plot: the point on the curve at the pointer's temperature,
+    /// its coordinates said, so a curve can be read per degree. On an
+    /// editable plot it is also where a press bears a point.
     private func ghost(_ f: Frame, _ g: PlotGeometry?) -> Curve.Point? {
-        guard editable, dragging == nil, let hover, let g else { return nil }
+        guard dragging == nil, let hover, let g else { return nil }
         return Plot.ghost(at: hover, f, g)
     }
 
@@ -252,7 +255,7 @@ struct Plot: View {
                             ? (dragging.flatMap { $0 >= 0 ? $0 : nil }
                                 ?? hover.flatMap { geometry.hit(curve, at: $0) })
                             : nil,
-                        ghost: ghost(frame, geometry)
+                        ghost: ghost(frame, geometry), editable: editable
                     )
                     .animation(.easeOut(duration: 0.5), value: CurveLayer.encode(curve))
                     .transition(.opacity)
@@ -455,12 +458,19 @@ struct CurveLayer: View, @MainActor Animatable {
     /// the pointer.
     let ghost: Curve.Point?
 
-    init(curve: Curve, point: Int, geometry: PlotGeometry, hot: Int?, ghost: Curve.Point?) {
+    /// Whether a press on the probe bears a point (the probe's dash).
+    let editable: Bool
+
+    init(
+        curve: Curve, point: Int, geometry: PlotGeometry, hot: Int?, ghost: Curve.Point?,
+        editable: Bool
+    ) {
         self.curve = curve
         self.point = point
         self.geometry = geometry
         self.hot = hot
         self.ghost = ghost
+        self.editable = editable
         vec = CurveLayer.encode(curve)
     }
 
@@ -514,14 +524,20 @@ struct CurveLayer: View, @MainActor Animatable {
         context.stroke(
             line, with: .color(Palette.dune.opacity(0.95)),
             style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-        // The ghost: hollow, on the line, where a press would bear a point.
+        // The probe: on the line at the pointer's temperature, its
+        // coordinates above it. Dashed where a press would bear a point,
+        // solid where the curve is only read.
         if let ghost {
             let dot = CGRect(x: g.x(ghost.c) - 5, y: g.y(ghost.rpm) - 5, width: 10, height: 10)
             context.fill(
                 Path(ellipseIn: dot), with: .color(Color(nsColor: .windowBackgroundColor)))
             context.stroke(
                 Path(ellipseIn: dot), with: .color(Palette.dune),
-                style: StrokeStyle(lineWidth: 1.5, dash: [2, 2]))
+                style: StrokeStyle(lineWidth: 1.5, dash: editable ? [2, 2] : []))
+            context.plated(
+                Text("\(Int(ghost.c.rounded()))° → \(Int(ghost.rpm.rounded())) rpm").font(.meta)
+                    .foregroundStyle(Palette.dune),
+                at: CGPoint(x: g.x(ghost.c), y: g.y(ghost.rpm) - 16))
         }
         // A flat curve (gust) has one point at 0 °C, off the axis: no dot.
         for (i, p) in points.enumerated() where Frame.celsius.contains(p.c) {

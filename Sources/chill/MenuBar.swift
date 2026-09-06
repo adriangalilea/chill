@@ -118,8 +118,18 @@ struct PopoverView: View {
             // with the other tabs' content or nothing in that space.
             ZStack(alignment: .topLeading) {
                 switch model.tab {
-                case .apple, .gust:
-                    Color.clear
+                case .apple:
+                    Foot(
+                        first: "macOS runs the fans; chill watches" + vetoNote,
+                        second: model.partsLine
+                    )
+                    .transition(.opacity)
+                case .gust:
+                    Foot(
+                        first: gustLine + vetoNote,
+                        second: model.partsLine
+                    )
+                    .transition(.opacity)
                 case .tuned:
                     Knobs(model: model).transition(.opacity)
                 case .custom:
@@ -152,6 +162,20 @@ struct PopoverView: View {
     /// Two knob rows at 16 pt and their gap.
     static let footHeight: CGFloat = 16 * 2 + .inkGap
 
+    /// The gust's own clock, from the daemon's intent.
+    private var gustLine: String {
+        if case .boost(let until)? = model.state?.intent {
+            return "every fan flat out · \(Status.remaining(until)) left, then apple"
+        }
+        return "every fan flat out for \(Wire.boostMinutes) minutes, then apple"
+    }
+
+    /// A veto in force is the one thing worth saying on any tab.
+    private var vetoNote: String {
+        guard let vetoes = model.state?.vetoes, !vetoes.isEmpty else { return "" }
+        return " · vetoed: " + vetoes.map(\.rawValue).joined(separator: ", ")
+    }
+
     /// What the plot draws for the tab: nothing over Apple's cloud, the
     /// built-in curve, the custom curve, or the ceiling during a gust.
     private var plotted: Curve? {
@@ -170,6 +194,20 @@ struct PopoverView: View {
     }
 
     private func key(_ action: ChillAction) -> String { model.store.displayPrimary(for: action) }
+}
+
+/// The foot of the apple and gust tabs: two mono lines in the knobs'
+/// space, what the plot cannot say at a glance.
+struct Foot: View {
+    let first: String
+    let second: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: .inkGap) {
+            Text(first).font(.meta).foregroundStyle(.secondary).frame(height: 16)
+            Text(second).font(.meta).foregroundStyle(.tertiary).frame(height: 16)
+        }
+    }
 }
 
 /// The tab bar: one rail holding every intent, `apple · chill · <custom>

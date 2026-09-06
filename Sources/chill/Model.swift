@@ -177,6 +177,14 @@ final class Model {
         return local.partReadings()
     }
 
+    /// The parts in one line for the foot: `cpu 55 · gpu 47 · ssd 36 ·
+    /// battery 33 °C`, hottest of each.
+    var partsLine: String {
+        var items = parts().map { "\($0.group.rawValue) \(Int($0.celsius.max()!.rounded()))" }
+        items += Badge.named(temperatures()).map { "\($0.name) \(Int($0.celsius.rounded()))" }
+        return items.isEmpty ? "" : items.joined(separator: " · ") + " °C"
+    }
+
     /// The exact numbers behind the plot's marks, one line per fan, for
     /// the hover card: actual, target, and who holds it by its mode.
     var fanLines: [String] {
