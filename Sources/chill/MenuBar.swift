@@ -452,21 +452,23 @@ struct TabCell: View {
             HStack(spacing: 5) {
                 Image(systemName: glyph).font(.system(size: 11, weight: .medium))
                 Text(name)
-                if mark {
-                    // A neutral dot after the name, until "got it": the
-                    // one dot in the app that carries meaning, the tip
-                    // under it says the shortcut. Static.
-                    Circle()
-                        .fill(Color.secondary.opacity(0.7))
-                        .frame(width: 5, height: 5)
-                        .frame(width: 12, height: 12)
-                        .contentShape(Rectangle())
-                        .onHover { hover($0, frame) }
-                }
             }
             .font(.system(size: 13, weight: selected ? .semibold : .regular))
             .padding(.horizontal, .inkLane)
             .frame(height: Tabs.cellHeight)
+            .overlay(alignment: .topTrailing) {
+                if mark {
+                    // A dune dot in the cell's corner, in the padding, so
+                    // nothing moves: the one dot in the app that carries
+                    // meaning, the tip under it says the shortcut. Static.
+                    Circle()
+                        .fill(Palette.dune)
+                        .frame(width: 6, height: 6)
+                        .padding(3)
+                        .contentShape(Rectangle())
+                        .onHover { hover($0, frame) }
+                }
+            }
             .background {
                 if selected {
                     RoundedRectangle(cornerRadius: .inkRow)
