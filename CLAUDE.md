@@ -28,20 +28,25 @@ A fan runs a CURVE: temperature in, rpm out. That is the whole model.
   a curve, and it only takes a curve's shape after hours across many
   temperatures. If it returns to the plot it is as one dotted line, the
   median rpm per degree where data exists (root TODO).
-- `calm` is the built-in curve, the one most people run: the fan's
-  minimum until it kicks in, then one clean S to its maximum, two knobs
-  (`kickIn`, `slope` in config.json), on disk as `calm.json` like any
-  curve. Custom curves are born `custom`, `custom-2`. The rail shows the
-  house's three with glyphs (apple.logo, snowflake, wind), a hairline,
-  then yours by name.
+- `calm` is the built-in curve, the one most people run: a floor until
+  the kick-in, then one clean S to the fan's maximum, ONE knob (`push`,
+  0 to 1, in config.json) that moves all of it at once: the floor rises
+  from the minimum to the maximum, the kick-in comes down from 65 °C to
+  40, the climb shortens from 45 °C to 15; at 1 it is the ceiling, every
+  fan flat out, which is why the rail has no boost tab. On disk as
+  `calm.json` like any curve. Custom curves are born `custom`,
+  `custom-2`. The rail: `apple` (apple.logo) · `calm` (snowflake) · a
+  hairline · yours (scribble.variable) · `+`.
 - A named curve is yours: (°C, rpm) points, one curve for every fan, each
   fan clamped to its own reported envelope. Interpolation is monotone
   cubic Hermite (`Curve.rpm(at:)`: tangents from the mean of the two
   secants, Fritsch and Carlson's limit, flat at the ends), one function
   for the daemon's writes and the plot's line. Editing happens ON the plot
   with the hottest die and the resulting target marked live.
-- Manual is not a mode: a constant rpm is a flat curve. `gust` (the wire's
-  `boost`) is a curve pinned at max for N minutes that ends by itself.
+- Manual is not a mode: a constant rpm is a flat curve. The wire's
+  `boost` (the CLI's verb; the app has no tab for it, calm at full push
+  is the same curve) is a curve pinned at max for N minutes that ends by
+  itself; while it runs, the foot shows its clock.
 
 Who holds a fan is READ BACK, never inferred from the last write: mode 0 or
 3 = Apple · mode 1 with chill's intent = chill · mode 1 (or `Ftst` = 1)
@@ -325,13 +330,16 @@ Hysteresis is a constant in code, not a per-curve field.
 
 - **The popover IS the product** (`MenuBar.swift`, an NSPopover sized by
   SwiftUI's ideal): a tab rail on top whose tabs ARE the intents, `apple ·
-  chill · <each custom curve> · gust · +`; pressing one sends it, the dune
-  plate slides to whichever the daemon reads back as running, never to the
+  calm | <each custom curve> · +`; pressing one sends it, the dune plate
+  slides to whichever the daemon reads back as running, never to the
   press. `?` apart on the right. Under it the plot, and a foot of ONE
-  height on every tab (the knobs' height) so the popover never resizes:
-  `chill` shows the two house sliders (`Knob`: hairline, dune run, mono
-  reading), a custom curve shows the trash button, `apple` and `gust`
-  nothing. No status line and no prose: what a tab means is its tooltip.
+  height on every tab so the popover never resizes: `calm` shows the
+  push knob (`Knob`: hairline, dune run, mono reading) and a line saying
+  the floor and where the climb starts; a custom curve shows the trash
+  button; `apple` shows a veto in force, if any, and the parts in one
+  line (`cpu 55 · gpu 47 · ssd 36 · battery 33 °C`); a CLI boost shows
+  its clock there too. No status line and no prose beyond that: what a
+  tab means is its tooltip.
 - **The plot** (`Plot.swift`): a heatmap at rest (ice to ember to red
   across the temperature axis, 7%), lit to 25% up to the die; the curve
   in dune, sampled every half degree from `Curve.rpm(at:)`; the die as a
@@ -368,7 +376,7 @@ Hysteresis is a constant in code, not a per-curve field.
   the selected point (1 °C / 50 rpm), ⇥ / ⇧⇥ cycle points, `n` adds one
   after, ⌫ removes it, `[` / `]` walk the curve list, ↩ uses the cursor's
   curve, ⌘N draws a new one, ⌘⌫ trashes one (Apple's curve first when it
-  is the running one), ⌘1-9 pick by list order, `b` gust, `s` system, `t`
+  is the running one), ⌘1-9 pick by list order, `s` system, `t`
   take over, `?` the cheat sheet, ⎋ closes.
 - **Menu bar glyph**: EFFECT, read from the daemon, never intent: outline
   = Apple holds the fans · filled = a curve does · bar = gust · slashed

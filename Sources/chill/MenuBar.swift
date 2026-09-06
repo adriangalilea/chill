@@ -119,17 +119,11 @@ struct PopoverView: View {
             ZStack(alignment: .topLeading) {
                 switch model.tab {
                 case .apple:
-                    Foot(
-                        first: "macOS runs the fans; chill watches" + vetoNote,
-                        second: model.partsLine
-                    )
-                    .transition(.opacity)
+                    Foot(first: vetoNote, second: model.partsLine)
+                        .transition(.opacity)
                 case .gust:
-                    Foot(
-                        first: gustLine + vetoNote,
-                        second: model.partsLine
-                    )
-                    .transition(.opacity)
+                    Foot(first: gustLine + vetoNote, second: model.partsLine)
+                        .transition(.opacity)
                 case .tuned:
                     Knobs(model: model).transition(.opacity)
                 case .custom:
@@ -162,18 +156,19 @@ struct PopoverView: View {
     /// Two knob rows at 16 pt and their gap.
     static let footHeight: CGFloat = 16 * 2 + .inkGap
 
-    /// The gust's own clock, from the daemon's intent.
+    /// A CLI boost's own clock, from the daemon's intent.
     private var gustLine: String {
         if case .boost(let until)? = model.state?.intent {
-            return "every fan flat out · \(Status.remaining(until)) left, then apple"
+            return "boost from the cli · \(Status.remaining(until)) left, then apple · "
         }
-        return "every fan flat out for \(Wire.boostMinutes) minutes, then apple"
+        return ""
     }
 
     /// A veto in force is the one thing worth saying on any tab.
     private var vetoNote: String {
         guard let vetoes = model.state?.vetoes, !vetoes.isEmpty else { return "" }
-        return " · vetoed: " + vetoes.map(\.rawValue).joined(separator: ", ")
+        return "vetoed: " + vetoes.map(\.rawValue).joined(separator: ", ")
+            + " · apple holds the fans"
     }
 
     /// What the plot draws for the tab: nothing over Apple's cloud, the
@@ -224,13 +219,12 @@ struct Tabs: View {
                 // then yours by name.
                 tab("apple", .apple, glyph: "apple.logo")
                 tab("calm", .tuned, glyph: "snowflake")
-                tab("gust", .gust, glyph: "wind")
                 Rectangle()
                     .fill(Color.primary.opacity(0.12))
                     .frame(width: 1, height: 16)
                     .padding(.horizontal, 3)
                 ForEach(model.customCurves, id: \.name) { curve in
-                    tab(curve.name, .custom(curve.name), glyph: nil)
+                    tab(curve.name, .custom(curve.name), glyph: "scribble.variable")
                 }
                 Button {
                     model.newCurveTab()
@@ -317,42 +311,36 @@ struct Tabs: View {
     }
 }
 
-/// The two knobs of the built-in curve: where it kicks in, how steep it
-/// climbs. Live: every move lands on disk and, while chill runs this
-/// curve, on the daemon.
+/// The one knob of the built-in curve: how hard it pushes. The whole
+/// curve moves with it, floor, kick-in and climb; the reading says the
+/// floor and where the climb starts. Live: every move lands on disk and,
+/// while calm runs, on the daemon.
 struct Knobs: View {
     let model: Model
 
     var body: some View {
         VStack(alignment: .leading, spacing: .inkGap) {
-            Knob(
-                label: "kicks in at", value: kickIn, range: Config.kickInRange, step: 1,
-                reading: "\(Int(model.config.kickIn)) °C")
-            Knob(
-                label: "slope", value: slope, range: 0...1, step: 0.05,
-                reading: Knobs.word(model.config.slope))
+            Knob(label: "push", value: push, range: 0...1, step: 0.02, reading: reading)
+            Text(hint).font(.meta).foregroundStyle(.tertiary).frame(height: 16)
         }
         .disabled(model.envelope == nil)
     }
 
-    static func word(_ slope: Double) -> String {
-        switch slope {
-        case ..<0.25: return "gentle"
-        case ..<0.5: return "easy"
-        case ..<0.75: return "firm"
-        default: return "steep"
-        }
+    private var reading: String {
+        guard let tuned = model.tuned, let first = tuned.points.first else { return "" }
+        return "\(Int(first.rpm)) rpm"
     }
 
-    private var kickIn: Binding<Double> {
-        Binding(
-            get: { model.config.kickIn },
-            set: { model.retune(kickIn: $0, slope: model.config.slope) })
+    private var hint: String {
+        guard let tuned = model.tuned, let first = tuned.points.first, let last = tuned.points.last
+        else { return "" }
+        return first.c >= last.c
+            ? "every fan flat out"
+            : "floor until \(Int(first.c)) °C, full at \(Int(last.c)) °C · draw your own with +"
     }
-    private var slope: Binding<Double> {
-        Binding(
-            get: { model.config.slope },
-            set: { model.retune(kickIn: model.config.kickIn, slope: $0) })
+
+    private var push: Binding<Double> {
+        Binding(get: { model.config.push }, set: { model.retune(push: $0) })
     }
 }
 
@@ -453,7 +441,6 @@ struct ActionBar: View {
         HStack(spacing: .inkGap) {
             button(.newCurve, "new curve")
             if model.editing != nil { button(.useCurve, "use") }
-            button(.boost, "boost")
             button(.system, "apple")
             if model.heldBy != nil { button(.takeOver, "take over") }
             Spacer(minLength: 0)

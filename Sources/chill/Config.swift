@@ -3,30 +3,25 @@ import Foundation
 
 /// `~/.local/state/chill/config.json`: what the app remembers between
 /// launches and the daemon has no business knowing. `lastCurve` is the
-/// right-click toggle's target and the canvas's first cursor; `kickIn`
-/// and `slope` are the two knobs that shape the built-in `chill`
-/// curve, the one most people never leave.
+/// canvas's first cursor; `push` is the one knob that shapes the built-in
+/// `calm` curve, the one most people never leave.
 struct Config: Codable, Equatable {
     var lastCurve: String?
-    /// The die temperature (°C) below which the built-in curve sits at
-    /// the fan's minimum.
-    var kickIn: Double = Config.defaultKickIn
-    /// 0 = a gentle 45 °C ramp to maximum, 1 = a steep 15 °C one.
-    var slope: Double = Config.defaultSlope
+    /// How hard calm pushes, 0 to 1: at 0 the fans sit at their minimum
+    /// until 65 °C and climb gently; as it rises the floor comes up, the
+    /// climb starts earlier and gets steeper; at 1 the curve is the
+    /// ceiling, every fan flat out.
+    var push: Double = Config.defaultPush
 
-    static let defaultKickIn = 65.0
-    static let defaultSlope = 0.5
-    static let kickInRange = 45.0...90.0
+    static let defaultPush = 0.0
 
     init(lastCurve: String?) { self.lastCurve = lastCurve }
 
-    /// Both knobs read their first-run value when the file predates them.
+    /// The knob reads its first-run value when the file predates it.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         lastCurve = try c.decodeIfPresent(String.self, forKey: .lastCurve)
-        kickIn = try c.decodeIfPresent(Double.self, forKey: .kickIn) ?? Config.defaultKickIn
-        slope =
-            try c.decodeIfPresent(Double.self, forKey: .slope) ?? Config.defaultSlope
+        push = try c.decodeIfPresent(Double.self, forKey: .push) ?? Config.defaultPush
     }
 
     /// The file, or the first-run value (the demo world starts on its

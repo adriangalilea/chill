@@ -285,20 +285,25 @@ final class Model {
     /// one.
     static let tunedName = "calm"
 
-    static func tuned(kickIn: Double, slope: Double, envelope: ClosedRange<Double>) -> Curve {
-        let span = 45 - 30 * slope
+    /// One knob, `push` 0 to 1, moves the whole curve at once: the floor
+    /// rises from the fan's minimum to its maximum, the kick-in comes
+    /// down from 65 °C to 40, the climb shortens from 45 °C to 15. At 1
+    /// the floor is the ceiling: a flat curve at maximum, every fan flat
+    /// out, which is why no separate boost tab exists.
+    static func tuned(push: Double, envelope: ClosedRange<Double>) -> Curve {
+        let floor = envelope.lowerBound + (envelope.upperBound - envelope.lowerBound) * push
+        let kickIn = 65 - 25 * push
+        let span = 45 - 30 * push
         return try! Curve(
             name: tunedName,
             points: [
-                Curve.Point(c: kickIn, rpm: envelope.lowerBound),
+                Curve.Point(c: kickIn, rpm: floor),
                 Curve.Point(c: kickIn + span, rpm: envelope.upperBound),
             ])
     }
 
     var tuned: Curve? {
-        envelope.map {
-            Model.tuned(kickIn: config.kickIn, slope: config.slope, envelope: $0)
-        }
+        envelope.map { Model.tuned(push: config.push, envelope: $0) }
     }
 
     /// The built-in curve exists on disk from the first envelope on.
@@ -316,17 +321,16 @@ final class Model {
         }
     }
 
-    /// A knob moved: the file follows, and the daemon when it runs it.
-    func retune(kickIn: Double, slope: Double) {
-        config.kickIn = kickIn
-        config.slope = slope
+    /// The knob moved: the file follows, and the daemon when it runs it.
+    func retune(push: Double) {
+        config.push = push
         saveConfig()
         guard let tuned else { return }
         do {
             try curveStore.save(tuned)
             reload()
             if intentCurve == Model.tunedName {
-                call("use chill (retune)") { try await $0.use(tuned) }
+                call("use calm (retune)") { try await $0.use(tuned) }
             }
         } catch {
             notice = "\(error)"
@@ -337,7 +341,10 @@ final class Model {
     /// one, each custom curve. The selected tab is read from the daemon,
     /// never remembered; picking one sends it.
     enum Tab: Hashable {
-        case apple, tuned, gust
+        case apple, tuned
+        /// Only the CLI's `boost` puts the daemon here; the rail has no
+        /// tab for it, calm at full push is the same curve.
+        case gust
         case custom(String)
     }
 
@@ -366,14 +373,15 @@ final class Model {
                 notice = "no fan envelope yet: no daemon and no SMC"
                 return
             }
-            call("use chill") { try await $0.use(tuned) }
+            call("use calm") { try await $0.use(tuned) }
         case .custom(let name):
             guard let curve = curves.first(where: { $0.name == name }) else { return }
             cursor = name
             point = 0
             use(curve)
         case .gust:
-            boost()
+            // No tab sends it; the CLI's boost verb does.
+            break
         }
     }
 
@@ -437,8 +445,6 @@ final class Model {
         saveConfig()
         call("use \(curve.name)") { try await $0.use(curve) }
     }
-
-    func boost() { call("boost") { try await $0.boost(minutes: Wire.boostMinutes) } }
 
     func system() { call("system") { try await $0.system() } }
 
@@ -717,7 +723,6 @@ final class Model {
         case .useCurve: if let editing { use(editing) }
         case .newCurve: newCurve()
         case .deleteCurve: deleteCurve()
-        case .boost: boost()
         case .system: system()
         case .takeOver: takeOver()
         case .canvas: openCanvas()

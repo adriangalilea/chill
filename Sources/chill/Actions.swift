@@ -13,7 +13,7 @@ enum ChillAction: String, CaseIterable, ActionSet {
     case pointUp, pointDown, pointLeft, pointRight, nextPoint, previousPoint, addPoint,
         removePoint
     case previousCurve, nextCurve, useCurve, newCurve, deleteCurve
-    case boost, system, takeOver
+    case system, takeOver
     case canvas, back, help, quit
 
     var spec: Spec {
@@ -58,10 +58,6 @@ enum ChillAction: String, CaseIterable, ActionSet {
         case .deleteCurve:
             return Spec(
                 title: "trash this curve", symbol: "trash", local: [KeyCombo("delete", .command)])
-        case .boost:
-            return Spec(
-                title: "gust: every fan at maximum for \(Wire.boostMinutes) min", symbol: "wind",
-                local: [KeyCombo("b")])
         case .system:
             return Spec(
                 title: "system: Apple's curve", symbol: "apple.logo", local: [KeyCombo("s")])
@@ -90,7 +86,7 @@ enum ChillAction: String, CaseIterable, ActionSet {
                 ]),
             ActionSection(
                 "curves", [.previousCurve, .nextCurve, .useCurve, .newCurve, .deleteCurve]),
-            ActionSection("fans", [.boost, .system, .takeOver]),
+            ActionSection("fans", [.system, .takeOver]),
             ActionSection("app", [.canvas, .back, .help, .quit]),
         ]
     }
