@@ -336,26 +336,37 @@ struct LiveLayer: View, @MainActor Animatable {
             context.draw(
                 Text("die \(Status.degrees(die))").font(.meta).foregroundStyle(heat),
                 at: CGPoint(x: g.x(die) + 34, y: plot.minY + 8))
-            // Fans running together are one ring, "fans · N rpm"; only a
-            // real spread names them apart. The hover card has the exact
-            // numbers either way.
+            // The die is a vertical hairline, so a fan is a horizontal
+            // one at its rpm, the two crossing at the live point, a small
+            // ring there. Fans running together are one line, "fans · N
+            // rpm"; only a real spread names them apart. The hover card
+            // has the exact numbers either way.
             let spread = (actuals.max() ?? 0) - (actuals.min() ?? 0)
             let marks: [(String, Double)] =
                 actuals.count > 1 && spread <= Plot.togetherRPM
                 ? [("fans", actuals.reduce(0, +) / Double(actuals.count))]
                 : actuals.enumerated().map { ("fan \($0.offset + 1)", $0.element) }
             for (i, mark) in marks.enumerated() {
-                let dot = CGRect(x: g.x(die) - 5, y: g.y(mark.1) - 5, width: 10, height: 10)
-                context.stroke(Path(ellipseIn: dot), with: .color(Palette.dune), lineWidth: 1.5)
-                let dy: CGFloat = marks.count > 1 && i == 0 ? -9 : (marks.count > 1 ? 9 : 0)
+                var rule = Path()
+                rule.move(to: CGPoint(x: plot.minX, y: g.y(mark.1)))
+                rule.addLine(to: CGPoint(x: plot.maxX, y: g.y(mark.1)))
+                context.stroke(rule, with: .color(Palette.dune.opacity(0.7)), lineWidth: 1)
+                let ring = CGRect(x: g.x(die) - 4, y: g.y(mark.1) - 4, width: 8, height: 8)
+                context.stroke(Path(ellipseIn: ring), with: .color(Palette.dune), lineWidth: 1.5)
+                let dy: CGFloat = marks.count > 1 && i == 1 ? 9 : -9
                 context.draw(
                     Text("\(mark.0) · \(Int(mark.1)) rpm").font(.meta)
                         .foregroundStyle(Palette.dune),
-                    at: CGPoint(x: g.x(die) + 12, y: g.y(mark.1) + dy), anchor: .leading)
+                    at: CGPoint(x: plot.maxX - 6, y: g.y(mark.1) + dy), anchor: .trailing)
             }
+            // chill's target, a dashed rule at the rpm it asked for.
             for target in targets {
-                let dot = CGRect(x: g.x(die) - 4, y: g.y(target) - 4, width: 8, height: 8)
-                context.fill(Path(ellipseIn: dot), with: .color(Palette.dune))
+                var rule = Path()
+                rule.move(to: CGPoint(x: plot.minX, y: g.y(target)))
+                rule.addLine(to: CGPoint(x: plot.maxX, y: g.y(target)))
+                context.stroke(
+                    rule, with: .color(Palette.dune.opacity(0.5)),
+                    style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
             }
         }
     }
