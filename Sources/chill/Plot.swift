@@ -325,24 +325,24 @@ struct Plot: View {
                             let right = LiveLayer.dieLabelRight(die, geometry)
                             let x = geometry.x(die)
                             Badge(model: model, frame: frame, on: .die, expanded: lit == .die)
+                                .placed { boxes[.die] = $0 }
+                                .zIndex(lit == .die ? 1 : 0)
                                 .pinned { size in
                                     CGPoint(
                                         x: right ? x + 6 : x - 6 - size.width,
                                         y: geometry.plot.minY - 2)
                                 }
-                                .placed { boxes[.die] = $0 }
-                                .zIndex(lit == .die ? 1 : 0)
                         }
                         if let rpm = LiveLayer.marks(frame.actuals).first?.1 {
                             let y = geometry.y(rpm)
                             Badge(model: model, frame: frame, on: .fans, expanded: lit == .fans)
+                                .placed { boxes[.fans] = $0 }
+                                .zIndex(lit == .fans ? 1 : 0)
                                 .pinned { size in
                                     CGPoint(
                                         x: geometry.plot.maxX - 4 - size.width,
                                         y: y - 3 - size.height)
                                 }
-                                .placed { boxes[.fans] = $0 }
-                                .zIndex(lit == .fans ? 1 : 0)
                         }
                     }
                     .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
@@ -806,6 +806,9 @@ struct Pin: LayoutValueKey {
 }
 
 extension View {
+    /// The OUTERMOST modifier on a pinboard child: `onGeometryChange`
+    /// between the value and the layout drops it (verified), and the
+    /// child then lands at the origin.
     func pinned(_ origin: @escaping @Sendable (CGSize) -> CGPoint) -> some View {
         layoutValue(key: Pin.self, value: origin)
     }
