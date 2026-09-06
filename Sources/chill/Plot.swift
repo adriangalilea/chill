@@ -89,6 +89,12 @@ struct Plot: View {
     let curve: Curve?
     let editable: Bool
     @SwiftUI.State private var dragging: Int?
+    @SwiftUI.State private var hover: CGPoint?
+
+    /// Fans closer than this read as one ring; apart, each gets its name.
+    static let togetherRPM = 150.0
+    /// How near the die's column the pointer must be for the hover card.
+    static let hoverReach: CGFloat = 28
 
     init(model: Model, curve: Curve?, editable: Bool) {
         self.model = model
@@ -110,6 +116,29 @@ struct Plot: View {
                 if let geometry {
                     LiveLayer(frame: frame, geometry: geometry)
                         .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
+                }
+                if let geometry, let hover, let die = frame.die,
+                    abs(hover.x - geometry.x(die)) < Plot.hoverReach
+                {
+                    HoverCard(
+                        die: die, lines: model.fanLines,
+                        holder: frame.targets.isEmpty
+                            ? "apple holds the fans" : "chill holds the fans"
+                    )
+                    .fixedSize()
+                    .position(
+                        x: hover.x + (hover.x < proxy.size.width / 2 ? 120 : -120),
+                        y: min(max(hover.y, 40), proxy.size.height - 40)
+                    )
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
+            }
+            .animation(.inkSettle, value: hover == nil)
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let p): hover = p
+                case .ended: hover = nil
                 }
             }
             .contentShape(Rectangle())
@@ -307,19 +336,54 @@ struct LiveLayer: View, @MainActor Animatable {
             context.draw(
                 Text("die \(Status.degrees(die))").font(.meta).foregroundStyle(heat),
                 at: CGPoint(x: g.x(die) + 34, y: plot.minY + 8))
-            for (i, actual) in actuals.enumerated() {
-                let dot = CGRect(x: g.x(die) - 5, y: g.y(actual) - 5, width: 10, height: 10)
+            // Fans running together are one ring, "fans · N rpm"; only a
+            // real spread names them apart. The hover card has the exact
+            // numbers either way.
+            let spread = (actuals.max() ?? 0) - (actuals.min() ?? 0)
+            let marks: [(String, Double)] =
+                actuals.count > 1 && spread <= Plot.togetherRPM
+                ? [("fans", actuals.reduce(0, +) / Double(actuals.count))]
+                : actuals.enumerated().map { ("fan \($0.offset + 1)", $0.element) }
+            for (i, mark) in marks.enumerated() {
+                let dot = CGRect(x: g.x(die) - 5, y: g.y(mark.1) - 5, width: 10, height: 10)
                 context.stroke(Path(ellipseIn: dot), with: .color(Palette.dune), lineWidth: 1.5)
-                let dy: CGFloat = actuals.count > 1 && i == 0 ? -9 : 9
+                let dy: CGFloat = marks.count > 1 && i == 0 ? -9 : (marks.count > 1 ? 9 : 0)
                 context.draw(
-                    Text("fan \(i + 1) · \(Int(actual)) rpm").font(.meta)
+                    Text("\(mark.0) · \(Int(mark.1)) rpm").font(.meta)
                         .foregroundStyle(Palette.dune),
-                    at: CGPoint(x: g.x(die) + 12, y: g.y(actual) + dy), anchor: .leading)
+                    at: CGPoint(x: g.x(die) + 12, y: g.y(mark.1) + dy), anchor: .leading)
             }
             for target in targets {
                 let dot = CGRect(x: g.x(die) - 4, y: g.y(target) - 4, width: 8, height: 8)
                 context.fill(Path(ellipseIn: dot), with: .color(Palette.dune))
             }
         }
+    }
+}
+
+/// The exact numbers, shown while the pointer rests on the die's column:
+/// the die to a tenth, each fan's actual, target and holder, who holds
+/// the fans. A thin mono card, nothing to click.
+struct HoverCard: View {
+    let die: Double
+    let lines: [String]
+    let holder: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("die \(String(format: "%.1f", die)) °C")
+                .foregroundStyle(Palette.heat(die))
+            ForEach(lines, id: \.self) { line in
+                Text(line).foregroundStyle(Palette.dune)
+            }
+            Text(holder).foregroundStyle(.secondary)
+        }
+        .font(.meta)
+        .padding(.horizontal, .inkLane)
+        .padding(.vertical, .inkGap)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: .inkRow))
+        .overlay(
+            RoundedRectangle(cornerRadius: .inkRow)
+                .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1))
     }
 }

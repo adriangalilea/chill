@@ -150,6 +150,27 @@ final class Model {
 
     var actuals: [Double] { state?.fans.map(\.actual) ?? local?.fans.map(\.actual) ?? [] }
 
+    /// The exact numbers behind the plot's marks, one line per fan, for
+    /// the hover card: actual, target, and who holds it by its mode.
+    var fanLines: [String] {
+        func mode(_ m: UInt8) -> String {
+            switch m {
+            case 0: return "auto"
+            case 1: return "forced"
+            case 3: return "apple"
+            default: return "mode \(m)"
+            }
+        }
+        if let state {
+            return state.fans.map {
+                "fan \($0.index + 1) · \(Int($0.actual)) rpm · target \(Int($0.target)) · \(mode($0.mode))"
+            }
+        }
+        return local?.fans.map {
+            "fan \($0.index + 1) · \(Int($0.actual)) rpm · target \(Int($0.target)) · \(mode($0.mode))"
+        } ?? []
+    }
+
     /// The daemon's targets, only meaningful while it holds the fans.
     var targets: [Double] {
         guard let state, case .chill = state.holder else { return [] }
