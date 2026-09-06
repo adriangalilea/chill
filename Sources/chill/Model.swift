@@ -286,23 +286,36 @@ final class Model {
     /// one.
     static let tunedName = "chill"
 
-    /// One knob, `push` 0 to 1, its travel spent where the everyday
-    /// choice is. The S moves along the whole travel: the kick-in comes
-    /// down from 65 °C to 40, the climb shortens from 45 °C to 15. The
-    /// floor stays the fan's minimum (the firmware's; an Apple Silicon fan
-    /// never stops) up to `restEnds`, so at rest chill does not
-    /// intervene; past it the floor rises on a square, slow first and
-    /// fast at the end, reaching the ceiling only at 1: a flat curve at
-    /// maximum, every fan flat out, which is why no separate boost tab
-    /// exists. Halfway the floor is a seventh of the way up; at 0.75,
-    /// nearly half; at 0.9, three quarters.
-    static let restEnds = 0.2
+    /// One knob, `push` 0 to 1, in acts that blend into each other
+    /// (keyframes, smoothstep between). First only the S comes closer:
+    /// the kick-in and the top move left, the floor stays the fan's
+    /// minimum (the firmware's; an Apple Silicon fan never stops), so at
+    /// rest chill does not intervene. Then the S nearly halts and the
+    /// floor rises, to about 4000 rpm by the middle: the laptop-on-lap
+    /// point, cool without much noise. Then the floor creeps while the S
+    /// steepens and comes in. Last, everything flattens to the ceiling,
+    /// every fan flat out, which is why no separate boost tab exists.
+    /// `floor` is a fraction of the envelope.
+    static let acts: [(push: Double, kickIn: Double, span: Double, floor: Double)] = [
+        (0.00, 65, 45, 0.00),
+        (0.25, 52, 32, 0.05),
+        (0.50, 49, 28, 0.32),
+        (0.80, 43, 16, 0.42),
+        (1.00, 40, 15, 1.00),
+    ]
 
     static func tuned(push: Double, envelope: ClosedRange<Double>) -> Curve {
-        let lift = pow(max(0, push - restEnds) / (1 - restEnds), 2)
-        let floor = envelope.lowerBound + (envelope.upperBound - envelope.lowerBound) * lift
-        let kickIn = 65 - 25 * push
-        let span = 45 - 30 * push
+        let p = min(1, max(0, push))
+        let i = max(0, min(acts.count - 2, acts.lastIndex { $0.push <= p } ?? 0))
+        let (a, b) = (acts[i], acts[i + 1])
+        let t = (p - a.push) / (b.push - a.push)
+        let s = t * t * (3 - 2 * t)
+        func mix(_ x: Double, _ y: Double) -> Double { x + (y - x) * s }
+        let floor =
+            envelope.lowerBound
+            + (envelope.upperBound - envelope.lowerBound) * mix(a.floor, b.floor)
+        let kickIn = mix(a.kickIn, b.kickIn)
+        let span = mix(a.span, b.span)
         return try! Curve(
             name: tunedName,
             points: [
