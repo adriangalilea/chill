@@ -310,7 +310,7 @@ struct Tabs: View {
                         tip =
                             on
                             ? Tip(
-                                text: "a new curve, born as a copy of chill, yours to draw", at: at)
+                                text: "new curve", at: at)
                             : nil
                     }
                 ) {
@@ -376,15 +376,10 @@ struct Tabs: View {
     /// What a tab means, on hover: the one place this is said.
     static func about(_ tab: Model.Tab, _ name: String) -> String {
         switch tab {
-        case .apple: return "macOS runs the fans; chill only watches"
-        case .tuned:
-            return
-                "the house curve: the fans at their minimum until the chip passes the kick-in, then a smooth climb to full"
-        case .gust:
-            return "every fan flat out for \(Wire.boostMinutes) minutes, then back to apple"
-        case .custom:
-            return
-                "your curve \"\(name)\": press the line to add a point and drag it, right-click removes one"
+        case .apple: return "macOS runs the fans"
+        case .tuned: return "the built-in curve, shaped by push"
+        case .gust: return "every fan flat out for \(Wire.boostMinutes) minutes"
+        case .custom: return "your curve"
         }
     }
 }
