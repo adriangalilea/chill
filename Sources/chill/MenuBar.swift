@@ -240,12 +240,14 @@ struct Tabs: View {
     /// What a tab means, on hover: the one place this is said.
     static func about(_ tab: Model.Tab, _ name: String) -> String {
         switch tab {
-        case .apple: return "Apple's own curve, drawn here from what it does"
+        case .apple: return "macOS runs the fans; chill only watches"
         case .tuned:
-            return "chill's curve: the fan's minimum until it kicks in, then a smooth climb"
+            return
+                "chill's curve: the fans at their minimum until the die passes the kick-in, then a smooth climb to full"
         case .storm:
-            return "every fan at its maximum for \(Wire.boostMinutes) minutes, then back to Apple"
-        case .custom: return "your curve \"\(name)\", drawn point by point"
+            return "every fan flat out for \(Wire.boostMinutes) minutes, then back to apple"
+        case .custom:
+            return "your curve \"\(name)\": click the plot to add a point, drag to move it"
         }
     }
 }
