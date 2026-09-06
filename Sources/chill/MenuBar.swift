@@ -406,7 +406,6 @@ struct TabCell: View {
     let mark: Bool
     let hover: (Bool, CGRect) -> Void
     @SwiftUI.State private var hovering = false
-    @SwiftUI.State private var overMark = false
     @SwiftUI.State private var frame = CGRect.zero
 
     var body: some View {
@@ -433,20 +432,18 @@ struct TabCell: View {
             }
             .overlay(alignment: .topTrailing) {
                 if mark {
-                    // A small dune pill with the glyph in the window's
-                    // ink: solid enough to read at a glance, brighter
-                    // under the pointer.
+                    // A small solid dune pill inside the cell's corner,
+                    // the glyph in the window's ink. Static: no glow, no
+                    // fade, nothing that reads as motion.
                     Image(systemName: "keyboard")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 7, weight: .bold))
                         .foregroundStyle(Color(nsColor: .windowBackgroundColor))
-                        .frame(width: 16, height: 12)
-                        .background(Palette.dune.opacity(overMark ? 1 : 0.8), in: Capsule())
-                        .offset(x: 4, y: -4)
-                        .contentShape(Capsule())
-                        .onHover { on in
-                            overMark = on
-                            hover(on, frame)
-                        }
+                        .frame(width: 14, height: 10)
+                        .background(Palette.dune, in: Capsule())
+                        .padding(.top, 2)
+                        .padding(.trailing, 3)
+                        .contentShape(Rectangle())
+                        .onHover { hover($0, frame) }
                 }
             }
             .contentShape(Rectangle())
@@ -460,7 +457,6 @@ struct TabCell: View {
         }
         .onHover { hovering = $0 }
         .animation(.inkSettle, value: hovering)
-        .animation(.inkSettle, value: overMark)
     }
 }
 
