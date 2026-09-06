@@ -124,7 +124,10 @@ enum DaemonControl {
         }
     }
 
+    /// Idempotent: a service that is not registered is already the goal,
+    /// and `unregister()` on one answers EINVAL.
     private static func unregister(_ service: SMAppService, _ what: String) {
+        if service.status == .notRegistered { return }
         do {
             try service.unregister()
         } catch {
