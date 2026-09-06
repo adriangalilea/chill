@@ -67,8 +67,6 @@ use <name> --watch` on real fans → `garden genesis chill --desc "..."`.
       daemon.
 - [x] `status --json` = `State`; foreign detection from the read-back;
       `take` for a second client.
-- [ ] Refine `SMCWriter.slewPerSample` (300 rpm/s today) from the `F{n}Ac`
-      slew the reference cloud records.
 - [ ] Measure the field on one M-series Mac (Macs Fan Control, TG Pro,
       iStat Menus): `kill -9`, sleep, lid close; record whether the forced
       target survives. The strategy table and the pitch cite these numbers.

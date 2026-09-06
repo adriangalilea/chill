@@ -250,9 +250,10 @@ firmware rejected, 0x84 = no such key; `KERN_SUCCESS` alone means nothing.
   `Ftst = 0`; poll the mode until it reads 0 or 3; log the transition. A
   forgotten `Ftst = 1` mutes Apple's thermal servo, which is why
   reconciliation and every exit path run this exact routine.
-- **target**: clamp to the cached envelope, hysteresis 50 rpm, slew at most
-  N rpm per sample toward the curve value (N from the observed `F{n}Ac`
-  slew on the reference cloud); the physical ramp is the firmware's. The
+- **target**: clamp to the cached envelope, hysteresis 50 rpm, then the
+  curve's value whole: the ramp from wherever the fan was is the
+  firmware's, and a softened target lingers (a gust's ceiling outlived
+  the tab that ended it). The
   read-back judges the write: the firmware answers some `F{n}Tg` writes
   with a result byte (0x87 seen) and applies the value anyway, which is
   logged and fine; a read-back that disagrees is `targetRejected`, the
@@ -291,7 +292,7 @@ where sensors name it.
 | `/Library/Application Support/chill/policy.json` | daemon | `{ intent, curve, boostUntil }`, the thing that survives reboot |
 | `/Library/Logs/chill/chilld.log` | daemon | every transition with reason and before/after targets; `os_log` too, numbers and reasons `.public` (nothing personal exists here) |
 
-Hysteresis and slew are constants in code, not per-curve fields.
+Hysteresis is a constant in code, not a per-curve field.
 
 ## Surfaces, house rules
 

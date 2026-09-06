@@ -54,9 +54,6 @@ enum WriterError: Error, CustomStringConvertible {
 actor SMCWriter {
     /// Targets closer than this to the current target are not written.
     static let hysteresis: Double = 50
-    /// The most a target moves per 1 Hz sample toward the curve value; the
-    /// physical ramp is the firmware's.
-    static let slewPerSample: Double = 300
     static let acquireTimeout: Duration = .seconds(10)
     static let acquireRetry: Duration = .milliseconds(100)
     static let releaseTimeout: Duration = .seconds(10)
@@ -275,10 +272,12 @@ actor SMCWriter {
 
     // MARK: - target
 
-    /// Move fan `n`'s target toward `rpm`: clamped to the cached envelope,
-    /// unchanged within the hysteresis, at most `slewPerSample` per call.
-    /// The current target is READ from `F{n}Tg`, never remembered, so the
-    /// first step after acquire starts from what Apple last asked.
+    /// Set fan `n`'s target to `rpm`: clamped to the cached envelope,
+    /// unchanged within the hysteresis, otherwise written whole. The
+    /// target is what the curve asks NOW; the ramp from wherever the fan
+    /// was is the firmware's, and softening the target as well made a
+    /// gust linger for twenty seconds after the tab said chill. The
+    /// current target is READ from `F{n}Tg`, never remembered.
     /// Returns the target the fan holds after the call, READ BACK: the
     /// firmware answers some target writes with a result byte (0x87 seen
     /// on `F0Tg`) and applies the value anyway, so the read-back is the
@@ -288,10 +287,8 @@ actor SMCWriter {
     func target(fan n: Int, rpm: Double) throws -> Double {
         let wanted = fans[n].clamp(rpm)
         let current = Double(try smc.float("F\(n)Tg"))
-        let delta = wanted - current
-        guard abs(delta) > SMCWriter.hysteresis else { return current }
-        let step = Swift.max(-SMCWriter.slewPerSample, Swift.min(SMCWriter.slewPerSample, delta))
-        let next = fans[n].clamp(current + step)
+        guard abs(wanted - current) > SMCWriter.hysteresis else { return current }
+        let next = wanted
         do {
             try write("F\(n)Tg", float: Float(next))
         } catch SMCError.rejected(_, let result) {
