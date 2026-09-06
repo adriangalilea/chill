@@ -131,6 +131,11 @@ struct Plot: View {
                 Canvas { context, _ in
                     if let geometry { Plot.drawStatic(frame, geometry, in: context) }
                 }
+                if let geometry, let curve = frame.curve {
+                    CurveLayer(curve: curve, point: frame.point, geometry: geometry)
+                        .animation(.easeOut(duration: 0.5), value: CurveLayer.encode(curve))
+                        .transition(.opacity)
+                }
                 if let geometry {
                     LiveLayer(frame: frame, geometry: geometry)
                         .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
@@ -147,6 +152,7 @@ struct Plot: View {
                 }
             }
             .animation(.inkSettle, value: Plot.hoveredNow(hover, frame, geometry))
+            .animation(.inkSettle, value: frame.curve?.name)
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let p): hover = p
@@ -237,8 +243,82 @@ struct Plot: View {
     }
 }
 
-/// The animated half of the plot. Its animatable data is every live
-/// number; SwiftUI feeds intermediate vectors while a change settles.
+/// The curve, its own layer: it fades in and out with the tab, and
+/// morphs while a knob or a drag moves its points (a point added or
+/// removed changes the vector's length and lands at once).
+struct CurveLayer: View, @MainActor Animatable {
+    let curve: Curve
+    let point: Int
+    let geometry: PlotGeometry
+    var vec: Vec
+
+    init(curve: Curve, point: Int, geometry: PlotGeometry) {
+        self.curve = curve
+        self.point = point
+        self.geometry = geometry
+        vec = CurveLayer.encode(curve)
+    }
+
+    var animatableData: Vec {
+        get { vec }
+        set { vec = newValue }
+    }
+
+    static func encode(_ curve: Curve) -> Vec {
+        Vec(v: curve.points.flatMap { [$0.c, $0.rpm] })
+    }
+
+    var body: some View {
+        Canvas { context, _ in draw(in: context) }
+    }
+
+    /// Sampled every half degree from the same function the daemon
+    /// writes; a soft fill under it, the selected point ringed and
+    /// labelled below the line.
+    private func draw(in context: GraphicsContext) {
+        let g = geometry
+        let plot = g.plot
+        var shown = curve
+        if vec.v.count == curve.points.count * 2 {
+            let points = (0..<curve.points.count).map {
+                Curve.Point(c: vec.v[$0 * 2], rpm: vec.v[$0 * 2 + 1])
+            }
+            shown = (try? Curve(name: curve.name, points: points)) ?? curve
+        }
+        var line = Path()
+        line.move(to: CGPoint(x: plot.minX, y: g.y(shown.rpm(at: Frame.celsius.lowerBound))))
+        for c in stride(from: Frame.celsius.lowerBound, through: Frame.celsius.upperBound, by: 0.5)
+        {
+            line.addLine(to: CGPoint(x: g.x(c), y: g.y(shown.rpm(at: c))))
+        }
+        var under = line
+        under.addLine(to: CGPoint(x: plot.maxX, y: plot.maxY))
+        under.addLine(to: CGPoint(x: plot.minX, y: plot.maxY))
+        under.closeSubpath()
+        context.fill(under, with: .color(Palette.dune.opacity(0.08)))
+        context.stroke(
+            line, with: .color(Palette.dune.opacity(0.95)),
+            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+        for (i, p) in shown.points.enumerated() {
+            let r: CGFloat = i == point ? 6 : 4
+            let dot = CGRect(x: g.x(p.c) - r, y: g.y(p.rpm) - r, width: r * 2, height: r * 2)
+            context.fill(Path(ellipseIn: dot), with: .color(Palette.dune))
+            if i == point {
+                context.stroke(
+                    Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
+                    with: .color(Palette.dune.opacity(0.5)), lineWidth: 1.5)
+                context.draw(
+                    Text("\(Int(p.c))° · \(Int(p.rpm)) rpm").font(.meta)
+                        .foregroundStyle(Palette.dune),
+                    at: CGPoint(x: g.x(p.c), y: g.y(p.rpm) + 18))
+            }
+        }
+    }
+}
+
+/// The live half of the plot: the die, the fans, chill's targets. Its
+/// animatable data is a vector of fixed length, so every new sample and
+/// every change of intent glides.
 struct LiveLayer: View, @MainActor Animatable {
     let frame: Frame
     let geometry: PlotGeometry
@@ -256,11 +336,13 @@ struct LiveLayer: View, @MainActor Animatable {
     }
 
     /// [die or -1000] + actuals + targets + the curve's (c, rpm) pairs.
+    /// [die or -1000] + actuals + one target per fan (the actual itself
+    /// while chill holds nothing, so the length never changes with the
+    /// intent and every switch glides).
     static func encode(_ f: Frame) -> Vec {
         var v = [f.die ?? -1000]
         v += f.actuals
-        v += f.targets
-        if let curve = f.curve { v += curve.points.flatMap { [$0.c, $0.rpm] } }
+        v += f.targets.isEmpty ? f.actuals : f.targets
         return Vec(v: v)
     }
 
@@ -274,17 +356,9 @@ struct LiveLayer: View, @MainActor Animatable {
         let truth = LiveLayer.encode(frame)
         let v = vec.v.count == truth.v.count ? vec.v : truth.v
         let die: Double? = v[0] < 0 ? nil : v[0]
-        let actuals = Array(v[1..<1 + frame.actuals.count])
-        let targets = Array(
-            v[1 + frame.actuals.count..<1 + frame.actuals.count + frame.targets.count])
-        var curve = frame.curve
-        if let known = frame.curve {
-            let base = 1 + frame.actuals.count + frame.targets.count
-            let points = (0..<known.points.count).map {
-                Curve.Point(c: v[base + $0 * 2], rpm: v[base + $0 * 2 + 1])
-            }
-            curve = (try? Curve(name: known.name, points: points)) ?? known
-        }
+        let n = frame.actuals.count
+        let actuals = Array(v[1..<1 + n])
+        let targets = frame.targets.isEmpty ? [] : Array(v[1 + n..<1 + 2 * n])
 
         // The heatmap, revealed up to the die.
         if let die {
@@ -298,41 +372,6 @@ struct LiveLayer: View, @MainActor Animatable {
                 with: .linearGradient(
                     Palette.heatGradient, startPoint: CGPoint(x: plot.minX, y: plot.midY),
                     endPoint: CGPoint(x: plot.maxX, y: plot.midY)))
-        }
-
-        // The curve, in dune, sampled every half degree from the same
-        // function the daemon writes; a soft fill under it, the selected
-        // point ringed and labelled below the line.
-        if let curve {
-            var line = Path()
-            line.move(to: CGPoint(x: plot.minX, y: g.y(curve.rpm(at: Frame.celsius.lowerBound))))
-            for c in stride(
-                from: Frame.celsius.lowerBound, through: Frame.celsius.upperBound, by: 0.5)
-            {
-                line.addLine(to: CGPoint(x: g.x(c), y: g.y(curve.rpm(at: c))))
-            }
-            var under = line
-            under.addLine(to: CGPoint(x: plot.maxX, y: plot.maxY))
-            under.addLine(to: CGPoint(x: plot.minX, y: plot.maxY))
-            under.closeSubpath()
-            context.fill(under, with: .color(Palette.dune.opacity(0.08)))
-            context.stroke(
-                line, with: .color(Palette.dune.opacity(0.95)),
-                style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-            for (i, p) in curve.points.enumerated() {
-                let r: CGFloat = i == frame.point ? 6 : 4
-                let dot = CGRect(x: g.x(p.c) - r, y: g.y(p.rpm) - r, width: r * 2, height: r * 2)
-                context.fill(Path(ellipseIn: dot), with: .color(Palette.dune))
-                if i == frame.point {
-                    context.stroke(
-                        Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
-                        with: .color(Palette.dune.opacity(0.5)), lineWidth: 1.5)
-                    context.draw(
-                        Text("\(Int(p.c))° · \(Int(p.rpm)) rpm").font(.meta)
-                            .foregroundStyle(Palette.dune),
-                        at: CGPoint(x: g.x(p.c), y: g.y(p.rpm) + 18))
-                }
-            }
         }
 
         // The die: a hairline in its heat's color, labelled at the top.
