@@ -30,12 +30,14 @@ A fan runs a CURVE: temperature in, rpm out. That is the whole model.
   median rpm per degree where data exists (root TODO).
 - `chill` is the built-in curve, the one most people run: a floor until
   the kick-in, then one clean S to the fan's maximum, ONE knob (`push`,
-  0 to 1, in config.json) in two phases: up to 20% the floor stays the
-  firmware's minimum (an Apple Silicon fan never stops) and only the S
-  moves, kick-in 65 °C down to 50, climb 45 °C down to 20; past it the
-  floor rises to the maximum, the kick-in on to 40, the climb to 15; at
-  1 it is the ceiling, every fan flat out, which is why the rail has no
-  boost tab. The knob shows no number: the curve above is its reading. On disk as
+  0 to 1, in config.json): the S moves along the whole travel, kick-in
+  65 °C down to 40, climb 45 °C down to 15; the floor stays the
+  firmware's minimum (an Apple Silicon fan never stops) for the first
+  half and then rises on a 2.5 power, slow first and fast at the end,
+  reaching the ceiling only at 1, every fan flat out, which is why the
+  rail has no boost tab. The travel is spent on the everyday choice,
+  not on the extreme. The knob shows no number: the curve above is its
+  reading. On disk as
   `chill.json` like any curve. Custom curves are born `custom`,
   `custom-2`. The rail: `apple` (apple.logo) · `chill` (snowflake) · a
   hairline · yours (hand.draw: whose the curve is, not how it was made) ·

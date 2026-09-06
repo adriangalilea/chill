@@ -286,22 +286,23 @@ final class Model {
     /// one.
     static let tunedName = "chill"
 
-    /// One knob, `push` 0 to 1, in two phases. Up to `restEnds` the floor
-    /// stays the fan's minimum (the firmware's; an Apple Silicon fan never
-    /// stops), so at rest chill does not intervene, and only the S moves:
-    /// the kick-in comes down from 65 °C to 50, the climb shortens from
-    /// 45 °C to 20. Past it the floor rises to the maximum, the kick-in
-    /// on to 40 °C, the climb to 15. At 1 the floor is the ceiling: a
-    /// flat curve at maximum, every fan flat out, which is why no
-    /// separate boost tab exists.
-    static let restEnds = 0.2
+    /// One knob, `push` 0 to 1, its travel spent where the everyday
+    /// choice is. The S moves along the whole travel: the kick-in comes
+    /// down from 65 °C to 40, the climb shortens from 45 °C to 15. The
+    /// floor stays the fan's minimum (the firmware's; an Apple Silicon fan
+    /// never stops) for the first half, so at rest chill does not
+    /// intervene; past `restEnds` it rises, slowly at first and fast at
+    /// the end (a 2.5 power), reaching the ceiling only at 1: a flat
+    /// curve at maximum, every fan flat out, which is why no separate
+    /// boost tab exists. Halfway the floor has not moved; at 0.75 it is
+    /// a fifth of the way up; at 0.9, six tenths.
+    static let restEnds = 0.5
 
     static func tuned(push: Double, envelope: ClosedRange<Double>) -> Curve {
-        let shape = min(push, restEnds) / restEnds
-        let lift = max(0, push - restEnds) / (1 - restEnds)
+        let lift = pow(max(0, push - restEnds) / (1 - restEnds), 2.5)
         let floor = envelope.lowerBound + (envelope.upperBound - envelope.lowerBound) * lift
-        let kickIn = 65 - 15 * shape - 10 * lift
-        let span = 45 - 25 * shape - 5 * lift
+        let kickIn = 65 - 25 * push
+        let span = 45 - 30 * push
         return try! Curve(
             name: tunedName,
             points: [
