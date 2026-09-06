@@ -28,15 +28,18 @@ A fan runs a CURVE: temperature in, rpm out. That is the whole model.
   a curve, and it only takes a curve's shape after hours across many
   temperatures. If it returns to the plot it is as one dotted line, the
   median rpm per degree where data exists (root TODO).
-- `calm` is the built-in curve, the one most people run: a floor until
+- `chill` is the built-in curve, the one most people run: a floor until
   the kick-in, then one clean S to the fan's maximum, ONE knob (`push`,
-  0 to 1, in config.json) that moves all of it at once: the floor rises
-  from the minimum to the maximum, the kick-in comes down from 65 °C to
-  40, the climb shortens from 45 °C to 15; at 1 it is the ceiling, every
-  fan flat out, which is why the rail has no boost tab. On disk as
-  `calm.json` like any curve. Custom curves are born `custom`,
-  `custom-2`. The rail: `apple` (apple.logo) · `calm` (snowflake) · a
-  hairline · yours (scribble.variable) · `+`.
+  0 to 1, in config.json) in two phases: up to 20% the floor stays the
+  firmware's minimum (an Apple Silicon fan never stops) and only the S
+  moves, kick-in 65 °C down to 50, climb 45 °C down to 20; past it the
+  floor rises to the maximum, the kick-in on to 40, the climb to 15; at
+  1 it is the ceiling, every fan flat out, which is why the rail has no
+  boost tab. The knob shows no number: the curve above is its reading. On disk as
+  `chill.json` like any curve. Custom curves are born `custom`,
+  `custom-2`. The rail: `apple` (apple.logo) · `chill` (snowflake) · a
+  hairline · yours (hand.draw: whose the curve is, not how it was made) ·
+  `+`. The house curve cannot be trashed; custom ones can.
 - A named curve is yours: (°C, rpm) points, one curve for every fan, each
   fan clamped to its own reported envelope. Interpolation is monotone
   cubic Hermite (`Curve.rpm(at:)`: tangents from the mean of the two
@@ -44,7 +47,7 @@ A fan runs a CURVE: temperature in, rpm out. That is the whole model.
   for the daemon's writes and the plot's line. Editing happens ON the plot
   with the hottest die and the resulting target marked live.
 - Manual is not a mode: a constant rpm is a flat curve. The wire's
-  `boost` (the CLI's verb; the app has no tab for it, calm at full push
+  `boost` (the CLI's verb; the app has no tab for it, chill at full push
   is the same curve) is a curve pinned at max for N minutes that ends by
   itself; while it runs, the foot shows its clock.
 
@@ -330,10 +333,10 @@ Hysteresis is a constant in code, not a per-curve field.
 
 - **The popover IS the product** (`MenuBar.swift`, an NSPopover sized by
   SwiftUI's ideal): a tab rail on top whose tabs ARE the intents, `apple ·
-  calm | <each custom curve> · +`; pressing one sends it, the dune plate
+  chill | <each custom curve> · +`; pressing one sends it, the dune plate
   slides to whichever the daemon reads back as running, never to the
   press. `?` apart on the right. Under it the plot, and a foot of ONE
-  height on every tab so the popover never resizes: `calm` shows the
+  height on every tab so the popover never resizes: `chill` shows the
   push knob (`Knob`: hairline, dune run, mono reading) and a line saying
   the floor and where the climb starts; a custom curve shows the trash
   button; `apple` shows a veto in force, if any, and the parts in one

@@ -4,10 +4,10 @@ import Foundation
 /// `~/.local/state/chill/config.json`: what the app remembers between
 /// launches and the daemon has no business knowing. `lastCurve` is the
 /// canvas's first cursor; `push` is the one knob that shapes the built-in
-/// `calm` curve, the one most people never leave.
+/// `chill` curve, the one most people never leave.
 struct Config: Codable, Equatable {
     var lastCurve: String?
-    /// How hard calm pushes, 0 to 1: at 0 the fans sit at their minimum
+    /// How hard chill pushes, 0 to 1: at 0 the fans sit at their minimum
     /// until 65 °C and climb gently; as it rises the floor comes up, the
     /// climb starts earlier and gets steeper; at 1 the curve is the
     /// ceiling, every fan flat out.

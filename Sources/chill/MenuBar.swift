@@ -70,7 +70,19 @@ final class MenuBar: NSObject {
         // keys route only into a key popover.
         NSApp.activate()
         popover.show(relativeTo: item.button!.bounds, of: item.button!, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        // Activation is cooperative and lands a turn later; the popover's
+        // window must be key for the keys to route into it, so it is
+        // made key after that turn, and the trace says whether it took.
+        DispatchQueue.main.async { [popover] in
+            guard let window = popover.contentViewController?.view.window else {
+                log.error("popover shown without a window")
+                return
+            }
+            window.makeKeyAndOrderFront(nil)
+            log.info(
+                "popover window key: \(window.isKeyWindow, privacy: .public), app active: \(NSApp.isActive, privacy: .public)"
+            )
+        }
     }
 
     /// Membership of the `admin` group, the one that can approve a
@@ -218,13 +230,13 @@ struct Tabs: View {
                 // The house's three, each with its glyph, then a hairline,
                 // then yours by name.
                 tab("apple", .apple, glyph: "apple.logo")
-                tab("calm", .tuned, glyph: "snowflake")
+                tab("chill", .tuned, glyph: "snowflake")
                 Rectangle()
                     .fill(Color.primary.opacity(0.12))
                     .frame(width: 1, height: 16)
                     .padding(.horizontal, 3)
                 ForEach(model.customCurves, id: \.name) { curve in
-                    tab(curve.name, .custom(curve.name), glyph: "scribble.variable")
+                    tab(curve.name, .custom(curve.name), glyph: "hand.draw")
                 }
                 Button {
                     model.newCurveTab()
@@ -235,7 +247,7 @@ struct Tabs: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("a new curve, born as a copy of calm, yours to draw")
+                .help("a new curve, born as a copy of chill, yours to draw")
             }
             .padding(3)
             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: .inkField))
@@ -314,27 +326,24 @@ struct Tabs: View {
 /// The one knob of the built-in curve: how hard it pushes. The whole
 /// curve moves with it, floor, kick-in and climb; the reading says the
 /// floor and where the climb starts. Live: every move lands on disk and,
-/// while calm runs, on the daemon.
+/// while chill runs, on the daemon.
 struct Knobs: View {
     let model: Model
 
     var body: some View {
         VStack(alignment: .leading, spacing: .inkGap) {
-            Knob(label: "push", value: push, range: 0...1, step: 0.02, reading: reading)
+            // No reading: the knob picks a curve, and the curve above moves
+            // with it; a number here would read as an rpm being chosen.
+            Knob(label: "push", value: push, range: 0...1, step: 0.02, reading: "")
             Text(hint).font(.meta).foregroundStyle(.tertiary).frame(height: 16)
         }
         .disabled(model.envelope == nil)
     }
 
-    private var reading: String {
-        guard let tuned = model.tuned, let first = tuned.points.first else { return "" }
-        return "\(Int(first.rpm)) rpm"
-    }
-
     private var hint: String {
         guard let tuned = model.tuned, let first = tuned.points.first, let last = tuned.points.last
         else { return "" }
-        return first.c >= last.c
+        return first.rpm >= last.rpm
             ? "every fan flat out"
             : "floor until \(Int(first.c)) °C, full at \(Int(last.c)) °C · draw your own with +"
     }
@@ -380,8 +389,10 @@ struct Knob: View {
                     })
             }
             .frame(height: 16)
-            Text(reading).font(.meta).foregroundStyle(Palette.dune)
-                .frame(width: 56, alignment: .trailing)
+            if !reading.isEmpty {
+                Text(reading).font(.meta).foregroundStyle(Palette.dune)
+                    .frame(width: 56, alignment: .trailing)
+            }
         }
     }
 }

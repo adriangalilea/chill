@@ -268,7 +268,11 @@ struct Plot: View {
                             ? (dragging.flatMap { $0 >= 0 ? $0 : nil }
                                 ?? hover.flatMap { geometry.hit(curve, at: $0) })
                             : nil,
-                        ghost: ghost(frame, geometry), editable: editable
+                        ghost: ghost(frame, geometry), editable: editable,
+                        heldNote: dragging.flatMap { i in
+                            i >= 0 && curve.points.indices.contains(i)
+                                ? model.heldNote(curve.points[i]) : nil
+                        }
                     )
                     .animation(.easeOut(duration: 0.5), value: CurveLayer.encode(curve))
                     .transition(.opacity)
@@ -467,6 +471,8 @@ struct CurveLayer: View, @MainActor Animatable {
     /// The point under the pointer: it grows and rings, the sign that it
     /// can be dragged.
     let hot: Int?
+    /// Why the hot point stopped short of the pointer, if it did.
+    let heldNote: String?
     /// Where a press would put a new point: hollow, on the line, following
     /// the pointer.
     let ghost: Curve.Point?
@@ -476,7 +482,7 @@ struct CurveLayer: View, @MainActor Animatable {
 
     init(
         curve: Curve, point: Int, geometry: PlotGeometry, hot: Int?, ghost: Curve.Point?,
-        editable: Bool
+        editable: Bool, heldNote: String?
     ) {
         self.curve = curve
         self.point = point
@@ -484,6 +490,7 @@ struct CurveLayer: View, @MainActor Animatable {
         self.hot = hot
         self.ghost = ghost
         self.editable = editable
+        self.heldNote = heldNote
         vec = CurveLayer.encode(curve)
     }
 
@@ -571,9 +578,12 @@ struct CurveLayer: View, @MainActor Animatable {
                 context.stroke(
                     Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
                     with: .color(Palette.dune.opacity(0.6)), lineWidth: 1.5)
+                // Held at a neighbour's rpm, the label says so: the
+                // point stopped, the pointer did not.
+                let note = heldNote.map { " · \($0)" } ?? ""
                 context.plated(
-                    Text("\(Int(p.c))° · \(Int(p.rpm)) rpm").font(.meta)
-                        .foregroundStyle(Palette.dune),
+                    Text("\(Int(p.c))° · \(Int(p.rpm)) rpm\(note)").font(.meta)
+                        .foregroundStyle(note.isEmpty ? Palette.dune : Palette.ember),
                     at: CGPoint(x: g.x(p.c) + 14, y: g.y(p.rpm) - 18), anchor: .leading,
                     within: plot, flipBelow: true)
             }

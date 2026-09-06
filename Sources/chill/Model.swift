@@ -283,17 +283,24 @@ final class Model {
     /// put a hump on either side of itself. Named `chill`, on disk like
     /// any curve, so `chill curve use chill` and the canvas see the same
     /// one.
-    static let tunedName = "calm"
+    static let tunedName = "chill"
 
-    /// One knob, `push` 0 to 1, moves the whole curve at once: the floor
-    /// rises from the fan's minimum to its maximum, the kick-in comes
-    /// down from 65 °C to 40, the climb shortens from 45 °C to 15. At 1
-    /// the floor is the ceiling: a flat curve at maximum, every fan flat
-    /// out, which is why no separate boost tab exists.
+    /// One knob, `push` 0 to 1, in two phases. Up to `restEnds` the floor
+    /// stays the fan's minimum (the firmware's; an Apple Silicon fan never
+    /// stops), so at rest chill does not intervene, and only the S moves:
+    /// the kick-in comes down from 65 °C to 50, the climb shortens from
+    /// 45 °C to 20. Past it the floor rises to the maximum, the kick-in
+    /// on to 40 °C, the climb to 15. At 1 the floor is the ceiling: a
+    /// flat curve at maximum, every fan flat out, which is why no
+    /// separate boost tab exists.
+    static let restEnds = 0.2
+
     static func tuned(push: Double, envelope: ClosedRange<Double>) -> Curve {
-        let floor = envelope.lowerBound + (envelope.upperBound - envelope.lowerBound) * push
-        let kickIn = 65 - 25 * push
-        let span = 45 - 30 * push
+        let shape = min(push, restEnds) / restEnds
+        let lift = max(0, push - restEnds) / (1 - restEnds)
+        let floor = envelope.lowerBound + (envelope.upperBound - envelope.lowerBound) * lift
+        let kickIn = 65 - 15 * shape - 10 * lift
+        let span = 45 - 25 * shape - 5 * lift
         return try! Curve(
             name: tunedName,
             points: [
@@ -330,7 +337,7 @@ final class Model {
             try curveStore.save(tuned)
             reload()
             if intentCurve == Model.tunedName {
-                call("use calm (retune)") { try await $0.use(tuned) }
+                call("use chill (retune)") { try await $0.use(tuned) }
             }
         } catch {
             notice = "\(error)"
@@ -343,7 +350,7 @@ final class Model {
     enum Tab: Hashable {
         case apple, tuned
         /// Only the CLI's `boost` puts the daemon here; the rail has no
-        /// tab for it, calm at full push is the same curve.
+        /// tab for it, chill at full push is the same curve.
         case gust
         case custom(String)
     }
@@ -373,7 +380,7 @@ final class Model {
                 notice = "no fan envelope yet: no daemon and no SMC"
                 return
             }
-            call("use calm") { try await $0.use(tuned) }
+            call("use chill") { try await $0.use(tuned) }
         case .custom(let name):
             guard let curve = curves.first(where: { $0.name == name }) else { return }
             cursor = name
@@ -568,11 +575,11 @@ final class Model {
 
     func nudge(celsius: Double, rpm: Double) {
         guard let editing, editing.points.indices.contains(point) else { return }
-        var points = editing.points
-        let old = points[point]
-        let moved = Curve.Point(c: old.c + celsius, rpm: max(0, old.rpm + rpm))
-        points[point] = moved
-        commit(editing.name, points, select: moved)
+        var others = editing.points
+        let old = others.remove(at: point)
+        let moved = Model.held(
+            Curve.Point(c: old.c + celsius, rpm: max(0, old.rpm + rpm)), among: others)
+        commit(editing.name, others + [moved], select: moved)
     }
 
     func addPoint() {
@@ -591,28 +598,55 @@ final class Model {
     /// No curve under the cursor means the click founds one; a point
     /// within a degree of the click is moved to it instead of doubled.
     func place(celsius: Double, rpm: Double) {
-        let placed = Curve.Point(c: celsius.rounded(), rpm: max(0, rpm.rounded()))
         guard let editing else {
+            let placed = Curve.Point(c: celsius.rounded(), rpm: max(0, rpm.rounded()))
             let name = freshName()
             commit(name, [placed], select: placed)
             cursor = name
             point = 0
             return
         }
-        var points = editing.points.filter { abs($0.c - placed.c) >= 1 }
-        points.append(placed)
-        commit(editing.name, points, select: placed)
+        let others = editing.points.filter { abs($0.c - celsius.rounded()) >= 1 }
+        let placed = Model.held(
+            Curve.Point(c: celsius.rounded(), rpm: rpm.rounded()), among: others)
+        commit(editing.name, others + [placed], select: placed)
     }
 
-    /// A drag: the point under the pointer follows it.
+    /// A drag: the point under the pointer follows it, held between its
+    /// neighbours' rpm.
     func drag(_ index: Int, celsius: Double, rpm: Double) {
         guard let editing, editing.points.indices.contains(index) else { return }
-        var points = editing.points
-        let moved = Curve.Point(c: celsius.rounded(), rpm: max(0, rpm.rounded()))
-        points.remove(at: index)
-        points.removeAll { abs($0.c - moved.c) < 1 }
-        points.append(moved)
-        commit(editing.name, points, select: moved)
+        var others = editing.points
+        others.remove(at: index)
+        others.removeAll { abs($0.c - celsius.rounded()) < 1 }
+        let moved = Model.held(Curve.Point(c: celsius.rounded(), rpm: rpm.rounded()), among: others)
+        commit(editing.name, others + [moved], select: moved)
+    }
+
+    /// A fan curve never comes back down: a point sits no lower than the
+    /// one before it and no higher than the one after. The pointer can
+    /// ask; the point stops at the neighbour's rpm, and `held` says so.
+    static func held(_ p: Curve.Point, among others: [Curve.Point]) -> Curve.Point {
+        let floor = others.filter { $0.c < p.c }.map(\.rpm).max() ?? 0
+        let ceiling = others.filter { $0.c > p.c }.map(\.rpm).min() ?? .infinity
+        return Curve.Point(c: p.c, rpm: min(ceiling, max(floor, p.rpm)))
+    }
+
+    /// The point's numbers, and why they stopped where they did.
+    func heldNote(_ p: Curve.Point) -> String? {
+        guard let editing else { return nil }
+        let others = editing.points.filter { abs($0.c - p.c) >= 1 }
+        if let before = others.filter({ $0.c < p.c }).max(by: { $0.rpm < $1.rpm }),
+            p.rpm == before.rpm
+        {
+            return "no lower than the point before"
+        }
+        if let after = others.filter({ $0.c > p.c }).min(by: { $0.rpm < $1.rpm }),
+            p.rpm == after.rpm
+        {
+            return "no higher than the point after"
+        }
+        return nil
     }
 
     func removePoint() {
@@ -669,6 +703,12 @@ final class Model {
     /// runs this curve.
     func deleteCurve() {
         guard let editing else { return }
+        // The house curve is not a file the user owns; it is regenerated
+        // from the knob, and trashing it would only bring it back.
+        guard editing.name != Model.tunedName else {
+            notice = "chill is the house curve; it stays"
+            return
+        }
         if intentCurve == editing.name { system() }
         do {
             try FileManager.default.trashItem(
@@ -697,10 +737,20 @@ final class Model {
         guard router == nil else { return }
         router = LocalKeyRouter(
             store: store,
-            shouldRoute: { [weak self] _, event in
-                guard let self, let window = event.window else { return false }
-                return window === self.canvas?.window
+            shouldRoute: { [weak self] action, event in
+                guard let self, let window = event.window else {
+                    log.debug("key \(event.keyCode): no window, not routed")
+                    return false
+                }
+                let ours =
+                    window === self.canvas?.window
                     || window === self.popover?.contentViewController?.view.window
+                if !ours {
+                    log.debug(
+                        "key \(event.keyCode) (\(action.map { $0.rawValue } ?? "none", privacy: .public)): in a window that is not ours, not routed"
+                    )
+                }
+                return ours
             },
             perform: { [weak self] in self?.perform($0) },
             performFamily: { [weak self] _, key in self?.pick(Int(key)!) })
@@ -748,9 +798,18 @@ final class Model {
         guard on else {
             float.dismiss()
             store.keyboardCaptured = false
+            log.info("help: dismissed")
             return
         }
-        float.onDismissRequest = { [weak self] in self?.showHelp = false }
+        log.info("help: showing")
+        float.onDismissRequest = { [weak self] in
+            log.info("help: dismiss requested by the panel")
+            self?.showHelp = false
+        }
+        // Not on app switch: opening from the status item ACTIVATES this
+        // app, and that activation lands after the panel is up, which
+        // dismissed it before it was seen. The panel's own click and
+        // escape monitors still close it.
         float.show(
             CheatSheetPanel(
                 store: store, perform: { [weak self] in self?.perform($0) },
@@ -761,8 +820,12 @@ final class Model {
                     )
                 ]
             )
-            .frame(width: 640, height: 560),
-            size: NSSize(width: 640, height: 560), on: NSApp.keyWindow?.screen)
+            .frame(width: 640, height: 560)
+            // The floating panel is a clear window; the sheet brings its
+            // own glass, as mach's surfaces do.
+            .glassEffect(.regular, in: .rect(cornerRadius: .inkPanel)),
+            size: NSSize(width: 640, height: 560), on: NSApp.keyWindow?.screen,
+            dismissOnAppSwitch: false)
     }
 
     // MARK: - persistence
