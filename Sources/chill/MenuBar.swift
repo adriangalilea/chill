@@ -292,24 +292,29 @@ struct Tabs: View {
                 ForEach(model.customCurves, id: \.name) { curve in
                     tab(curve.name, .custom(curve.name), glyph: "hand.draw")
                 }
-                if model.customCurves.count < Model.maxCustom {
-                    Button {
-                        model.newCurveTab()
-                    } label: {
-                        Text("+").font(.system(size: 14, weight: .medium))
-                            .frame(width: 26, height: 26)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("a new curve, born as a copy of chill, yours to draw")
-                }
             }
             .padding(3)
             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: .inkField))
             .overlay(
                 RoundedRectangle(cornerRadius: .inkField)
                     .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+            // `+` beside the rail, not in it: the rail holds what runs,
+            // this makes a new one.
+            if model.customCurves.count < Model.maxCustom {
+                Button {
+                    model.newCurveTab()
+                } label: {
+                    Text("+").font(.system(size: 14, weight: .medium))
+                        .frame(width: 26, height: 26)
+                        .background(
+                            Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: .inkRow)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("a new curve, born as a copy of chill, yours to draw")
+            }
             if model.demo.on {
                 Text("demo").font(.meta).foregroundStyle(.tertiary)
             }
