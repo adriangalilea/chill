@@ -106,14 +106,27 @@ extension GraphicsContext {
     /// A label that reads anywhere on the plot: the text on a small plate
     /// of the window's own background, so dune over dune and ice over
     /// the lit heatmap keep their contrast. `anchor` places the plate.
-    func plated(_ text: Text, at point: CGPoint, anchor: UnitPoint = .center) {
+    /// `within`: the plate is slid to stay inside it, never clipped;
+    /// `flipBelow`: when the plate would cross the top, it is placed the
+    /// same distance BELOW the point instead.
+    func plated(
+        _ text: Text, at point: CGPoint, anchor: UnitPoint = .center, within: CGRect? = nil,
+        flipBelow: Bool = false
+    ) {
         let resolved = resolve(text)
         let size = resolved.measure(in: CGSize(width: 400, height: 40))
         let pad = CGSize(width: 5, height: 2)
-        let plate = CGRect(
+        var plate = CGRect(
             x: point.x - (size.width + 2 * pad.width) * anchor.x,
             y: point.y - (size.height + 2 * pad.height) * anchor.y,
             width: size.width + 2 * pad.width, height: size.height + 2 * pad.height)
+        if let within {
+            if flipBelow, plate.minY < within.minY {
+                plate.origin.y = point.y + (point.y - plate.midY) - plate.height / 2
+            }
+            plate.origin.x = min(max(plate.minX, within.minX), within.maxX - plate.width)
+            plate.origin.y = min(max(plate.minY, within.minY), within.maxY - plate.height)
+        }
         fill(
             Path(roundedRect: plate, cornerRadius: 4),
             with: .color(Color(nsColor: .windowBackgroundColor).opacity(0.82)))
@@ -537,7 +550,8 @@ struct CurveLayer: View, @MainActor Animatable {
             context.plated(
                 Text("\(Int(ghost.c.rounded()))° → \(Int(ghost.rpm.rounded())) rpm").font(.meta)
                     .foregroundStyle(Palette.dune),
-                at: CGPoint(x: g.x(ghost.c), y: g.y(ghost.rpm) - 16))
+                at: CGPoint(x: g.x(ghost.c), y: g.y(ghost.rpm) - 18), within: plot,
+                flipBelow: true)
         }
         // A flat curve (gust) has one point at 0 °C, off the axis: no dot.
         for (i, p) in points.enumerated() where Frame.celsius.contains(p.c) {
@@ -560,7 +574,8 @@ struct CurveLayer: View, @MainActor Animatable {
                 context.plated(
                     Text("\(Int(p.c))° · \(Int(p.rpm)) rpm").font(.meta)
                         .foregroundStyle(Palette.dune),
-                    at: CGPoint(x: g.x(p.c) + 14, y: g.y(p.rpm) - 16), anchor: .leading)
+                    at: CGPoint(x: g.x(p.c) + 14, y: g.y(p.rpm) - 18), anchor: .leading,
+                    within: plot, flipBelow: true)
             }
         }
     }
@@ -732,7 +747,8 @@ struct LiveLayer: View, @MainActor Animatable {
                     context.plated(
                         Text("\(mark.0) · \(Int(mark.1)) rpm").font(.meta)
                             .foregroundStyle(Palette.dune),
-                        at: CGPoint(x: plot.maxX - 4, y: g.y(mark.1) + dy), anchor: .trailing)
+                        at: CGPoint(x: plot.maxX - 4, y: g.y(mark.1) + dy), anchor: .trailing,
+                        within: plot)
                 }
             }
             // chill's target, a dashed rule at the rpm it asked for.
