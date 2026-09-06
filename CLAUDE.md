@@ -353,7 +353,11 @@ Hysteresis is a constant in code, not a per-curve field.
   line (`cpu 55 · gpu 47 · ssd 36 · battery 33 °C`); a CLI boost shows
   its clock there too. No status line and no prose beyond that: what a
   tab means is its tooltip.
-- **The plot** (`Plot.swift`): a heatmap at rest (ice to ember to red
+- **The plot** (`Plot.swift`): the temperature axis is piecewise, not
+  linear (`PlotGeometry.axis`: 30 to 40 °C gets 8% of the width, 40 to
+  80 two thirds, 80 to 110 the rest), since the action lives between 40
+  and 80; one map and its inverse serve everything drawn, hovered or
+  dragged, the heatmap's stops included. A heatmap at rest (ice to ember to red
   across the temperature axis, 7%), lit to 25% up to the die; the curve
   in dune, sampled every half degree from `Curve.rpm(at:)`; the die as a
   vertical hairline in its heat's color (`Palette.heat`: ice ≤45 °C,

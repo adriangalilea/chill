@@ -69,9 +69,9 @@ enum Palette {
     /// The same ramp laid across the plot, the heatmap the die reveals.
     static let heatGradient = Gradient(stops: [
         .init(color: ice, location: 0),
-        .init(color: ice, location: (45 - Frame.celsius.lowerBound) / Frame.celsiusSpan),
-        .init(color: ember, location: (75 - Frame.celsius.lowerBound) / Frame.celsiusSpan),
-        .init(color: hot, location: (100 - Frame.celsius.lowerBound) / Frame.celsiusSpan),
+        .init(color: ice, location: PlotGeometry.unit(45)),
+        .init(color: ember, location: PlotGeometry.unit(75)),
+        .init(color: hot, location: PlotGeometry.unit(100)),
         .init(color: hot, location: 1),
     ])
 }

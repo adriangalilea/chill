@@ -15,7 +15,6 @@ struct Frame {
     let trail: Trail
 
     static let celsius: ClosedRange<Double> = 30...110
-    static let celsiusSpan = celsius.upperBound - celsius.lowerBound
 }
 
 /// The plot's coordinate map, one for drawing and the pointer alike: °C
@@ -38,15 +37,39 @@ struct PlotGeometry {
         yHi = envelope.upperBound + span * 0.05
     }
 
+    /// The temperature axis is not linear: the action lives between 40
+    /// and 80 °C, so that stretch gets two thirds of the width, the cold
+    /// tail 8% and the hot tail the rest. One piecewise-linear map, its
+    /// inverse below, used by everything drawn, hovered or dragged, so
+    /// the heatmap stretches with it and nothing disagrees.
+    static let axis: [(celsius: Double, unit: Double)] = [
+        (30, 0), (40, 0.08), (80, 0.75), (110, 1),
+    ]
+
+    /// 0 to 1 across the axis for a temperature.
+    static func unit(_ c: Double) -> Double {
+        let c = min(Frame.celsius.upperBound, max(Frame.celsius.lowerBound, c))
+        let i = axis.lastIndex { $0.celsius <= c }.map { min($0, axis.count - 2) } ?? 0
+        let (a, b) = (axis[i], axis[i + 1])
+        return a.unit + (b.unit - a.unit) * (c - a.celsius) / (b.celsius - a.celsius)
+    }
+
+    /// The temperature at 0 to 1 across the axis.
+    static func celsius(unit u: Double) -> Double {
+        let u = min(1, max(0, u))
+        let i = axis.lastIndex { $0.unit <= u }.map { min($0, axis.count - 2) } ?? 0
+        let (a, b) = (axis[i], axis[i + 1])
+        return a.celsius + (b.celsius - a.celsius) * (u - a.unit) / (b.unit - a.unit)
+    }
+
     func x(_ c: Double) -> CGFloat {
-        plot.minX + plot.width * (c - Frame.celsius.lowerBound) / Frame.celsiusSpan
+        plot.minX + plot.width * PlotGeometry.unit(c)
     }
     func y(_ rpm: Double) -> CGFloat {
         plot.maxY - plot.height * (rpm - yLo) / (yHi - yLo)
     }
     func celsius(at p: CGPoint) -> Double {
-        let c = Frame.celsius.lowerBound + (p.x - plot.minX) / plot.width * Frame.celsiusSpan
-        return min(Frame.celsius.upperBound, max(Frame.celsius.lowerBound, c))
+        PlotGeometry.celsius(unit: (p.x - plot.minX) / plot.width)
     }
     func rpm(at p: CGPoint) -> Double {
         let rpm = yLo + (plot.maxY - p.y) / plot.height * (yHi - yLo)
