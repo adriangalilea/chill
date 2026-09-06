@@ -290,16 +290,16 @@ final class Model {
     /// choice is. The S moves along the whole travel: the kick-in comes
     /// down from 65 °C to 40, the climb shortens from 45 °C to 15. The
     /// floor stays the fan's minimum (the firmware's; an Apple Silicon fan
-    /// never stops) for the first half, so at rest chill does not
-    /// intervene; past `restEnds` it rises, slowly at first and fast at
-    /// the end (a 2.5 power), reaching the ceiling only at 1: a flat
-    /// curve at maximum, every fan flat out, which is why no separate
-    /// boost tab exists. Halfway the floor has not moved; at 0.75 it is
-    /// a fifth of the way up; at 0.9, six tenths.
-    static let restEnds = 0.5
+    /// never stops) up to `restEnds`, so at rest chill does not
+    /// intervene; past it the floor rises on a square, slow first and
+    /// fast at the end, reaching the ceiling only at 1: a flat curve at
+    /// maximum, every fan flat out, which is why no separate boost tab
+    /// exists. Halfway the floor is a seventh of the way up; at 0.75,
+    /// nearly half; at 0.9, three quarters.
+    static let restEnds = 0.2
 
     static func tuned(push: Double, envelope: ClosedRange<Double>) -> Curve {
-        let lift = pow(max(0, push - restEnds) / (1 - restEnds), 2.5)
+        let lift = pow(max(0, push - restEnds) / (1 - restEnds), 2)
         let floor = envelope.lowerBound + (envelope.upperBound - envelope.lowerBound) * lift
         let kickIn = 65 - 25 * push
         let span = 45 - 30 * push
