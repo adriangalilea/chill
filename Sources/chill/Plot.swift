@@ -37,43 +37,39 @@ struct PlotGeometry {
         yHi = envelope.upperBound + span * 0.05
     }
 
-    /// The temperature axis is not linear: the action lives between 40
-    /// and 80 °C, so that stretch gets two thirds of the width, the cold
-    /// tail 8% and the hot tail the rest. One piecewise-linear map, its
-    /// inverse below, used by everything drawn, hovered or dragged, so
-    /// the heatmap stretches with it and nothing disagrees.
-    static let axis: [(celsius: Double, unit: Double)] = [
-        (30, 0), (40, 0.08), (80, 0.75), (110, 1),
-    ]
+    /// Both axes are logarithmic. Temperature: the action lives at the
+    /// cool end, and a log gives it room continuously, the grid
+    /// tightening smoothly toward the hot end. Rpm: noise grows with the
+    /// log of the speed, and the differences that matter are the quiet
+    /// ones near the floor. One map and its inverse per axis, used by
+    /// everything drawn, hovered or dragged; the heatmap's stops go
+    /// through the same map.
+    static let logSpan = log(Frame.celsius.upperBound / Frame.celsius.lowerBound)
 
-    /// 0 to 1 across the axis for a temperature.
+    /// 0 to 1 across the temperature axis.
     static func unit(_ c: Double) -> Double {
         let c = min(Frame.celsius.upperBound, max(Frame.celsius.lowerBound, c))
-        let i = axis.lastIndex { $0.celsius <= c }.map { min($0, axis.count - 2) } ?? 0
-        let (a, b) = (axis[i], axis[i + 1])
-        return a.unit + (b.unit - a.unit) * (c - a.celsius) / (b.celsius - a.celsius)
+        return log(c / Frame.celsius.lowerBound) / logSpan
     }
 
     /// The temperature at 0 to 1 across the axis.
     static func celsius(unit u: Double) -> Double {
-        let u = min(1, max(0, u))
-        let i = axis.lastIndex { $0.unit <= u }.map { min($0, axis.count - 2) } ?? 0
-        let (a, b) = (axis[i], axis[i + 1])
-        return a.celsius + (b.celsius - a.celsius) * (u - a.unit) / (b.unit - a.unit)
+        Frame.celsius.lowerBound * exp(min(1, max(0, u)) * logSpan)
     }
 
     func x(_ c: Double) -> CGFloat {
         plot.minX + plot.width * PlotGeometry.unit(c)
     }
     func y(_ rpm: Double) -> CGFloat {
-        plot.maxY - plot.height * (rpm - yLo) / (yHi - yLo)
+        let r = min(yHi, max(yLo, rpm))
+        return plot.maxY - plot.height * log(r / yLo) / log(yHi / yLo)
     }
     func celsius(at p: CGPoint) -> Double {
         PlotGeometry.celsius(unit: (p.x - plot.minX) / plot.width)
     }
     func rpm(at p: CGPoint) -> Double {
-        let rpm = yLo + (plot.maxY - p.y) / plot.height * (yHi - yLo)
-        return min(yHi, max(yLo, rpm))
+        let u = min(1, max(0, (plot.maxY - p.y) / plot.height))
+        return yLo * exp(u * log(yHi / yLo))
     }
     /// The curve point under the pointer, within a fingertip.
     func hit(_ curve: Curve?, at p: CGPoint) -> Int? {
