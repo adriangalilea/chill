@@ -422,7 +422,7 @@ struct TipView: View {
             if let key = tip.key {
                 HStack(spacing: .inkGap) {
                     ShortcutBadge(key)
-                    Text("from any app").font(.meta).foregroundStyle(.secondary)
+                    Text("toggle from any app").font(.meta).foregroundStyle(.secondary)
                 }
             }
         }
