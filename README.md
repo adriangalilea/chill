@@ -27,6 +27,6 @@ An unsigned or ad-hoc bundle cannot register a LaunchDaemon; that is the platfor
 
 ## Prior art
 
-SoloFan's Swift app (MIT, github.com/SoloTeamDev/solofan, six PRs by Adrian: M4/M5 control, real die temperatures, off-main-thread writes) is the prior art, credited here. SoloFan's `smc-helper` is GPL-derived (smcFanControl) and is NOT a source: chilld's writer is written from the IOKit AppleSMC user-client protocol and the key names. The `Ftst` unlock is credited to agoodkind/macos-smc-fan (MIT). Sensors come from the same read-only package as mach.
+SoloFan's Swift app (MIT, github.com/SoloTeamDev/solofan, six PRs by Adrian: M4/M5 control, real die temperatures, off-main-thread writes) is the prior art, credited here. SoloFan's `smc-helper` is GPL-derived (smcFanControl) and is NOT a source: chilld's writer is written from the IOKit AppleSMC user-client protocol and the key names. The `Ftst` unlock is credited to agoodkind/macos-smc-fan (MIT). Sensors come from the same read-only package as mach. The SMC temperature keys that name the chip's parts (cpu, gpu, memory) per generation are vendored from exelban/stats (MIT, github.com/exelban/stats, `Modules/Sensors/values.swift`), the one maintained catalogue of Apple's unpublished keys.
 
 MIT, see LICENSE.

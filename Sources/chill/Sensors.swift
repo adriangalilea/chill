@@ -25,6 +25,8 @@ struct LocalSample {
 final class LocalSensors {
     private let smc: SMC
     private let hid: HIDSensors?
+    /// The named parts this Mac answers for, probed once.
+    private let parts: [Parts.Group: [String]]
     /// The fans' reported envelope, lowest Mn to highest Mx, read ONCE
     /// here exactly as chilld's writer reads it: `Mx` reads intermittently,
     /// so it never rides the 1 Hz sample. nil on a fanless Mac.
@@ -47,6 +49,7 @@ final class LocalSensors {
                 } ?? reported.min...reported.max
         }
         envelope = span
+        parts = Parts.present(smc)
         do {
             hid = try HIDSensors()
         } catch {
@@ -61,9 +64,14 @@ final class LocalSensors {
             fans: (try? smc.fans()) ?? [])
     }
 
-    /// Every thermal sensor the machine names, for the temperature badge:
-    /// the die's spots and the few with a real name (ssd, battery).
+    /// Every thermal sensor the HID path names (the die's spots, ssd,
+    /// battery), for the temperature badge.
     func temperatures() -> [Sensor] {
         hid?.readings() ?? []
+    }
+
+    /// The chip's named parts, cpu / gpu / memory, every sensor's value.
+    func partReadings() -> [Parts.Reading] {
+        Parts.read(smc, parts)
     }
 }

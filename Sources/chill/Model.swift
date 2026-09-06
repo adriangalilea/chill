@@ -98,6 +98,10 @@ final class Model {
         config = try Config.load(demo)
         curves = try curveStore.list()
         cursor = config.lastCurve.flatMap { name in curves.first { $0.name == name }?.name }
+        // Opened at launch, once: the badge reads parts on demand, the
+        // daemon-less plot samples it, and the probe logs which catalogue
+        // keys this Mac answers while there is still time to read it.
+        sensors = Result { try LocalSensors() }
         // Common modes: a timer on the default mode alone stalls while a
         // menu is open or a window resizes.
         let timer = Timer(timeInterval: CloudStore.writePeriod, repeats: true) { [weak self] _ in
@@ -164,6 +168,13 @@ final class Model {
         if sensors == nil { sensors = Result { try LocalSensors() } }
         guard case .success(let local)? = sensors else { return [] }
         return local.temperatures()
+    }
+
+    /// cpu, gpu, memory by their SMC keys, read on demand for the badge.
+    func parts() -> [Parts.Reading] {
+        if sensors == nil { sensors = Result { try LocalSensors() } }
+        guard case .success(let local)? = sensors else { return [] }
+        return local.partReadings()
     }
 
     /// The exact numbers behind the plot's marks, one line per fan, for

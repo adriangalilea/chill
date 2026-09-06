@@ -10,7 +10,9 @@ github.com/SoloTeamDev/solofan, six PRs by Adrian: M4/M5 control, real die
 temperatures, off-main-thread writes). SoloFan's `smc-helper` is GPL-derived
 (smcFanControl) and is NOT a source: chilld's writer is written from the
 IOKit AppleSMC user-client protocol and the key names. The `Ftst` unlock is
-credited to agoodkind/macos-smc-fan (MIT). Sibling: mach measures the
+credited to agoodkind/macos-smc-fan (MIT). The per-generation SMC keys
+that name the chip's parts (`Sources/chill/Parts.swift`) are vendored
+from exelban/stats (MIT), credited in README. Sibling: mach measures the
 machine, chill governs it; both read sensors through the same package.
 
 ## The one idea
