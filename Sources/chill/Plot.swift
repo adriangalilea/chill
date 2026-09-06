@@ -77,7 +77,7 @@ final class Trail {
     private(set) var marks: [Mark] = []
 
     /// How long a stretch glows.
-    static let span: TimeInterval = 45
+    static let span: TimeInterval = 25
     /// Below this travel a frame adds no mark (a still point, a jitter).
     static let stepCelsius = 0.15
     static let stepRPM = 8.0
@@ -95,9 +95,10 @@ final class Trail {
         marks.append(Mark(at: now, die: die, rpm: rpm))
     }
 
-    /// The glow of a stretch at `age`: faint fresh, gone at `span`.
+    /// The glow of a stretch at `age`: faint even fresh, falling fast
+    /// (cubic), gone at `span`.
     static func alpha(age: TimeInterval) -> Double {
-        0.35 * pow(max(0, 1 - age / span), 2)
+        0.12 * pow(max(0, 1 - age / span), 3)
     }
 }
 
@@ -458,7 +459,7 @@ struct LiveLayer: View, @MainActor Animatable {
             let path = frame.trail.marks
             if path.count > 1 {
                 context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 4))
+                    layer.addFilter(.blur(radius: 2.5))
                     for (a, b) in zip(path, path.dropFirst()) {
                         let alpha = Trail.alpha(age: now.timeIntervalSince(b.at))
                         guard alpha > 0.005 else { continue }
@@ -467,7 +468,7 @@ struct LiveLayer: View, @MainActor Animatable {
                         stretch.addLine(to: CGPoint(x: g.x(b.die), y: g.y(b.rpm)))
                         layer.stroke(
                             stretch, with: .color(Palette.heat(b.die).opacity(alpha)),
-                            style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                            style: StrokeStyle(lineWidth: 4, lineCap: .round))
                     }
                 }
             }
