@@ -185,13 +185,11 @@ struct PopoverView: View {
             ZStack(alignment: .topLeading) {
                 switch model.tab {
                 case .apple:
-                    Foot(first: vetoNote, second: model.partsLine) { ToggleHint(model: model) }
+                    Foot(first: vetoNote, second: model.partsLine)
                         .transition(.opacity)
                 case .gust:
-                    Foot(first: gustLine + vetoNote, second: model.partsLine) {
-                        ToggleHint(model: model)
-                    }
-                    .transition(.opacity)
+                    Foot(first: gustLine + vetoNote, second: model.partsLine)
+                        .transition(.opacity)
                 case .tuned:
                     Knobs(model: model).transition(.opacity)
                 case .custom:
@@ -260,41 +258,15 @@ struct PopoverView: View {
 }
 
 /// The foot of the apple and gust tabs: two mono lines in the knobs'
-/// space, what the plot cannot say at a glance, and at the end of the
-/// bottom line whatever the tab pins there (the toggle hint).
-struct Foot<Trailing: View>: View {
+/// space, what the plot cannot say at a glance.
+struct Foot: View {
     let first: String
     let second: String
-    @ViewBuilder let trailing: Trailing
 
     var body: some View {
         VStack(alignment: .leading, spacing: .inkGap) {
             Text(first).font(.meta).foregroundStyle(.secondary).frame(height: 16)
-            HStack(spacing: .inkLane) {
-                Text(second).font(.meta).foregroundStyle(.tertiary).lineLimit(1)
-                Spacer(minLength: 0)
-                trailing
-            }
-            .frame(height: 16)
-        }
-    }
-}
-
-/// The one shortcut, as a key cap, at the bottom right of every tab's
-/// foot: the same place on `apple` and on `chill`, so it is found on
-/// either. Says what it toggles to, since that follows the last curve.
-struct ToggleHint: View {
-    let model: Model
-
-    var body: some View {
-        let key = model.store.displayPrimary(for: .toggle)
-        if !key.isEmpty {
-            HStack(spacing: .inkGap) {
-                ShortcutBadge(key)
-                Text("apple ↔ \(model.yourCurve?.name ?? Model.tunedName)")
-                    .font(.meta).foregroundStyle(.tertiary)
-            }
-            .help(ChillAction.toggle.spec.title + ", from any app")
+            Text(second).font(.meta).foregroundStyle(.tertiary).lineLimit(1).frame(height: 16)
         }
     }
 }
@@ -375,6 +347,11 @@ struct Tabs: View {
 /// (matched across the rail, so it slides), a wash under the pointer,
 /// the text stepping up from secondary to primary on hover and to dune
 /// when selected, and a small give on press. Alive, never loud.
+///
+/// The shortcut lives on the tab it would press: the toggle's target
+/// (`Model.toggleTarget`) wears a small key mark in its corner, and
+/// under the pointer shows the combo as a key cap in a callout below
+/// the rail, an overlay, so nothing shifts. The tooltip says it too.
 struct TabCell: View {
     let model: Model
     let name: String
@@ -385,6 +362,8 @@ struct TabCell: View {
 
     var body: some View {
         let selected = model.tab == tab
+        let target = model.toggleTarget == tab
+        let key = model.store.displayPrimary(for: .toggle)
         Button {
             model.select(tab)
         } label: {
@@ -405,13 +384,41 @@ struct TabCell: View {
                         .fill(Color.primary.opacity(0.07))
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if target, !key.isEmpty {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundStyle(Palette.dune.opacity(hovering ? 1 : 0.6))
+                        .padding(.top, 3)
+                        .padding(.trailing, 4)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(Give())
         .foregroundStyle(selected ? Palette.dune : hovering ? .primary : .secondary)
+        .overlay(alignment: .bottom) {
+            if target, hovering, !key.isEmpty {
+                HStack(spacing: .inkGap) {
+                    ShortcutBadge(key)
+                    Text("from any app").font(.meta).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, .inkLane)
+                .padding(.vertical, .inkGap)
+                .background(
+                    Color(nsColor: .windowBackgroundColor).opacity(0.92),
+                    in: RoundedRectangle(cornerRadius: .inkRow)
+                )
+                .fixedSize()
+                .offset(y: Tabs.cellHeight + Tabs.railPadding + .inkGap)
+                .transition(.opacity)
+                .allowsHitTesting(false)
+            }
+        }
+        .zIndex(target && hovering ? 1 : 0)
         .onHover { hovering = $0 }
         .animation(.inkSettle, value: hovering)
-        .help(Tabs.about(tab, name))
+        .help(Tabs.about(tab, name) + (target && !key.isEmpty ? " · \(key) from any app" : ""))
     }
 }
 
@@ -467,12 +474,7 @@ struct Knobs: View {
             // No reading: the knob picks a curve, and the curve above moves
             // with it; a number here would read as an rpm being chosen.
             Knob(label: "push", value: push, range: 0...1, step: 0.02, reading: "")
-            HStack(spacing: .inkLane) {
-                Text(hint).font(.meta).foregroundStyle(.tertiary).lineLimit(1)
-                Spacer(minLength: 0)
-                ToggleHint(model: model)
-            }
-            .frame(height: 16)
+            Text(hint).font(.meta).foregroundStyle(.tertiary).frame(height: 16)
         }
         .disabled(model.envelope == nil)
     }

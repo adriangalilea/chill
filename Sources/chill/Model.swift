@@ -803,6 +803,14 @@ final class Model {
     /// you draw one.
     var yourCurve: Curve? { curves.first(where: { $0.name == config.lastCurve }) ?? tuned }
 
+    /// The tab the toggle would press right now: yours while Apple's
+    /// runs, Apple's otherwise. That tab wears the shortcut.
+    var toggleTarget: Tab {
+        guard tab == .apple else { return .apple }
+        guard let yourCurve else { return .tuned }
+        return yourCurve.name == Model.tunedName ? .tuned : .custom(yourCurve.name)
+    }
+
     /// The one key from anywhere: a curve runs, so Apple's; Apple's runs,
     /// so yours, the last one used, chill until you draw one.
     func toggle() {
