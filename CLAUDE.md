@@ -390,7 +390,7 @@ Hysteresis is a constant in code, not a per-curve field.
   the daemon runs; no save step, no draft. Without a daemon the plot
   still shows the machine through `LocalSensors`; with one, `State` is
   the only source. Nothing animates indefinitely.
-- **Canvas window** (`CanvasWindow`, `c`): the same plot larger beside
+- **The lab** (`CanvasWindow`, `l`): the same plot larger beside
   the curve list (Ink.CursorScrollView) and an action bar; the keyboard
   surface. Every key is a `ChillAction` (`Actions.swift`): arrows move
   the selected point (1 °C / 50 rpm), ⇥ / ⇧⇥ cycle points, `n` adds one
@@ -402,8 +402,10 @@ Hysteresis is a constant in code, not a per-curve field.
   = Apple holds the fans · filled = a curve does · bar = a CLI boost ·
   slashed outline = no daemon (not installed, awaiting approval,
   unreachable) · dotted = foreign. Left-click opens the popover;
-  right-click opens the app menu (version, the daemon line, canvas,
-  shortcuts, start at login, about, quit; MenuBarExtra has no
+  right-click opens the app menu (version with the daemon's pid, or the
+  daemon's trouble on its own line; the lab; start at login; about, on
+  the cheat sheet's glass, because AppKit's standard panel opens behind
+  the front window for an accessory app; quit. MenuBarExtra has no
   right-click, hence NSStatusItem). With no daemon the
   popover leads with the one action that fixes it (`Fixer`): "install
   chilld" (`register()`) or "approve chilld in System Settings › General

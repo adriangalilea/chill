@@ -60,6 +60,9 @@ final class Model {
     /// The status item's popover, the surface most keys land on.
     @ObservationIgnored weak var popover: NSPopover?
     var showHelp = false { didSet { presentHelp(showHelp) } }
+    /// The about panel shares the one floating panel with the cheat
+    /// sheet; showing either dismisses the other.
+    var showAbout = false { didSet { presentAbout(showAbout) } }
 
     var link: Link?
     var hello: Hello?
@@ -857,6 +860,7 @@ final class Model {
             return
         }
         log.info("help: showing")
+        if showAbout { showAbout = false }
         float.onDismissRequest = { [weak self] in
             log.info("help: dismiss requested by the panel")
             self?.showHelp = false
@@ -880,6 +884,21 @@ final class Model {
             // own glass, as mach's surfaces do.
             .glassEffect(.regular, in: .rect(cornerRadius: .inkPanel)),
             size: NSSize(width: 640, height: 560), on: NSApp.keyWindow?.screen,
+            dismissOnAppSwitch: false)
+    }
+
+    private func presentAbout(_ on: Bool) {
+        guard on else {
+            float.dismiss()
+            log.info("about: dismissed")
+            return
+        }
+        log.info("about: showing")
+        if showHelp { showHelp = false }
+        float.onDismissRequest = { [weak self] in self?.showAbout = false }
+        float.show(
+            AboutPanel().glassEffect(.regular, in: .rect(cornerRadius: .inkPanel)),
+            size: AboutPanel.size, on: NSApp.keyWindow?.screen,
             dismissOnAppSwitch: false)
     }
 

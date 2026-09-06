@@ -66,7 +66,7 @@ enum ChillAction: String, CaseIterable, ActionSet {
                 title: "take over from the other watcher", symbol: "hand.raised",
                 local: [KeyCombo("t")])
         case .canvas:
-            return Spec(title: "canvas", symbol: "chart.xyaxis.line", local: [KeyCombo("c")])
+            return Spec(title: "lab", symbol: "flask", local: [KeyCombo("l")])
         case .back:
             return Spec(title: "close", symbol: "xmark", local: [KeyCombo("escape")])
         case .help:

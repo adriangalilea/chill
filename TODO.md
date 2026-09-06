@@ -131,7 +131,8 @@ the M4's `Ftst` gates, the lid gate below.
   (same plot, the curve list, the keys) and drifts from it; the popover
   is the product. The window is where the things below live so the menu
   bar stays lean: the heat button, Apple's observed curve, the atlas,
-  experiments. Until then it stays as it is, reachable with `c`.
+  experiments. Until then it stays as it is, named lab already,
+  reachable with `l` and the app menu.
 - A "heat it" button: stress the machine on purpose to WATCH the plot do
   its thing, the die climbing, the fans following, the afterglow. mach
   already has the kernels (`Bench`, `GPUKernel`); chill would call the

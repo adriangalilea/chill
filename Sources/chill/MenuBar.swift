@@ -90,10 +90,11 @@ final class MenuBar: NSObject {
 
     // MARK: - the app menu (right-click)
 
-    /// What the popover is not for: the app itself. Version, daemon state,
-    /// the canvas, the keys, start at login, about, quit. Rebuilt on every
-    /// open from the live state. No item for what does not exist yet (an
-    /// update check comes with the appcast).
+    /// What the popover is not for: the app itself. Version and daemon,
+    /// the lab, start at login, about, quit. Rebuilt on every open from
+    /// the live state. No item for what does not exist yet (an update
+    /// check comes with the appcast); the keys are the popover's, so `?`
+    /// lives there, not here.
     private func appMenu() -> NSMenu {
         let menu = NSMenu()
         func add(_ title: String, _ selector: Selector?, key: String = "") -> NSMenuItem {
@@ -103,34 +104,29 @@ final class MenuBar: NSObject {
             menu.addItem(entry)
             return entry
         }
-        _ = add("chill \(Wire.version)", nil)
-        _ = add(model.daemonLine, nil)
+        // One line while the daemon answers (the handshake makes both
+        // versions the same one); the daemon's trouble gets its own line.
+        if case .live? = model.link {
+            _ = add("chill \(Wire.version) · daemon pid \(model.hello?.pid ?? 0)", nil)
+        } else {
+            _ = add("chill \(Wire.version)", nil)
+            _ = add(model.daemonLine, nil)
+        }
         menu.addItem(.separator())
-        _ = add("canvas", #selector(canvas), key: "c")
-        _ = add("shortcuts", #selector(help), key: "?")
+        _ = add(ChillAction.canvas.spec.title, #selector(canvas), key: "l")
         menu.addItem(.separator())
         let login = add("start at login", #selector(toggleLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        _ = add("about chill", #selector(about))
+        _ = add("about", #selector(about))
         menu.addItem(.separator())
-        _ = add("quit chill", #selector(quit), key: "q")
+        _ = add("quit", #selector(quit), key: "q")
         return menu
     }
 
     @objc private func canvas() { model.perform(.canvas) }
-    @objc private func help() { model.perform(.help) }
     @objc private func quit() { model.perform(.quit) }
     @objc private func toggleLogin() { model.toggleLogin() }
-    @objc private func about() {
-        NSApp.activate()
-        NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "chill",
-            .applicationVersion: Wire.version,
-            .credits: NSAttributedString(
-                string: Model.credits,
-                attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]),
-        ])
-    }
+    @objc private func about() { model.showAbout = true }
 
     /// Membership of the `admin` group, the one that can approve a
     /// LaunchDaemon in System Settings. The group and the current user
@@ -521,5 +517,33 @@ struct ActionBar: View {
         .padding(.vertical, .inkTight)
         .background(Color.inkRest.opacity(0.5), in: RoundedRectangle(cornerRadius: .inkRow))
         .help(action.spec.title)
+    }
+}
+
+/// About, on the same glass as the cheat sheet: the icon, the name, the
+/// version, the credits README carries. Not AppKit's standard panel: an
+/// accessory app opened from its status item is not granted activation,
+/// so that panel comes up behind the front window, unseen.
+struct AboutPanel: View {
+    static let size = NSSize(width: 360, height: 300)
+
+    var body: some View {
+        VStack(spacing: .inkLane) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 96, height: 96)
+            Text("chill")
+                .font(.system(size: 20, weight: .semibold))
+            Text(Wire.version)
+                .font(.meta)
+                .foregroundStyle(.tertiary)
+            Text(Model.credits)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.inkBlock)
+        .frame(width: AboutPanel.size.width, height: AboutPanel.size.height)
     }
 }
