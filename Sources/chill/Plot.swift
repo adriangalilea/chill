@@ -151,13 +151,13 @@ struct Plot: View {
     /// The grid, the heatmap at rest, Apple's cloud.
     private static func drawStatic(_ f: Frame, _ g: PlotGeometry, in context: GraphicsContext) {
         let plot = g.plot
-        context.fill(
+        var faint = context
+        faint.opacity = 0.07
+        faint.fill(
             Path(plot),
             with: .linearGradient(
                 Palette.heatGradient, startPoint: CGPoint(x: plot.minX, y: plot.midY),
-                endPoint: CGPoint(x: plot.maxX, y: plot.midY)),
-            style: FillStyle())
-        context.fill(Path(plot), with: .color(Color.inkRest.opacity(0.88)))
+                endPoint: CGPoint(x: plot.maxX, y: plot.midY)))
 
         let hair = GraphicsContext.Shading.color(.primary.opacity(0.07))
         for c in stride(from: Frame.celsius.lowerBound, through: Frame.celsius.upperBound, by: 10) {
@@ -198,7 +198,7 @@ struct Plot: View {
 
 /// The animated half of the plot. Its animatable data is every live
 /// number; SwiftUI feeds intermediate vectors while a change settles.
-struct LiveLayer: View, Animatable {
+struct LiveLayer: View, @MainActor Animatable {
     let frame: Frame
     let geometry: PlotGeometry
     var vec: Vec
@@ -250,13 +250,13 @@ struct LiveLayer: View, Animatable {
             let lit = CGRect(
                 x: plot.minX, y: plot.minY, width: max(0, g.x(die) - plot.minX), height: plot.height
             )
-            context.fill(
+            var glow = context
+            glow.opacity = 0.25
+            glow.fill(
                 Path(lit),
                 with: .linearGradient(
                     Palette.heatGradient, startPoint: CGPoint(x: plot.minX, y: plot.midY),
-                    endPoint: CGPoint(x: plot.maxX, y: plot.midY)),
-                style: FillStyle())
-            context.fill(Path(lit), with: .color(Color.inkRest.opacity(0.7)))
+                    endPoint: CGPoint(x: plot.maxX, y: plot.midY)))
         }
 
         // The curve, in dune, sampled every half degree from the same
