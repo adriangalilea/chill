@@ -622,9 +622,13 @@ struct CurveLayer: View, @MainActor Animatable {
                 Path(ellipseIn: dot), with: .color(Color(nsColor: .windowBackgroundColor)),
                 lineWidth: 1.5)
             if i == hot {
-                context.stroke(
-                    Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
-                    with: .color(Palette.dune.opacity(0.6)), lineWidth: 1.5)
+                // The ring is the handle: only where the point can be
+                // moved, so a read-only curve never looks grabbable.
+                if editable {
+                    context.stroke(
+                        Path(ellipseIn: dot.insetBy(dx: -4, dy: -4)),
+                        with: .color(Palette.dune.opacity(0.6)), lineWidth: 1.5)
+                }
                 // Held at a neighbour's rpm, the label says so: the
                 // point stopped, the pointer did not.
                 let note = heldNote.map { " · \($0)" } ?? ""
