@@ -264,7 +264,9 @@ enum Status {
         var parts = [head, s.lastReason]
         switch (s.intent, s.holder) {
         case (.system, .apple):
-            if let die = s.die { parts.append("die \(degrees(die))\(hottest(of: s.dieSensors))") }
+            if let die = s.die {
+                parts.append("\(s.dieSource) \(degrees(die))\(hottest(of: s.dieSensors))")
+            }
             parts.append(rpm(s.fans))
         case (.curve(let curve), .chill):
             if let die = s.die {

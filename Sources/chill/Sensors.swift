@@ -25,8 +25,8 @@ struct LocalSample {
 final class LocalSensors {
     private let smc: SMC
     private let hid: HIDSensors?
-    /// The named parts this Mac answers for, probed once.
-    private let parts: [Parts.Group: [String]]
+    /// The chip's named parts over this same read-only handle.
+    private let parts: Parts
     /// The fans' reported envelope, lowest Mn to highest Mx, read ONCE
     /// here exactly as chilld's writer reads it: `Mx` reads intermittently,
     /// so it never rides the 1 Hz sample. nil on a fanless Mac.
@@ -49,7 +49,15 @@ final class LocalSensors {
                 } ?? reported.min...reported.max
         }
         envelope = span
-        parts = Parts.present(smc)
+        let probed = Parts(smc: smc)
+        parts = probed
+        for group in Parts.Group.allCases {
+            let live = probed.present[group]?.count ?? 0
+            let known = probed.catalogued[group] ?? 0
+            log.info(
+                "parts: M\(probed.generation.map(String.init) ?? "?", privacy: .public) \(group.rawValue, privacy: .public): \(live, privacy: .public) of \(known, privacy: .public) keys answer"
+            )
+        }
         do {
             hid = try HIDSensors()
         } catch {
@@ -58,9 +66,11 @@ final class LocalSensors {
         }
     }
 
+    /// The same number chilld follows: the named parts' hottest where the
+    /// catalogue knows the chip, the HID die otherwise.
     func sample() -> LocalSample {
         LocalSample(
-            die: hid?.hottest()?.celsius,
+            die: parts.hottest()?.celsius ?? hid?.hottest()?.celsius,
             fans: (try? smc.fans()) ?? [])
     }
 
@@ -72,6 +82,6 @@ final class LocalSensors {
 
     /// The chip's named parts, cpu / gpu / memory, every sensor's value.
     func partReadings() -> [Parts.Reading] {
-        Parts.read(smc, parts)
+        parts.readings()
     }
 }

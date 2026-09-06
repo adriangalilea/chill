@@ -68,11 +68,6 @@ and lid gates below.
       daemon.
 - [x] `status --json` = `State`; foreign detection from the read-back;
       `take` for a second client.
-- [ ] The die that drives the curve is the HID hottest (`PMU tdie*`);
-      the SMC's named cpu keys read hotter on the M5 Max (die 43.8 vs cpu
-      48.4 at idle). Decide which temperature the curve should follow, or
-      whether `hottest` should take the SMC parts into account; the
-      envelope (`F{n}Mn/Mx`) is thermalmonitord's and may key off either.
 - [ ] Apple's observed curve back on the plot as ONE dotted line, the
       median rpm per degree where data exists, never as cells; only once
       hours of use across many temperatures exist to draw it from.

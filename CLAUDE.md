@@ -11,9 +11,10 @@ temperatures, off-main-thread writes). SoloFan's `smc-helper` is GPL-derived
 (smcFanControl) and is NOT a source: chilld's writer is written from the
 IOKit AppleSMC user-client protocol and the key names. The `Ftst` unlock is
 credited to agoodkind/macos-smc-fan (MIT). The per-generation SMC keys
-that name the chip's parts (`Sources/chill/Parts.swift`) are vendored
-from exelban/stats (MIT), credited in README. Sibling: mach measures the
-machine, chill governs it; both read sensors through the same package.
+that name the chip's parts (`MachSensors.Parts`, in mach's package) are
+vendored from exelban/stats (MIT), credited in README. Sibling: mach
+measures the machine, chill governs it; both read sensors through the
+same package.
 
 ## The one idea
 
@@ -287,19 +288,24 @@ chill consumes it as `.package(path: "../mach")` against the pinned
 submodule pointer; on ship day it becomes the public `swift-hw` package
 (MIT) and chill's dependency flips to a versioned URL.
 
-The temperature that drives a curve is the HOTTEST die sensor (`PMU tdie*`
-on M3 and later, `*ACC MTR` + `GPU MTR` on M1/M2). Never a mean: a 14-die
-chip spreads several degrees under load.
+The temperature that drives a curve is the HOTTEST cpu or gpu sensor from
+the SMC's named keys (`MachSensors.Parts`, `State.dieSource` says which),
+and only where the catalogue knows no keys for the chip (M1/M2, or newer
+than the catalogue) the hottest HID die. Never a mean: a chip spreads
+several degrees under load. Why not the HID path from M3 on: its sensors
+are `PMU tdie<n>`, the power management unit's dies (stats names them
+"Power management unit die"), which warm when charging and read several
+degrees UNDER the cores at idle (M5 Max: PMU 43 °C, cpu 51 °C); M1/M2
+name the SoC's blocks (`*ACC MTR`, `GPU MTR`) and there the HID die is
+right.
 
-Names for the parts come from the SMC, not the HID path: from M3 on the
-HID sensors say only `tdie<n>` and Apple publishes no map, while the SMC
-carries per-generation keys for cpu, gpu (and memory on M4). The
-catalogue is exelban/stats' (MIT), vendored in `Sources/chill/Parts.swift`
-for M3, M4, M5, probed once at launch with READ_KEYINFO (an M5 Max answers
-18 of 18 cpu and 7 of 8 gpu keys; the probe logs the count) and read on
-demand for the temperature badge: hottest sensor per group and how many.
-`ssd` and `battery` come from the HID path by name. The HID path lists
-every sensor several times; readers dedupe by name.
+`Parts` is exelban/stats' catalogue (MIT), vendored in the package for
+M3, M4, M5 (cpu, gpu, memory on M4), probed once with READ_KEYINFO by
+every consumer (chilld over a second, read-only SMC handle; the app's
+`LocalSensors`); the probe logs how many keys answered (an M5 Max: 18 of
+18 cpu, 7 of 8 gpu). The temperature badge reads it on demand: hottest
+sensor per group and how many; `ssd` and `battery` come from the HID path
+by name, deduped (the HID path lists every sensor several times).
 
 ## State
 

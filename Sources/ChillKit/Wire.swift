@@ -5,7 +5,7 @@ import Foundation
 public enum Wire {
     /// Bumped on any change to `ChillDaemonProtocol` or a payload; shipped
     /// in `hello` and in every `State` so a mismatch is visible.
-    public static let protocolVersion = 4
+    public static let protocolVersion = 5
     /// The launchd label, the mach service and the plist name are ONE
     /// string: `launchd/garden.untitled.chilld.plist` advertises it and
     /// `SMAppService.daemon(plistName:)` registers it.
@@ -268,10 +268,13 @@ public struct State: Codable, Sendable {
     public let vetoes: [Veto]
     public let presence: Presence?
     public let fans: [FanState]
-    /// The hottest die, nil while no sensor answers.
+    /// The temperature the curve follows, nil while no sensor answers.
     public let die: Double?
-    /// How many die sensors answered this sample; `die` is their max.
+    /// How many sensors answered this sample; `die` is their max.
     public let dieSensors: Int
+    /// What `die` is the max of: `cpu` or `gpu` from the SMC's named keys,
+    /// `die` when only the HID path answers.
+    public let dieSource: String
     /// Why the last transition happened, as the log recorded it.
     public let lastReason: String
     /// The reference clouds, one per fan, in fan order.
@@ -280,7 +283,7 @@ public struct State: Codable, Sendable {
 
     public init(
         intent: Intent, holder: Holder, vetoes: [Veto], presence: Presence?, fans: [FanState],
-        die: Double?, dieSensors: Int, lastReason: String, clouds: [Cloud]
+        die: Double?, dieSensors: Int, dieSource: String, lastReason: String, clouds: [Cloud]
     ) {
         self.intent = intent
         self.holder = holder
@@ -289,6 +292,7 @@ public struct State: Codable, Sendable {
         self.fans = fans
         self.die = die
         self.dieSensors = dieSensors
+        self.dieSource = dieSource
         self.lastReason = lastReason
         self.clouds = clouds
         self.protocolVersion = Wire.protocolVersion

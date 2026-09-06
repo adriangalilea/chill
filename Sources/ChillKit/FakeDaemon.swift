@@ -175,7 +175,7 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
                 Presence(
                     pid: getpid(), name: $0.name, secondsLeft: max(0, ($0.deadline - now).seconds))
             },
-            fans: fans, die: die, dieSensors: FakeDaemon.dieSensors,
+            fans: fans, die: die, dieSensors: FakeDaemon.dieSensors, dieSource: "cpu",
             lastReason: reason.description,
             clouds: FakeDaemon.fans.map { fan in
                 Cloud(

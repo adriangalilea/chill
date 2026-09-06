@@ -51,6 +51,7 @@ actor Engine {
         var fans: [FanState] = []
         var die: Double?
         var dieSensors = 0
+        var dieSource = "die"
         var holder: Holder = .apple
         /// Fans whose READ threw (or whose judgment needed a `Ftst` read
         /// that threw); they are missing from `fans`.
@@ -76,6 +77,10 @@ actor Engine {
     }
 
     private let writer: SMCWriter
+    /// The chip's named parts over a read-only SMC handle of its own; nil
+    /// where the catalogue knows no keys for this Mac (M1/M2, or newer
+    /// than the catalogue), and then the HID die is the source.
+    private let parts: Parts?
     private let hid: Result<HIDSensors, Error>
     private let clock = ContinuousClock()
 
@@ -103,8 +108,9 @@ actor Engine {
     private var inFlight: Task<Void, Never>?
     private var thermalObserver: NSObjectProtocol?
 
-    init(writer: SMCWriter, hid: Result<HIDSensors, Error>, intent: Intent) {
+    init(writer: SMCWriter, parts: Parts?, hid: Result<HIDSensors, Error>, intent: Intent) {
         self.writer = writer
+        self.parts = parts
         self.hid = hid
         self.intent = intent
         // Read before observing: the notification only arrives for a
@@ -333,7 +339,7 @@ actor Engine {
 
     private func step() async {
         let now = clock.now
-        let (die, dieSensors) = readDie()
+        let (die, dieSensors, dieSource) = readDie()
         misses = die == nil ? misses + 1 : 0
         set(.noReading, misses >= Engine.missesBeforeVeto)
         applyThermal(now)
@@ -361,7 +367,8 @@ actor Engine {
             Log.error("Ftst: \(error)")
             settle(
                 Sample(
-                    fans: [], die: die, dieSensors: dieSensors, unread: writer.fans.map(\.index)),
+                    fans: [], die: die, dieSensors: dieSensors, dieSource: dieSource,
+                    unread: writer.fans.map(\.index)),
                 plan: plan, forced: forced)
             return
         }
@@ -398,8 +405,8 @@ actor Engine {
         }
         settle(
             Sample(
-                fans: fans, die: die, dieSensors: dieSensors, holder: Engine.aggregate(holders),
-                unread: unread, refused: refused),
+                fans: fans, die: die, dieSensors: dieSensors, dieSource: dieSource,
+                holder: Engine.aggregate(holders), unread: unread, refused: refused),
             plan: plan, forced: forced)
     }
 
@@ -523,11 +530,18 @@ actor Engine {
         }
     }
 
-    /// The hottest die and how many die sensors answered; never a mean.
-    private func readDie() -> (celsius: Double?, sensors: Int) {
-        guard case .success(let sensors) = hid else { return (nil, 0) }
+    /// The temperature a curve follows, how many sensors it is the max
+    /// of, and what it is: the hottest cpu or gpu sensor from the SMC's
+    /// named keys where the catalogue knows this chip, else the hottest
+    /// HID die (the SoC's blocks on M1/M2; the PMU's dies from M3 on).
+    /// Never a mean.
+    private func readDie() -> (celsius: Double?, sensors: Int, source: String) {
+        if let top = parts?.hottest() {
+            return (top.celsius, top.sensors, top.group.rawValue)
+        }
+        guard case .success(let sensors) = hid else { return (nil, 0, "die") }
         let dies = sensors.readings().filter { $0.block != .other }
-        return (dies.map(\.celsius).max(), dies.count)
+        return (dies.map(\.celsius).max(), dies.count, "die")
     }
 
     // MARK: - state
@@ -545,6 +559,7 @@ actor Engine {
             fans: sample.fans,
             die: sample.die,
             dieSensors: sample.dieSensors,
+            dieSource: sample.dieSource,
             lastReason: reason.description,
             clouds: clouds.keys.sorted().map { clouds[$0]!.render() })
     }

@@ -284,7 +284,19 @@ do {
     } catch WriterError.reconcile(let failures) {
         Log.error("reconcile at start: \(WriterError.reconcile(failures)); those fans read foreign")
     }
-    engine = Engine(writer: writer, hid: Result { try HIDSensors() }, intent: Policy.load())
+    // A second, read-only SMC handle for the named parts: the writer's
+    // connection stays the one writer's, and this one only ever reads.
+    let parts: Parts? = (try? SMC()).map { Parts(smc: $0) }
+    if let parts {
+        for group in Parts.Group.allCases {
+            Log.notice(
+                "parts: M\(parts.generation.map(String.init) ?? "?") \(group.rawValue): \(parts.present[group]?.count ?? 0) of \(parts.catalogued[group] ?? 0) keys answer"
+            )
+        }
+    }
+    engine = Engine(
+        writer: writer, parts: parts.flatMap { $0.present.isEmpty ? nil : $0 },
+        hid: Result { try HIDSensors() }, intent: Policy.load())
     power = try PowerWatch(engine: engine)
     blocking { await engine.start() }
     try power.start(on: queue)

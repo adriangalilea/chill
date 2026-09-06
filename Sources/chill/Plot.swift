@@ -777,10 +777,11 @@ struct Badge: View {
             switch on {
             case .die:
                 if let die = frame.die {
+                    let source = model.state?.dieSource ?? "die"
                     Text(
                         expanded
-                            ? "die \(String(format: "%.1f", die)) °C"
-                            : "die \(Status.degrees(die))"
+                            ? "\(source) \(String(format: "%.1f", die)) °C · what the curve follows"
+                            : "\(source) \(Status.degrees(die))"
                     )
                     .foregroundStyle(Palette.heat(die))
                 }
