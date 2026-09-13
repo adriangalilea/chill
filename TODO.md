@@ -60,9 +60,10 @@ the M4's `Ftst` gates, the lid gate below.
       and the curve back within a second.
 - [ ] The lid gate: close the lid on an external display → status shows
       the veto and stays Apple for as long as the lid is closed, presence
-      notwithstanding. Only reachable with a display: without one the
-      lid sleeps the Mac and the sleep gate (proven) is what runs. Not
-      this Mac's use; waits for a Mac that is docked closed.
+      notwithstanding. Only reachable with a display. The invariant that
+      matters is proven regardless: whatever puts the Mac to sleep, chill
+      never stands in its way and hands the fans back before the ack.
+      Waits for a Mac that is docked closed.
 - [x] `chill status`, `system`, `daemon install|uninstall|status`, `log`.
 
 ## 2 · curves and the CLI
