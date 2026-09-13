@@ -672,6 +672,10 @@ struct LiveLayer: View, @MainActor Animatable {
             : actuals.enumerated().map { ("fan \($0.offset + 1)", $0.element) }
     }
 
+    /// The glow's three strokes, wide and faint to narrow and full: the
+    /// look of a 2.5 pt blur on a 4 pt stroke without the layer.
+    static let glow: [(width: CGFloat, share: Double)] = [(9, 0.2), (6, 0.35), (3.5, 0.6)]
+
     /// The die's label sits right of its line unless the edge is near.
     static func dieLabelRight(_ die: Double, _ g: PlotGeometry) -> Bool {
         g.plot.maxX - g.x(die) > 90
@@ -756,7 +760,11 @@ struct LiveLayer: View, @MainActor Animatable {
             let marks = LiveLayer.marks(actuals)
             // The afterglow: this frame's animated position joins the
             // path, then the path is stroked stretch by stretch in the
-            // heat it had, blurred into a glow, oldest faintest.
+            // heat it had, oldest faintest. The glow is three strokes of
+            // falling width and alpha, not a blur filter: a blur means an
+            // offscreen layer composited on every frame of every sample's
+            // animation, and this plot animates at the display's rate;
+            // three round strokes read the same and cost a path each.
             // Only positions inside the plot join the afterglow.
             if let lead = marks.first, Frame.celsius.contains(die), g.yLo...g.yHi ~= lead.1 {
                 frame.trail.record(die: die, rpm: lead.1)
@@ -764,17 +772,17 @@ struct LiveLayer: View, @MainActor Animatable {
             let now = Date()
             let path = frame.trail.marks
             if path.count > 1 {
-                context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 2.5))
-                    for (a, b) in zip(path, path.dropFirst()) {
-                        let alpha = Trail.alpha(age: now.timeIntervalSince(b.at))
-                        guard alpha > 0.005 else { continue }
-                        var stretch = Path()
-                        stretch.move(to: CGPoint(x: g.x(a.die), y: g.y(a.rpm)))
-                        stretch.addLine(to: CGPoint(x: g.x(b.die), y: g.y(b.rpm)))
-                        layer.stroke(
-                            stretch, with: .color(Palette.heat(b.die).opacity(alpha)),
-                            style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                for (a, b) in zip(path, path.dropFirst()) {
+                    let alpha = Trail.alpha(age: now.timeIntervalSince(b.at))
+                    guard alpha > 0.005 else { continue }
+                    var stretch = Path()
+                    stretch.move(to: CGPoint(x: g.x(a.die), y: g.y(a.rpm)))
+                    stretch.addLine(to: CGPoint(x: g.x(b.die), y: g.y(b.rpm)))
+                    let heat = Palette.heat(b.die)
+                    for (width, share) in LiveLayer.glow {
+                        context.stroke(
+                            stretch, with: .color(heat.opacity(alpha * share)),
+                            style: StrokeStyle(lineWidth: width, lineCap: .round))
                     }
                 }
             }
