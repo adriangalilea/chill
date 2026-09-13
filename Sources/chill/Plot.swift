@@ -119,6 +119,11 @@ final class Trail {
     static func alpha(age: TimeInterval) -> Double {
         0.12 * pow(max(0, 1 - age / span), 3)
     }
+
+    /// Something still glows: the timeline keeps ticking to fade it.
+    func glowing(at now: Date) -> Bool {
+        marks.last.map { now.timeIntervalSince($0.at) < Trail.span } ?? false
+    }
 }
 
 extension GraphicsContext {
@@ -150,6 +155,36 @@ extension GraphicsContext {
             Path(roundedRect: plate, cornerRadius: 4),
             with: .color(Color(nsColor: .windowBackgroundColor).opacity(0.82)))
         draw(resolved, at: CGPoint(x: plate.midX, y: plate.midY), anchor: .center)
+    }
+}
+
+/// The live numbers gliding between samples on the plot's own clock:
+/// an ease-out over `span` from wherever the last glide was, read at
+/// whatever rate the timeline ticks (30 fps), instead of SwiftUI
+/// interpolating at the display's rate. Two vectors of different
+/// length do not blend (a fan appearing, the die arriving): the glide
+/// jumps to the target.
+struct Glide {
+    static let span: TimeInterval = 0.9
+    private var from = Vec.zero
+    private var to = Vec.zero
+    private var since = Date.distantPast
+
+    mutating func aim(_ target: Vec, at now: Date = .now) {
+        let here = value(at: now)
+        from = here.v.count == target.v.count && here.v[0] >= 0 && target.v[0] >= 0 ? here : target
+        to = target
+        since = now
+    }
+
+    func moving(at now: Date) -> Bool { now.timeIntervalSince(since) < Glide.span }
+
+    func value(at now: Date) -> Vec {
+        guard from.v.count == to.v.count, !to.v.isEmpty else { return to }
+        let t = min(1, max(0, now.timeIntervalSince(since) / Glide.span))
+        var delta = to - from
+        delta.scale(by: 1 - (1 - t) * (1 - t))
+        return from + delta
     }
 }
 
@@ -185,6 +220,19 @@ struct Plot: View {
     /// Where each badge really is, reported by `Pinned` after it measured
     /// and clamped itself; the hover finds a badge here, not in a guess.
     @SwiftUI.State private var boxes: [Hovered: CGRect] = [:]
+    /// The live numbers between samples.
+    @SwiftUI.State private var glide = Glide()
+
+    /// The frame with the live numbers where the glide has them now.
+    private func glided(_ f: Frame, at date: Date) -> Frame {
+        let v = glide.value(at: date).v
+        guard v.count == LiveLayer.encode(f).v.count else { return f }
+        let n = f.actuals.count
+        return Frame(
+            envelope: f.envelope, curve: f.curve, point: f.point,
+            die: v[0] < 0 ? nil : v[0], actuals: Array(v[1..<1 + n]),
+            targets: f.targets.isEmpty ? [] : Array(v[1 + n..<1 + 2 * n]), trail: f.trail)
+    }
     @SwiftUI.State private var rightClicks: Any?
     /// The pointer's last position in the plot, readable from the
     /// right-click monitor's closure without capturing a stale value.
@@ -316,58 +364,77 @@ struct Plot: View {
                     // badges, never under them.
                     .zIndex(riding(frame, geometry) ? 4 : 1)
                 }
-                if let geometry {
-                    // A fresh identity whenever the live numbers appear or
-                    // vanish: the layer is born at the truth and fades in,
-                    // never swept in from the sentinel it would otherwise
-                    // animate from.
-                    LiveLayer(frame: frame, geometry: geometry, lit: lit(frame, geometry))
-                        .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
-                        .id(frame.die != nil && !frame.actuals.isEmpty)
-                        .transition(.opacity)
-                        .zIndex(2)
-                }
-                // The labels are badges: one view each on the pinboard,
-                // which places each beside its mark for the size it has
-                // right now and keeps it inside the plot, so the same view
-                // expands under the pointer and shrinks back in place, its
-                // anchored edge still, never past an edge. The expanded
-                // one is on top of the other.
+                // The live numbers glide on the plot's own clock: a 30 fps
+                // timeline, paused once the glide is done and the afterglow
+                // has faded, instead of SwiftUI interpolating at the
+                // display's rate (120 Hz here) through every sample. The
+                // layer and the badges read the same glided frame.
                 if let geometry {
                     let lit = lit(frame, geometry)
-                    Pinboard {
-                        if let die = frame.die {
-                            let right = LiveLayer.dieLabelRight(die, geometry)
-                            let x = geometry.x(die)
-                            Badge(model: model, frame: frame, on: .die, expanded: lit == .die)
-                                .fixedSize()
-                                .placed { boxes[.die] = $0 }
-                                .zIndex(lit == .die ? 1 : 0)
-                                .pinned { size in
-                                    CGPoint(
-                                        x: right ? x + 6 : x - 6 - size.width,
-                                        y: geometry.plot.minY - 2)
+                    TimelineView(
+                        .animation(
+                            minimumInterval: 1.0 / 30,
+                            paused: !glide.moving(at: .now) && !frame.trail.glowing(at: .now))
+                    ) { timeline in
+                        let live = glided(frame, at: timeline.date)
+                        ZStack {
+                            // A fresh identity whenever the live numbers
+                            // appear or vanish: the layer is born at the truth
+                            // and fades in, never swept in from nothing.
+                            LiveLayer(frame: live, geometry: geometry, lit: lit)
+                                .id(frame.die != nil && !frame.actuals.isEmpty)
+                                .transition(.opacity)
+                                .zIndex(2)
+                            // The labels are badges: one view each on the
+                            // pinboard, which places each beside its mark for
+                            // the size it has right now and keeps it inside the
+                            // plot, so the same view expands under the pointer
+                            // and shrinks back in place, its anchored edge
+                            // still, never past an edge. The expanded one is on
+                            // top of the other.
+                            Pinboard {
+                                if let die = live.die {
+                                    let right = LiveLayer.dieLabelRight(die, geometry)
+                                    let x = geometry.x(die)
+                                    Badge(
+                                        model: model, frame: frame, on: .die, expanded: lit == .die
+                                    )
+                                    .fixedSize()
+                                    .placed { boxes[.die] = $0 }
+                                    .zIndex(lit == .die ? 1 : 0)
+                                    .pinned { size in
+                                        CGPoint(
+                                            x: right ? x + 6 : x - 6 - size.width,
+                                            y: geometry.plot.minY - 2)
+                                    }
                                 }
-                        }
-                        if let rpm = LiveLayer.marks(frame.actuals).first?.1 {
-                            let y = geometry.y(rpm)
-                            Badge(model: model, frame: frame, on: .fans, expanded: lit == .fans)
-                                .fixedSize()
-                                .placed { boxes[.fans] = $0 }
-                                .zIndex(lit == .fans ? 1 : 0)
-                                .pinned { size in
-                                    CGPoint(
-                                        x: geometry.plot.maxX - 4 - size.width,
-                                        y: y - 3 - size.height)
+                                if let rpm = LiveLayer.marks(live.actuals).first?.1 {
+                                    let y = geometry.y(rpm)
+                                    Badge(
+                                        model: model, frame: frame, on: .fans,
+                                        expanded: lit == .fans
+                                    )
+                                    .fixedSize()
+                                    .placed { boxes[.fans] = $0 }
+                                    .zIndex(lit == .fans ? 1 : 0)
+                                    .pinned { size in
+                                        CGPoint(
+                                            x: geometry.plot.maxX - 4 - size.width,
+                                            y: y - 3 - size.height)
+                                    }
                                 }
+                            }
+                            .allowsHitTesting(false)
+                            .zIndex(3)
                         }
                     }
-                    .animation(.easeOut(duration: 0.9), value: LiveLayer.encode(frame))
-                    .allowsHitTesting(false)
-                    .zIndex(3)
+                    .zIndex(2)
                 }
             }
             .coordinateSpace(.named(Plot.space))
+            .onChange(of: LiveLayer.encode(frame), initial: true) { _, target in
+                glide.aim(target)
+            }
             .animation(.inkSettle, value: lit(frame, geometry))
             .animation(.inkSettle, value: frame.curve?.name)
             .animation(.inkSettle, value: frame.die != nil && !frame.actuals.isEmpty)
@@ -647,21 +714,15 @@ struct CurveLayer: View, @MainActor Animatable {
 /// The live half of the plot: the die, the fans, chill's targets. Its
 /// animatable data is a vector of fixed length, so every new sample and
 /// every change of intent glides.
-struct LiveLayer: View, @MainActor Animatable {
+struct LiveLayer: View {
+    /// The frame as the glide has it now: drawn as given, on the
+    /// timeline's ticks, never interpolated here.
     let frame: Frame
     let geometry: PlotGeometry
-    var vec: Vec
 
     /// The element under the pointer, drawn brighter: the affordance
     /// that says a card is one rest away.
     let lit: Plot.Hovered?
-
-    init(frame: Frame, geometry: PlotGeometry, lit: Plot.Hovered?) {
-        self.frame = frame
-        self.geometry = geometry
-        self.lit = lit
-        vec = LiveLayer.encode(frame)
-    }
 
     /// One rule per fan, or one for both while they run within
     /// `Plot.togetherRPM` of each other.
@@ -681,15 +742,9 @@ struct LiveLayer: View, @MainActor Animatable {
         g.plot.maxX - g.x(die) > 90
     }
 
-    var animatableData: Vec {
-        get { vec }
-        set { vec = newValue }
-    }
-
-    /// [die or -1000] + actuals + targets + the curve's (c, rpm) pairs.
     /// [die or -1000] + actuals + one target per fan (the actual itself
     /// while chill holds nothing, so the length never changes with the
-    /// intent and every switch glides).
+    /// intent and every switch glides). What the glide interpolates.
     static func encode(_ f: Frame) -> Vec {
         var v = [f.die ?? -1000]
         v += f.actuals
@@ -707,12 +762,9 @@ struct LiveLayer: View, @MainActor Animatable {
         let plot = g.plot
         // Nothing live is drawn outside the plot, whatever a value does.
         context.clip(to: Path(plot))
-        let truth = LiveLayer.encode(frame)
-        let v = vec.v.count == truth.v.count ? vec.v : truth.v
-        let die: Double? = v[0] < 0 ? nil : v[0]
-        let n = frame.actuals.count
-        let actuals = Array(v[1..<1 + n])
-        let targets = frame.targets.isEmpty ? [] : Array(v[1 + n..<1 + 2 * n])
+        let die = frame.die
+        let actuals = frame.actuals
+        let targets = frame.targets
 
         // The heatmap, revealed up to the die.
         if let die {
