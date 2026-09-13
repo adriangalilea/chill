@@ -59,18 +59,24 @@ enum Palette {
     static let apple = Color.primary
 
     /// The die's color IS its temperature: ice at 45 °C and below, ember
-    /// by 75 °C, red at 100 °C, blended in between.
+    /// by 75 °C, red at 100 °C, blended in between. Mixed on the
+    /// components as numbers: this runs per stretch of the afterglow on
+    /// every tick, and going through NSColor to read a Color's
+    /// components was a color-space conversion each time.
     static func heat(_ celsius: Double) -> Color {
-        func mix(_ a: Color, _ b: Color, _ t: Double) -> Color {
-            let (ra, ga, ba) = a.rgb
-            let (rb, gb, bb) = b.rgb
-            return Color(
-                red: ra + (rb - ra) * t, green: ga + (gb - ga) * t, blue: ba + (bb - ba) * t)
+        typealias RGB = (r: Double, g: Double, b: Double)
+        let iceRGB: RGB = (0xA9 / 255.0, 0xC8 / 255.0, 0xEC / 255.0)
+        let emberRGB: RGB = (0xFF / 255.0, 0x74 / 255.0, 0x20 / 255.0)
+        let hotRGB: RGB = (0xFF / 255.0, 0x4F / 255.0, 0x12 / 255.0)
+        func mix(_ a: RGB, _ b: RGB, _ t: Double) -> Color {
+            Color(
+                red: a.r + (b.r - a.r) * t, green: a.g + (b.g - a.g) * t,
+                blue: a.b + (b.b - a.b) * t)
         }
         switch celsius {
         case ..<45: return ice
-        case ..<75: return mix(ice, ember, (celsius - 45) / 30)
-        case ..<100: return mix(ember, hot, (celsius - 75) / 25)
+        case ..<75: return mix(iceRGB, emberRGB, (celsius - 45) / 30)
+        case ..<100: return mix(emberRGB, hotRGB, (celsius - 75) / 25)
         default: return hot
         }
     }
@@ -83,14 +89,6 @@ enum Palette {
         .init(color: hot, location: PlotGeometry.unit(100)),
         .init(color: hot, location: 1),
     ])
-}
-
-extension Color {
-    /// The sRGB components, for blending two palette colors.
-    fileprivate var rgb: (Double, Double, Double) {
-        let c = NSColor(self).usingColorSpace(.sRGB)!
-        return (c.redComponent, c.greenComponent, c.blueComponent)
-    }
 }
 
 let tone = Palette.dune

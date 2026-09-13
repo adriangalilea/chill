@@ -217,9 +217,15 @@ struct Plot: View {
     let editable: Bool
     @SwiftUI.State private var dragging: Int?
     @SwiftUI.State private var hover: CGPoint?
-    /// Where each badge really is, reported by `Pinned` after it measured
-    /// and clamped itself; the hover finds a badge here, not in a guess.
-    @SwiftUI.State private var boxes: [Hovered: CGRect] = [:]
+    /// Where each badge really is, reported by the pinboard after it
+    /// measured and clamped it; the hover finds a badge here, not in a
+    /// guess. A reference, like `Pointer`: the badges move on every
+    /// timeline tick, and a state write per tick would re-run this whole
+    /// body 30 times a second for nothing the hover needs until it moves.
+    final class Boxes {
+        var at: [Hovered: CGRect] = [:]
+    }
+    @SwiftUI.State private var boxes = Boxes()
     /// The live numbers between samples.
     @SwiftUI.State private var glide = Glide()
 
@@ -323,7 +329,7 @@ struct Plot: View {
     /// What the pointer rests on right now.
     private func lit(_ f: Frame, _ g: PlotGeometry?) -> Hovered? {
         guard let hover, let g else { return nil }
-        return Plot.hovered(hover, f, g, boxes: boxes)
+        return Plot.hovered(hover, f, g, boxes: boxes.at)
     }
 
     init(model: Model, curve: Curve?, editable: Bool) {
@@ -371,9 +377,13 @@ struct Plot: View {
                 // layer and the badges read the same glided frame.
                 if let geometry {
                     let lit = lit(frame, geometry)
+                    // 24 fps while the numbers glide (a 0.9 s ease over a
+                    // few points of travel needs no more); 10 while only
+                    // the afterglow fades; paused once nothing moves and
+                    // nothing glows.
                     TimelineView(
                         .animation(
-                            minimumInterval: 1.0 / 30,
+                            minimumInterval: glide.moving(at: .now) ? 1.0 / 24 : 1.0 / 10,
                             paused: !glide.moving(at: .now) && !frame.trail.glowing(at: .now))
                     ) { timeline in
                         let live = glided(frame, at: timeline.date)
@@ -400,7 +410,7 @@ struct Plot: View {
                                         model: model, frame: frame, on: .die, expanded: lit == .die
                                     )
                                     .fixedSize()
-                                    .placed { boxes[.die] = $0 }
+                                    .placed { boxes.at[.die] = $0 }
                                     .zIndex(lit == .die ? 1 : 0)
                                     .pinned { size in
                                         CGPoint(
@@ -415,7 +425,7 @@ struct Plot: View {
                                         expanded: lit == .fans
                                     )
                                     .fixedSize()
-                                    .placed { boxes[.fans] = $0 }
+                                    .placed { boxes.at[.fans] = $0 }
                                     .zIndex(lit == .fans ? 1 : 0)
                                     .pinned { size in
                                         CGPoint(
