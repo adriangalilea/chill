@@ -16,7 +16,7 @@ let usage = """
 
     chill forces a fan only while all three hold: an intent (a curve or a
     boost), presence (someone watching within the last \(Int(Wire.presenceWindow.seconds)) s) and no veto
-    (lid closed, sleep, thermal pressure, no die reading). Any other state
+    (sleep, thermal pressure, no die reading). Any other state
     is Apple's curve.
 
       chill                          the app (menu bar + canvas)

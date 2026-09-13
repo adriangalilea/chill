@@ -6,7 +6,7 @@ import Foundation
 /// Apple curve it plays when it holds the fans, the contract's presence
 /// rule, a boost that ends by itself, and a reference cloud it records
 /// exactly as chilld does: every sample taken while it holds the fans as
-/// Apple. No vetoes fire: there is no lid, no sleep and no thermal
+/// Apple. No vetoes fire: there is no sleep and no thermal
 /// pressure to read. One serial queue is the actor: every verb evaluates
 /// on it and replies from it, so the reply reflects the state after the
 /// intent change. `@unchecked Sendable` because `queue` is the
@@ -65,7 +65,7 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
                     Reply<Hello>.ok(
                         Hello(
                             daemonVersion: Wire.version, protocolVersion: Wire.protocolVersion,
-                            pid: getpid(), fans: FakeDaemon.fans, hasLid: true))))
+                            pid: getpid(), fans: FakeDaemon.fans))))
         }
     }
 

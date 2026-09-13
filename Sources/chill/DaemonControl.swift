@@ -102,7 +102,7 @@ enum DaemonControl {
         do {
             let hello = try Client(demo: Demo(on: false), role: .cli).hello()
             print(
-                "chilld \(hello.daemonVersion) · pid \(hello.pid) · \(hello.fans.count) fans · lid: \(hello.hasLid ? "yes" : "no")"
+                "chilld \(hello.daemonVersion) · pid \(hello.pid) · \(hello.fans.count) fans"
             )
             print("signature: accepted · \(requirement)")
         } catch {

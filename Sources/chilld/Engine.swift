@@ -130,8 +130,7 @@ actor Engine {
 
     // MARK: - life
 
-    /// Watch thermal pressure and run the loop. The lid is latched by the
-    /// caller on the power queue once its notification is armed.
+    /// Watch thermal pressure and run the loop.
     func start() {
         Log.notice("thermal: \(thermal.spelled)")
         thermalObserver = NotificationCenter.default.addObserver(
@@ -224,10 +223,6 @@ actor Engine {
 
     // MARK: - vetoes
 
-    func lid(closed: Bool) {
-        set(.lid, closed)
-    }
-
     /// `kIOMessageSystemWillSleep`: the fans go back BEFORE the caller
     /// acknowledges the sleep, and the veto holds until a watcher speaks
     /// after `kIOMessageSystemHasPoweredOn`.
@@ -237,10 +232,9 @@ actor Engine {
         await handBack()
     }
 
-    func poweredOn(lidClosed: Bool?) {
+    func poweredOn() {
         Log.notice("power: system has powered on")
         wokeSinceSleep = vetoes.contains(.sleep)
-        if let lidClosed { lid(closed: lidClosed) }
     }
 
     /// The thermal state as ProcessInfo reads it NOW, not as the

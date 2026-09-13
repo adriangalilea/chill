@@ -27,9 +27,9 @@ nothing below starts before the one above is green.
 Everything below is written and compiles (`mise check` at 0 warnings);
 the gates need a signed install on real fans. Done on the M5 Max: the
 signed install registers and is approved, chilld answers, SoloFan is
-retired from this Mac, curves force real fans, every contract gate but
-the lid passes. Human gates left: `garden genesis chill --desc "..."`,
-the M4's `Ftst` gates, the lid gate below.
+retired from this Mac, curves force real fans, every contract gate
+passes. Human gates left: `garden genesis chill --desc "..."` and the
+M4's `Ftst` gates.
 
 - [x] Hello-world chilld: bundle assembled by `mise run install`
       (Developer ID required), plist under `Contents/Library/LaunchDaemons`
@@ -164,10 +164,6 @@ the M4's `Ftst` gates, the lid gate below.
 
 ## Later, not designed in
 
-- The lid veto, unverified: it exists for a Mac used closed on an
-  external display, where the lid covers the vents and the Mac does not
-  sleep. No such Mac here. What matters is proven regardless: whatever
-  puts the Mac to sleep, chill never stands in its way.
 - Per-power-source curves (docked vs battery); per-app curves.
 - A `mach` row in the power area that reads chill's `State`.
 - Intel Macs (`fpe2` targets) if anyone asks.

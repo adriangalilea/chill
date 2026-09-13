@@ -5,7 +5,7 @@ import Foundation
 public enum Wire {
     /// Bumped on any change to `ChillDaemonProtocol` or a payload; shipped
     /// in `hello` and in every `State` so a mismatch is visible.
-    public static let protocolVersion = 5
+    public static let protocolVersion = 6
     /// The launchd label, the mach service and the plist name are ONE
     /// string: `launchd/garden.untitled.chilld.plist` advertises it and
     /// `SMAppService.daemon(plistName:)` registers it.
@@ -162,15 +162,12 @@ public struct Hello: Codable, Sendable {
     public let pid: Int32
     /// Empty on a Mac without fans.
     public let fans: [Fan]
-    public let hasLid: Bool
 
-    public init(daemonVersion: String, protocolVersion: Int, pid: Int32, fans: [Fan], hasLid: Bool)
-    {
+    public init(daemonVersion: String, protocolVersion: Int, pid: Int32, fans: [Fan]) {
         self.daemonVersion = daemonVersion
         self.protocolVersion = protocolVersion
         self.pid = pid
         self.fans = fans
-        self.hasLid = hasLid
     }
 }
 
@@ -219,9 +216,10 @@ public enum Holder: Codable, Sendable, Hashable {
 }
 
 /// The daemon's own nets, latched: while any is set, presence is
-/// acknowledged but not applied.
+/// acknowledged but not applied. No lid: a closed lid on a Mac that
+/// stays awake is a Mac that stays awake, and one that sleeps is the
+/// sleep veto.
 public enum Veto: String, Codable, Sendable, Hashable {
-    case lid
     case sleep
     case thermal
     case noReading

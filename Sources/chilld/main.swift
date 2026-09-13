@@ -71,7 +71,6 @@ final class Session: NSObject, ChillDaemonProtocol, Sendable {
     let token: Int
     private let engine: Engine
     private let fans: [Fan]
-    private let hasLid: Bool
     private let role = Mutex<String?>(nil)
     /// NSXPCConnection delivers a connection's messages in order on its
     /// queue; a free Task per message would run them on the pool in any
@@ -80,12 +79,11 @@ final class Session: NSObject, ChillDaemonProtocol, Sendable {
     /// awaits the one before it. `state` stays outside: it changes nothing.
     private let chain = Mutex<Task<Void, Never>?>(nil)
 
-    init(pid: Int32, token: Int, engine: Engine, fans: [Fan], hasLid: Bool) {
+    init(pid: Int32, token: Int, engine: Engine, fans: [Fan]) {
         self.pid = pid
         self.token = token
         self.engine = engine
         self.fans = fans
-        self.hasLid = hasLid
     }
 
     // MARK: - verbs
@@ -135,7 +133,7 @@ final class Session: NSObject, ChillDaemonProtocol, Sendable {
                 Reply<Hello>.ok(
                     Hello(
                         daemonVersion: daemonVersion, protocolVersion: Wire.protocolVersion,
-                        pid: getpid(), fans: fans, hasLid: hasLid))))
+                        pid: getpid(), fans: fans))))
     }
 
     func use(curve: Data, reply: @escaping @Sendable (Data) -> Void) {
@@ -205,16 +203,14 @@ final class Daemon: NSObject, NSXPCListenerDelegate {
     private let listener: NSXPCListener
     private let engine: Engine
     private let fans: [Fan]
-    private let hasLid: Bool
     private let queue: DispatchQueue
     private var signals: [DispatchSourceSignal] = []
     /// The session tokens, minted on the listener's queue.
     private var accepted = 0
 
-    init(requirement: String, engine: Engine, fans: [Fan], hasLid: Bool, queue: DispatchQueue) {
+    init(requirement: String, engine: Engine, fans: [Fan], queue: DispatchQueue) {
         self.engine = engine
         self.fans = fans
-        self.hasLid = hasLid
         self.queue = queue
         listener = NSXPCListener(machServiceName: Wire.machService)
         super.init()
@@ -245,8 +241,7 @@ final class Daemon: NSObject, NSXPCListenerDelegate {
     {
         accepted += 1
         let session = Session(
-            pid: connection.processIdentifier, token: accepted, engine: engine, fans: fans,
-            hasLid: hasLid)
+            pid: connection.processIdentifier, token: accepted, engine: engine, fans: fans)
         connection.exportedInterface = NSXPCInterface(with: ChillDaemonProtocol.self)
         connection.exportedObject = session
         let drop: @Sendable () -> Void = { session.closed() }
@@ -297,21 +292,11 @@ do {
     engine = Engine(
         writer: writer, parts: parts.flatMap { $0.present.isEmpty ? nil : $0 },
         hid: Result { try HIDSensors() }, intent: Policy.load())
-    power = try PowerWatch(engine: engine)
+    power = PowerWatch(engine: engine)
     blocking { await engine.start() }
     try power.start(on: queue)
-    // The lid is latched ON the callback queue, after the notification is
-    // armed: every clamshell delivery is serialized behind this block, so
-    // a change after the read lands after the latch, never under it.
-    queue.sync {
-        if let closed = power.lidClosed {
-            blocking { await engine.lid(closed: closed) }
-        }
-    }
 } catch {
     refuse(error)
 }
 Log.notice("peer requirement: \(requirement)")
-Daemon(
-    requirement: requirement, engine: engine, fans: writer.fans, hasLid: power.hasLid, queue: queue
-).run()
+Daemon(requirement: requirement, engine: engine, fans: writer.fans, queue: queue).run()

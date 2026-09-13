@@ -74,12 +74,10 @@ chill forces a fan iff all three hold, evaluated by the daemon every second:
 3. **no veto**: the daemon's own nets, a latched set. While any is set,
    presence is acknowledged but not applied, status names the veto, and
    lifting one never re-forces on its own; only the next evaluation does.
-   - `lid`: `kIOPMMessageClamshellStateChange` (general-interest
-     notification on IOPMrootDomain, bit 0 = closed); initial value from
-     `AppleClamshellState`, re-read on `kIOMessageSystemHasPoweredOn`; key
-     absent = no lid on this Mac, logged once. A closed lid with an external
-     display keeps the Mac running for hours; chill has no airflow model for
-     it, so Apple holds the fans until it opens.
+   The lid is not one: a closed lid on a Mac that stays awake (docked) is
+   a Mac that stays awake, Apple supports it with its own fans, and a
+   closed lid that sleeps the Mac is the sleep veto. What chill promises
+   about the lid is only that it never stands in the way of sleep.
    - `sleep`: `IORegisterForSystemPower` on the daemon's queue.
      `kIOMessageCanSystemSleep` acked at once; `kIOMessageSystemWillSleep`
      → auto, veto set, THEN `IOAllowPowerChange` (a missing ack delays
@@ -123,7 +121,7 @@ foundation, not a feature.
 ```
 system · Apple's curve · die 51°C (hottest of 14) · 2318 · 2318 rpm
 quiet · curve "quiet" · 51°C → 2600 rpm · watching: chill.app · 2603 · 2598 rpm
-quiet · vetoed: lid closed · Apple holds the fans
+quiet · vetoed: sleep · Apple holds the fans
 quiet · no one watching → Apple holds the fans
 boost · max rpm for 2m40s more · 7817 · 7811 rpm
 foreign · forced by someone else · `chill system` reclaims
@@ -213,7 +211,7 @@ vocabulary both daemons ship as `lastReason`), `Wire.version` (the
 bundle's stamp, both ends) and `Wire.logFile`:
 
 - `hello(clientVersion, role) -> Hello { daemonVersion, protocol, pid,
-  fans: [Fan { index, min, max }], hasLid }`. `role` is what the client IS
+  fans: [Fan { index, min, max }] }`. `role` is what the client IS
   (`Role`: `chill.app`, `chill`, `chill --watch`; the app and the CLI are
   one executable, so the process name cannot tell them apart), kept per
   connection by the daemon and worn as the watcher's name in status and
@@ -492,9 +490,6 @@ Hysteresis is a constant in code, not a per-curve field.
 - A mode write "succeeds" at the IOKit layer and does nothing: read the
   result byte and read the mode back. Post-wake, thermalmonitord holds mode
   3 for a few seconds and acquire loses the race unless it retries.
-- Never trust display sleep as "lid closed": on macOS 26 WindowServer's
-  display bookkeeping and the real panel diverge
-  (`~/self/mac/lid-black-screen.md`). The daemon reads the clamshell state.
 - A sleep delayed by 30 s means an unacknowledged `IORegisterForSystemPower`
   message.
 - Dark wake cannot be detected with public API (`IOPMConnection`

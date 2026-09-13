@@ -46,11 +46,10 @@ public enum Reason: CustomStringConvertible, Equatable, Sendable {
 
 extension Veto {
     /// Status order: the veto named first is the one that explains the most.
-    public static let order: [Veto] = [.lid, .sleep, .thermal, .noReading]
+    public static let order: [Veto] = [.sleep, .thermal, .noReading]
 
     public var spelled: String {
         switch self {
-        case .lid: return "lid closed"
         case .sleep: return "sleep"
         case .thermal: return "thermal pressure"
         case .noReading: return "no reading"
