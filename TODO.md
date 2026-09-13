@@ -125,11 +125,10 @@ M4's `Ftst` gates.
       --license MIT --command "brew install --cask adriangalilea/tap/chill"
       --platform macos --stack swift`; `vercel domains add
       chill.untitled.garden untitled-garden`.
-- [ ] Retire SoloFan from the fleet: on this Mac it no longer runs but
-      `/Applications/SoloFan.app` is still installed, with the
-      `onboard.sh` apps entry, `/etc/sudoers.d/smc-fan-helper` (sudo,
-      pbcopy to Adrian) and `/usr/local/bin/smc-helper` (still handy as an
-      independent fan read while chilld is young).
+- [x] Retire SoloFan from the fleet: the app, its installer script and
+      its place in `~/self/mac` are gone. Root's two files,
+      `/etc/sudoers.d/smc-fan-helper` and `/usr/local/bin/smc-helper`, go
+      by hand: `sudo rm -v` both.
 
 ## Deferred, for fun
 
