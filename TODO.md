@@ -58,12 +58,6 @@ the M4's `Ftst` gates, the lid gate below.
       a second prompt; `sudo launchctl kill TERM` with a curve forced →
       Apple's targets within 500 ms, launchd's restart greeted by the app
       and the curve back within a second.
-- [ ] The lid gate: close the lid on an external display → status shows
-      the veto and stays Apple for as long as the lid is closed, presence
-      notwithstanding. Only reachable with a display. The invariant that
-      matters is proven regardless: whatever puts the Mac to sleep, chill
-      never stands in its way and hands the fans back before the ack.
-      Waits for a Mac that is docked closed.
 - [x] `chill status`, `system`, `daemon install|uninstall|status`, `log`.
 
 ## 2 · curves and the CLI
@@ -170,6 +164,10 @@ the M4's `Ftst` gates, the lid gate below.
 
 ## Later, not designed in
 
+- The lid veto, unverified: it exists for a Mac used closed on an
+  external display, where the lid covers the vents and the Mac does not
+  sleep. No such Mac here. What matters is proven regardless: whatever
+  puts the Mac to sleep, chill never stands in its way.
 - Per-power-source curves (docked vs battery); per-app curves.
 - A `mach` row in the power area that reads chill's `State`.
 - Intel Macs (`fpe2` targets) if anyone asks.
