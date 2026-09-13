@@ -507,6 +507,14 @@ Hysteresis is a constant in code, not a per-curve field.
   for good after every daemon restart.
 - `SMAppService.register` right after `unregister` can fail with EPERM;
   a retry a second later registers, with no second approval prompt.
+- A hidden SwiftUI view is not idle: the popover's hosting view lives on
+  while closed, its `.animation(value:)` keeps running on every sample
+  and its Canvas redraws at the display's rate, blur included: half a
+  core, all day, with nothing on screen (`sample` showed
+  `LiveLayer.draw` under RenderBox with the popover closed). The plot
+  exists only while its surface is up (`popoverShown` from the
+  NSPopover delegate, `labShown` from the window delegate); its space
+  is held so nothing moves when it appears. Idle cost now: under 1 %.
 - Mac App Store is not a channel: SMC writes and a root daemon are
   impossible in the sandbox. Monitoring-only would be allowed and is not
   the product.

@@ -58,6 +58,12 @@ final class Model {
     @ObservationIgnored var canvas: CanvasWindow?
     /// The status item's popover, the surface the local keys land on.
     @ObservationIgnored weak var popover: NSPopover?
+    /// Whether a plot is on screen. A hidden SwiftUI view keeps
+    /// animating and a Canvas keeps redrawing at the display's rate,
+    /// blur and all: with the popover closed that was half a core, all
+    /// day. The plot exists only while its surface is up.
+    var popoverShown = false
+    var labShown = false
     /// The shortcut panel and the about panel share the one floating
     /// panel; showing either dismisses the other.
     var showKeys = false { didSet { presentKeys(showKeys) } }

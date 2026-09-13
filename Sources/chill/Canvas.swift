@@ -8,28 +8,37 @@ import SwiftUI
 /// across the top. Opened from the menu, `c`, a Finder reopen, or the
 /// demo's launch; closing it returns the app to the menu bar.
 @MainActor
-final class CanvasWindow {
+final class CanvasWindow: NSObject, NSWindowDelegate {
     let window: NSWindow
+    private let model: Model
 
     init(model: Model) {
+        self.model = model
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 560),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
+        super.init()
         window.title = "chill"
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 720, height: 420)
         window.contentView = NSHostingView(rootView: CanvasView(model: model))
+        window.delegate = self
         window.center()
     }
 
     func open() {
         NSApp.activate()
+        model.labShown = true
         window.makeKeyAndOrderFront(nil)
     }
 
     func close() { window.close() }
+
+    /// The plot lives only while the window is up: the red button and
+    /// `close()` both land here.
+    func windowWillClose(_ notification: Notification) { model.labShown = false }
 }
 
 extension Font {
@@ -114,7 +123,11 @@ struct CanvasView: View {
             HStack(alignment: .top, spacing: .inkBlock) {
                 CurveList(model: model)
                     .frame(width: 200)
-                Plot(model: model, curve: model.editing, editable: true)
+                ZStack {
+                    if model.labShown {
+                        Plot(model: model, curve: model.editing, editable: true)
+                    }
+                }
             }
             ActionBar(model: model)
             Text(hint)

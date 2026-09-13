@@ -10,7 +10,7 @@ import SwiftUI
 /// product (the tab rail, the plot, the tab's foot, and whatever fixes
 /// a missing daemon first), a right-click that opens the app menu.
 @MainActor
-final class MenuBar: NSObject {
+final class MenuBar: NSObject, NSPopoverDelegate {
     private let model: Model
     private let item: NSStatusItem
     private let popover = NSPopover()
@@ -28,6 +28,7 @@ final class MenuBar: NSObject {
         // without this the top row is measured short and clipped.
         hosting.sizingOptions = [.preferredContentSize]
         popover.contentViewController = hosting
+        popover.delegate = self
         model.popover = popover
         item.button!.target = self
         item.button!.action = #selector(clicked)
@@ -40,8 +41,8 @@ final class MenuBar: NSObject {
     private func observe() {
         withObservationTracking {
             render()
-        } onChange: {
-            Task { @MainActor [weak self] in self?.observe() }
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observe() }
         }
     }
 
@@ -86,6 +87,10 @@ final class MenuBar: NSObject {
             )
         }
     }
+
+    /// The plot lives only while the popover is up.
+    func popoverWillShow(_ notification: Notification) { model.popoverShown = true }
+    func popoverDidClose(_ notification: Notification) { model.popoverShown = false }
 
     // MARK: - the app menu (right-click)
 
@@ -173,11 +178,19 @@ struct PopoverView: View {
                 }
             }
             Fixer(model: model)
-            Plot(model: model, curve: plotted, editable: editable)
-                .frame(height: 200)
-                .onChange(of: model.tab, initial: true) { _, tab in
-                    if case .custom(let name) = tab { model.cursor = name }
+            // The plot only while the popover is up (`popoverShown`):
+            // hidden, its animations and Canvas would keep drawing at the
+            // display's rate. Its space is held so the layout is the same
+            // the instant it appears.
+            ZStack {
+                if model.popoverShown {
+                    Plot(model: model, curve: plotted, editable: editable)
                 }
+            }
+            .frame(height: 200)
+            .onChange(of: model.tab, initial: true) { _, tab in
+                if case .custom(let name) = tab { model.cursor = name }
+            }
             // The foot is the same height on every tab, so the popover
             // never resizes and the plot never moves: the knobs' height,
             // with the other tabs' content or nothing in that space.
