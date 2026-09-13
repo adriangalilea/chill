@@ -170,9 +170,23 @@ struct Glide {
     private var to = Vec.zero
     private var since = Date.distantPast
 
+    /// Below this a sample's change is under a pixel on the plot: the
+    /// numbers land without a glide, and a steady machine draws nothing.
+    static let deadband = (celsius: 0.3, rpm: 15.0)
+
     mutating func aim(_ target: Vec, at now: Date = .now) {
         let here = value(at: now)
-        from = here.v.count == target.v.count && here.v[0] >= 0 && target.v[0] >= 0 ? here : target
+        let blends = here.v.count == target.v.count && here.v[0] >= 0 && target.v[0] >= 0
+        if blends, !moving(at: now), abs(target.v[0] - to.v[0]) < Glide.deadband.celsius,
+            zip(target.v.dropFirst(), to.v.dropFirst()).allSatisfy({
+                abs($0 - $1) < Glide.deadband.rpm
+            })
+        {
+            to = target
+            from = target
+            return
+        }
+        from = blends ? here : target
         to = target
         since = now
     }
