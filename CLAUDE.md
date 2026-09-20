@@ -54,8 +54,8 @@ A fan runs a CURVE: temperature in, rpm out. That is the whole model.
   itself; while it runs, the foot shows its clock.
 
 Who holds a fan is READ BACK, never inferred from the last write: mode 0 or
-3 = Apple · mode 1 with chill's intent = chill · mode 1 (or `Ftst` = 1)
-without chill's intent = `foreign`. There is no "automatic" that means
+3 = Apple · mode 1 that chill wrote = chill · mode 1 chill did not write
+= `foreign`. There is no "automatic" that means
 "chill's curve".
 
 ## The contract: intent, presence, vetoes
@@ -281,22 +281,29 @@ firmware rejected, 0x84 = no such key; `KERN_SUCCESS` alone means nothing.
   are 20 ms writes. Firmware resets `Ftst` across sleep, and after any
   wake, the screens' included, thermalmonitord holds mode 3 until
   acquire retries through it, so every evaluation whose read-back is
-  not 1 re-runs acquire. Auto with `Ftst` to clear takes 0.2 to 0.4 s
-  on the M4 (0 ms on the M5), and `chill status` read the fans as
-  `foreign` for that beat (TODO).
+  not 1 re-runs acquire. `Ftst` is ONE flag for every fan and reads 1
+  while any fan is in mode 1, so it names no holder: a fan in mode 0 or
+  3 is Apple's whatever `Ftst` says. Auto with `Ftst` to clear takes
+  0.2 to 0.4 s on the M4 (0 ms on the M5).
 - **auto**: per fan write mode 0; if `Ftst` exists and reads 1, write
   `Ftst = 0`; poll the mode until it reads 0 or 3; log the transition. A
   forgotten `Ftst = 1` mutes Apple's thermal servo, which is why
-  reconciliation and every exit path run this exact routine.
+  reconciliation and every exit path run this exact routine, and why
+  every pass that finds `Ftst` 1 with every fan Apple's and no acquire
+  in flight clears it (another tool's leftover, or the firmware clearing
+  late): `Ftst 1 with no fan forced: cleared`.
 - **target**: clamp to the cached envelope, hysteresis 50 rpm, then the
   curve's value whole: the ramp from wherever the fan was is the
   firmware's, and a softened target lingers (a boost's ceiling outlived
-  the tab that ended it). The
-  read-back judges the write: the firmware answers some `F{n}Tg` writes
-  with a result byte (0x87 seen) and applies the value anyway, which is
-  logged and fine; a read-back that disagrees is `targetRejected`, the
-  fan stays chill's (mode 1 read back) and status says `smc: fan N target
-  refused 0x87`. Only a failed READ makes a fan `unreadable`.
+  the tab that ended it). `F{n}Tg` read right after a write does not
+  show it, the firmware answers first and applies later (M4 Pro and M5
+  Max alike), so a write the firmware accepted IS the target and is not
+  judged by a read. A write answered with a result byte (0x87 seen) is
+  the one case judged by the read-back, polled up to 500 ms for the
+  value written, since the firmware applies some of those anyway; one
+  that never lands is `targetRejected`, the fan stays chill's (mode 1
+  read back) and status says `smc: fan N target refused 0x87`. Only a
+  failed READ makes a fan `unreadable`.
 
 ## Sensors: one reader, two consumers
 

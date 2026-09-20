@@ -72,9 +72,6 @@ actor Engine {
     private struct Governed {
         let state: FanState
         let holder: Holder
-        /// This pass wrote auto on the fan, so `Ftst` may have changed
-        /// under the fans still to be judged.
-        let released: Bool
         /// The result byte of a target write whose read-back disagreed.
         var refused: UInt8? = nil
         /// Left to Apple on purpose: the curve asked no more than the floor.
@@ -355,31 +352,14 @@ actor Engine {
         }
         let plan = intent
         let forced = stillForced(plan)
-        // One `Ftst` read per pass, re-read after any hand-back in it: a
-        // fan judged after another's auto is judged on the post-write
-        // value. A `Ftst` that cannot be read judges nothing: every fan
-        // still waiting on it is unread, never "Apple's" by default.
-        var ftst: UInt8?
-        do {
-            ftst = try await writer.ftst()
-        } catch {
-            Log.error("Ftst: \(error)")
-            settle(
-                Sample(
-                    fans: [], die: die, dieSensors: dieSensors, dieSource: dieSource,
-                    unread: writer.fans.map(\.index)),
-                plan: plan, forced: forced)
-            return
-        }
         var fans: [FanState] = []
         var holders: [Holder] = []
         var atFloor: [Bool] = []
         var unread: [Int] = []
         var refused: [(fan: Int, result: UInt8)] = []
-        judge: for (i, fan) in writer.fans.enumerated() {
+        for fan in writer.fans {
             do {
-                let verdict = try await govern(
-                    fan, plan: plan, forced: forced, die: die, ftst: ftst)
+                let verdict = try await govern(fan, plan: plan, forced: forced, die: die)
                 fans.append(verdict.state)
                 holders.append(verdict.holder)
                 atFloor.append(verdict.atFloor)
@@ -387,21 +367,34 @@ actor Engine {
                 if let die, verdict.holder == .apple {
                     clouds[fan.index]!.add(celsius: die, rpm: verdict.state.actual)
                 }
-                if verdict.released {
-                    do {
-                        ftst = try await writer.ftst()
-                    } catch {
-                        Log.error("Ftst: \(error)")
-                        unread = writer.fans[(i + 1)...].map(\.index)
-                        break judge
-                    }
-                }
             } catch is Moved {
                 Log.notice("pass abandoned: the world moved under it")
                 return
             } catch {
                 Log.error("fan \(fan.index): \(error)")
                 unread.append(fan.index)
+            }
+        }
+        // `Ftst` is ONE flag for every fan and reads 1 while any fan is in
+        // mode 1, so it names no holder: a fan in mode 0 or 3 is Apple's
+        // whatever it says. A raised `Ftst` with every fan Apple's and no
+        // acquire in flight is a flag with no session behind it (another
+        // tool's leftover, or the firmware clearing late), and it mutes
+        // Apple's thermal servo: cleared here, on every pass it is seen.
+        if unread.isEmpty, held.isEmpty, fans.allSatisfy({ $0.mode != 1 }) {
+            var acquiring = false
+            for fan in writer.fans where await writer.isAcquiring(fan: fan.index) {
+                acquiring = true
+            }
+            if !acquiring {
+                do {
+                    if try await writer.ftst() == 1 {
+                        try await writer.clearFtst()
+                        Log.notice("Ftst 1 with no fan forced: cleared")
+                    }
+                } catch {
+                    Log.error("Ftst: \(error)")
+                }
             }
         }
         settle(
@@ -427,8 +420,8 @@ actor Engine {
     /// One fan: read it back, then act on what it says. Under `forced`,
     /// the world is re-read after every suspension and a move abandons
     /// the pass before any write.
-    private func govern(_ fan: Fan, plan: Intent, forced: Bool, die: Double?, ftst: UInt8?)
-        async throws -> Governed
+    private func govern(_ fan: Fan, plan: Intent, forced: Bool, die: Double?) async throws
+        -> Governed
     {
         let n = fan.index
         let state = try await writer.read(fan: n)
@@ -455,11 +448,10 @@ actor Engine {
                     held.insert(n)
                     await writer.beginAcquire(fan: n)
                 }
-                return Governed(state: state, holder: .acquiring, released: false)
+                return Governed(state: state, holder: .acquiring)
             }
             held.insert(n)
-            var verdict = Governed(
-                state: state, holder: .chill(curve: intentName(of: plan)), released: false)
+            var verdict = Governed(state: state, holder: .chill(curve: intentName(of: plan)))
             if let die {
                 do {
                     try await writer.target(fan: n, rpm: wanted(fan, die: die, under: plan))
@@ -472,7 +464,9 @@ actor Engine {
             }
             return verdict
         }
-        let forcedByAnyone = state.mode == 1 || ftst == 1
+        // Mode 1 is the one tell of a forced fan; chill's own when it wrote
+        // it (or is writing it), someone else's otherwise.
+        let forcedByAnyone = state.mode == 1
         let acquiring = await writer.isAcquiring(fan: n)
         if forcedByAnyone && (held.contains(n) || acquiring) {
             if atFloor { Log.notice("fan \(n): the curve is at its floor, Apple's again") }
@@ -480,13 +474,10 @@ actor Engine {
             held.remove(n)
             let after = try await writer.read(fan: n)
             return Governed(
-                state: after, holder: after.mode == 1 ? .foreign : .apple, released: true,
-                atFloor: atFloor)
+                state: after, holder: after.mode == 1 ? .foreign : .apple, atFloor: atFloor)
         }
         held.remove(n)
-        return Governed(
-            state: state, holder: forcedByAnyone ? .foreign : .apple, released: false,
-            atFloor: atFloor)
+        return Governed(state: state, holder: forcedByAnyone ? .foreign : .apple, atFloor: atFloor)
     }
 
     private func wanted(_ fan: Fan, die: Double, under plan: Intent) -> Double {

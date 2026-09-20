@@ -58,6 +58,9 @@ actor SMCWriter {
     static let acquireRetry: Duration = .milliseconds(100)
     static let releaseTimeout: Duration = .seconds(10)
     static let releasePoll: Duration = .milliseconds(100)
+    /// How long a target write may take to read back as written.
+    static let targetSettle: Duration = .milliseconds(500)
+    static let targetPoll: Duration = .milliseconds(20)
 
     /// The envelope thermalmonitord reports, read once: what `hello` ships
     /// and every target clamps to. Empty on a fanless Mac.
@@ -122,6 +125,13 @@ actor SMCWriter {
 
     /// `Ftst` as it reads, nil where the key does not exist.
     func ftst() throws -> UInt8? { hasFtst ? try smc.uint8("Ftst") : nil }
+
+    /// `Ftst = 0` with no session to end: the engine's answer to a raised
+    /// flag on a Mac where every fan is Apple's.
+    func clearFtst() throws {
+        precondition(hasFtst, "clearFtst on a Mac without Ftst")
+        try write("Ftst", uint8: 0)
+    }
 
     func isAcquiring(fan n: Int) -> Bool { acquiring[n] != nil }
 
@@ -278,13 +288,17 @@ actor SMCWriter {
     /// was is the firmware's, and softening the target as well made a
     /// gust linger for twenty seconds after the tab said chill. The
     /// current target is READ from `F{n}Tg`, never remembered.
-    /// Returns the target the fan holds after the call, READ BACK: the
-    /// firmware answers some target writes with a result byte (0x87 seen
-    /// on `F0Tg`) and applies the value anyway, so the read-back is the
-    /// judge, not the reply; a read-back that is not the value written
-    /// throws `targetRejected`.
+    /// `F{n}Tg` read right after a write does not show it: the firmware
+    /// answers first and applies later (an M4 Pro and an M5 Max both read
+    /// the old value at once), so the read-back is no judge of a write
+    /// the firmware accepted, and a write it accepted IS the target. A
+    /// write answered with a result byte (0x87 seen on `F0Tg`) is the
+    /// one case judged by the read-back, polled up to `targetSettle` for
+    /// the value written, since the firmware applies some of those
+    /// anyway; one that never lands throws `targetRejected`. Returns the
+    /// target the fan holds after the call.
     @discardableResult
-    func target(fan n: Int, rpm: Double) throws -> Double {
+    func target(fan n: Int, rpm: Double) async throws -> Double {
         let wanted = fans[n].clamp(rpm)
         let current = Double(try smc.float("F\(n)Tg"))
         guard abs(wanted - current) > SMCWriter.hysteresis else { return current }
@@ -292,18 +306,22 @@ actor SMCWriter {
         do {
             try write("F\(n)Tg", float: Float(next))
         } catch SMCError.rejected(_, let result) {
-            let readBack = Double(try smc.float("F\(n)Tg"))
-            guard readBack == Double(Float(next)) else {
-                throw WriterError.targetRejected(
-                    fan: n, result: result, wrote: next, readBack: readBack)
+            let clock = ContinuousClock()
+            let started = clock.now
+            var readBack = Double(try smc.float("F\(n)Tg"))
+            while readBack != Double(Float(next)) {
+                guard clock.now - started < SMCWriter.targetSettle else {
+                    throw WriterError.targetRejected(
+                        fan: n, result: result, wrote: next, readBack: readBack)
+                }
+                try await Task.sleep(for: SMCWriter.targetPoll)
+                readBack = Double(try smc.float("F\(n)Tg"))
             }
             Log.notice(
-                "fan \(n): target write answered 0x\(String(result, radix: 16)), read-back \(Int(readBack))"
-            )
+                "fan \(n): target write answered 0x\(String(result, radix: 16)), landed anyway")
         }
-        let landed = Double(try smc.float("F\(n)Tg"))
-        Log.notice("fan \(n): target \(Int(current)) -> \(Int(landed)) (curve \(Int(wanted)))")
-        return landed
+        Log.notice("fan \(n): target \(Int(current)) -> \(Int(next))")
+        return next
     }
 
     // MARK: - the write path

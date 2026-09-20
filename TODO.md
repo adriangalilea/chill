@@ -51,14 +51,6 @@ passes; the `Ftst` paths pass on the M4 Pro. Human gate left:
       asleep, no presence, Apple; real sleep → the veto and `Ftst` 0
       before the ack, chilld absent from the ack delays; every wake →
       mode 3 from thermalmonitord, re-acquired at 6 to 8 s.
-- [ ] `chill status` reads `foreign` for the beat an auto with `Ftst`
-      takes on the M4 (0.2 to 0.4 s): a hand-back in flight is chill's,
-      not someone else's. `system` should reply after auto lands, and
-      the holder classification should know a hand-back is running.
-- [ ] The first target after acquire writes the previous target once
-      (`target 2317 -> 2317 (curve 3706)`), the curve's value lands the
-      next second. One evaluation late; find where the stale target
-      comes from.
 - [x] The contract: intent persisted in `policy.json`, presence with a
       `ContinuousClock` deadline, the veto set, the 1 Hz evaluator, the
       reference cloud for fans Apple holds. Proven on the M5 Max: `kill -9`
