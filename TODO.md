@@ -103,9 +103,12 @@ passes; the `Ftst` paths pass on the M4 Pro. Human gate left:
 
 ## 4 · ship
 
-- [ ] Publish `swift-hw` (github.com/adriangalilea/swift-hw, MIT, 0.1.0)
-      from MachSensors; flip chill's dependency to `from: "0.1.0"`; mach
-      keeps the path until its own open-source decision.
+- [x] `swift-hw` (github.com/adriangalilea/swift-hw, MIT, 0.1.0) from
+      MachSensors; chill and mach both consume it by versioned URL, mach's
+      copy is gone.
+- [ ] Flip swift-hw public (`gh repo edit adriangalilea/swift-hw
+      --visibility public`): a public chill cannot resolve a private
+      dependency. Ship day, with chill's own repo.
 - [ ] Create github.com/adriangalilea/chill (MIT, awake's
       `.github/workflows/ci.yml`), move `apps/chill` into it, mount it as a
       submodule in `.gitmodules`.

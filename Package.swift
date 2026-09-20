@@ -15,8 +15,7 @@ let package = Package(
     dependencies: [
         // MachSensors: die temperatures and SMC fan telemetry, read-only by
         // construction; chilld composes its write on the public codec.
-        // Path until ship day, then the public swift-hw package by URL.
-        .package(path: "../mach"),
+        .package(url: "https://github.com/adriangalilea/swift-hw", from: "0.1.0"),
         // Ink + Keymap: the studio's look and the keyboard-first spine.
         .package(url: "https://github.com/adriangalilea/swift-utils", from: "0.13.0"),
     ],
@@ -29,7 +28,7 @@ let package = Package(
             name: "chilld",
             dependencies: [
                 "ChillKit",
-                .product(name: "MachSensors", package: "mach"),
+                .product(name: "MachSensors", package: "swift-hw"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5), .enableUpcomingFeature("StrictConcurrency")],
             linkerSettings: [.linkedFramework("IOKit")]
@@ -38,7 +37,7 @@ let package = Package(
             name: "chill",
             dependencies: [
                 "ChillKit",
-                .product(name: "MachSensors", package: "mach"),
+                .product(name: "MachSensors", package: "swift-hw"),
                 .product(name: "Ink", package: "swift-utils"),
                 .product(name: "Keymap", package: "swift-utils"),
             ],

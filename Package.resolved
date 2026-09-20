@@ -1,6 +1,15 @@
 {
-  "originHash" : "c81c1949eb0e29b047ec0f52c3567e966eb34b8c83fa82789d404c3bbf404e14",
+  "originHash" : "c0426de81742e46f1842748cde5e714a7232505fa70279f53874385091112c37",
   "pins" : [
+    {
+      "identity" : "swift-hw",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/adriangalilea/swift-hw",
+      "state" : {
+        "revision" : "49a332744eb0262dca9a3b7865e7662d921d92e6",
+        "version" : "0.1.0"
+      }
+    },
     {
       "identity" : "swift-utils",
       "kind" : "remoteSourceControl",

@@ -318,9 +318,9 @@ for Mn/Mx apart (read ONCE by every consumer: chilld's writer at start,
 the app's `LocalSensors` when it opens; `Mx` reads intermittently), a
 public 80-byte codec, and typed errors from the result byte. No write function exists in the package:
 read-only by construction; chilld composes its cmd 6 write on the codec.
-chill consumes it as `.package(path: "../mach")` against the pinned
-submodule pointer; on ship day it becomes the public `swift-hw` package
-(MIT) and chill's dependency flips to a versioned URL.
+It is the `swift-hw` package (github.com/adriangalilea/swift-hw, MIT,
+private until chill ships), consumed by versioned URL, the same one mach
+consumes.
 
 The temperature that drives a curve is the HOTTEST cpu or gpu sensor from
 the SMC's named keys (`MachSensors.Parts`, `State.dieSource` says which),
