@@ -76,7 +76,7 @@ final class Model {
     /// A refusal or an error from the last verb, cleared by the next good
     /// exchange.
     var notice: String?
-    /// The pulse's verdict: on the console with the screens awake, so this
+    /// The pulse's verdict: on the console, screens awake, unlocked, so this
     /// app claims presence. `aside` explains the fans being Apple's when
     /// it is false and no one else watches.
     var watching = false
@@ -156,7 +156,7 @@ final class Model {
         }
         if let notice { return notice }
         if !watching, let state, state.presence == nil {
-            return "not watching: off the console or screens asleep"
+            return "not watching: off the console, screens asleep or locked"
         }
         return nil
     }

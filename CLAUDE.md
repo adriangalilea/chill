@@ -66,8 +66,9 @@ chill forces a fan iff all three hold, evaluated by the daemon every second:
    in `/Library/Application Support/chill/policy.json`, so it survives
    reboot and login.
 2. **presence** is live: some client spoke within the last 10 s. The app
-   sends presence at 1 Hz while its session is on the console and the
-   screens are awake; a CLI verb that needs presence holds it itself with
+   sends presence at 1 Hz while its session is on the console, the
+   screens are awake and the screen is not locked (a locked Mac left
+   running is a Mac no one hears); a CLI verb that needs presence holds it itself with
    `--watch` (Ctrl-C hands back) or refuses with exit 2 when no one is
    watching. Presence deadlines are `ContinuousClock` instants, which keep
    counting through sleep.
@@ -148,7 +149,9 @@ never the cached envelope. Every XPC invalidation re-reads
    Edits curves, sends intent and presence, renders the daemon's state
    (`Model`, one brain every surface reads; `Pulse` sends presence at 1 Hz
    while the session is on the console, `CGSessionCopyCurrentDictionary`,
-   and the screens are awake, `NSWorkspace.screensDid{Sleep,Wake}`, and a
+   the screens are awake, `NSWorkspace.screensDid{Sleep,Wake}`, and the
+   screen is not locked, `com.apple.screenIs{Locked,Unlocked}` on the
+   distributed center with `CGSSessionScreenIsLocked` for the first tick, and a
    plain `state()` otherwise, so the glyph never goes stale and no one is
    claimed to be watching). It reads sensors and the SMC through the
    read-only package only while no daemon answers; it never WRITES the
