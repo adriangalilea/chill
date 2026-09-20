@@ -57,7 +57,8 @@ M4's `Ftst` gates.
       targets within 90 ms, registration gone, reinstall approved without
       a second prompt; `sudo launchctl kill TERM` with a curve forced →
       Apple's targets within 500 ms, launchd's restart greeted by the app
-      and the curve back within a second.
+      and the curve back within a second; lock the screen with a curve
+      forced → Apple at 10 s, unlock → the curve again in 1 s.
 - [x] `chill status`, `system`, `daemon install|uninstall|status`, `log`.
 
 ## 2 · curves and the CLI
@@ -93,8 +94,8 @@ M4's `Ftst` gates.
       into `assemble.sh`, then write the intents.
 - [x] The lab window: the same plot larger, the curve list, an action
       bar; parked until it becomes the lab.
-- [x] Presence at 1 Hz gated on console session + screens awake; the
-      persisted intent resumes at login.
+- [x] Presence at 1 Hz gated on console session + screens awake +
+      unlocked; the persisted intent resumes at login.
 - [x] `--demo`: forked `chill-demo` roots, scripted trace, in-process fake
       daemon, `demo` kicker, CLI `· demo` headers.
 - [ ] Update check: a daily appcast GET from the app (awake's model), a
