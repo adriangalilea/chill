@@ -275,11 +275,15 @@ firmware rejected, 0x84 = no such key; `KERN_SUCCESS` alone means nothing.
 - **acquire**: write mode 1, read back, require 1. If it did not stick and
   `Ftst` exists (absent on M5): write `Ftst = 1`, retry mode 1 every 100 ms
   for up to 10 s. Runs on its own task, never blocking the evaluator; the
-  fan reads `acquiring` in status meanwhile (5 to 6 s on M4). `Ftst` stays
-  1 for the life of the session so target changes are 20 ms writes.
-  Firmware resets `Ftst` across sleep, and right after wake thermalmonitord
-  transiently holds mode 3, so every evaluation whose read-back is not 1
-  re-runs acquire.
+  fan reads `acquiring` in status meanwhile (6 to 8 s on an M4 Pro, mode
+  key `F{n}Md`: the first mode 1 never holds, `Ftst` goes up, the retry
+  lands). `Ftst` stays 1 for the life of the session so target changes
+  are 20 ms writes. Firmware resets `Ftst` across sleep, and after any
+  wake, the screens' included, thermalmonitord holds mode 3 until
+  acquire retries through it, so every evaluation whose read-back is
+  not 1 re-runs acquire. Auto with `Ftst` to clear takes 0.2 to 0.4 s
+  on the M4 (0 ms on the M5), and `chill status` read the fans as
+  `foreign` for that beat (TODO).
 - **auto**: per fan write mode 0; if `Ftst` exists and reads 1, write
   `Ftst = 0`; poll the mode until it reads 0 or 3; log the transition. A
   forgotten `Ftst = 1` mutes Apple's thermal servo, which is why
@@ -326,7 +330,8 @@ right.
 M3, M4, M5 (cpu, gpu, memory on M4), probed once with READ_KEYINFO by
 every consumer (chilld over a second, read-only SMC handle; the app's
 `LocalSensors`); the probe logs how many keys answered (an M5 Max: 18 of
-18 cpu, 7 of 8 gpu). The temperature badge reads it on demand: hottest
+18 cpu, 7 of 8 gpu; an M4 Pro: 9 of 12 cpu, 6 of 6 gpu, 0 of 3 memory).
+The temperature badge reads it on demand: hottest
 sensor per group and how many; `ssd` and `battery` come from the HID path
 by name, deduped (the HID path lists every sensor several times).
 

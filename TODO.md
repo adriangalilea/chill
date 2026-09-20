@@ -28,8 +28,8 @@ Everything below is written and compiles (`mise check` at 0 warnings);
 the gates need a signed install on real fans. Done on the M5 Max: the
 signed install registers and is approved, chilld answers, SoloFan is
 retired from this Mac, curves force real fans, every contract gate
-passes. Human gates left: `garden genesis chill --desc "..."` and the
-M4's `Ftst` gates.
+passes; the `Ftst` paths pass on the M4 Pro. Human gate left:
+`garden genesis chill --desc "..."`.
 
 - [x] Hello-world chilld: bundle assembled by `mise run install`
       (Developer ID required), plist under `Contents/Library/LaunchDaemons`
@@ -44,8 +44,21 @@ M4's `Ftst` gates.
       acquire on its own task, auto = mode 0 + read-back, envelope cached
       once, type assertions). Proven on the M5 Max (no `Ftst`): targets
       forced and held, apple ↔ chill ↔ gust toggled many times with a
-      truthful status, auto on every hand-back. The `Ftst` paths wait for
-      the M4.
+      truthful status, auto on every hand-back. Proven on the M4 Pro
+      (`Ftst` present, `F0Md`): a curve above the floor → the first mode
+      1 refused, `Ftst` up, acquired at 6 s; `kill -9` the app → auto
+      with `Ftst` 0 in 180 ms; lid closed with awake holding → screens
+      asleep, no presence, Apple; real sleep → the veto and `Ftst` 0
+      before the ack, chilld absent from the ack delays; every wake →
+      mode 3 from thermalmonitord, re-acquired at 6 to 8 s.
+- [ ] `chill status` reads `foreign` for the beat an auto with `Ftst`
+      takes on the M4 (0.2 to 0.4 s): a hand-back in flight is chill's,
+      not someone else's. `system` should reply after auto lands, and
+      the holder classification should know a hand-back is running.
+- [ ] The first target after acquire writes the previous target once
+      (`target 2317 -> 2317 (curve 3706)`), the curve's value lands the
+      next second. One evaluation late; find where the stale target
+      comes from.
 - [x] The contract: intent persisted in `policy.json`, presence with a
       `ContinuousClock` deadline, the veto set, the 1 Hz evaluator, the
       reference cloud for fans Apple holds. Proven on the M5 Max: `kill -9`
