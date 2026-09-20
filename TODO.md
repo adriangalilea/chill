@@ -89,14 +89,6 @@ passes; the `Ftst` paths pass on the M4 Pro. Human gate left:
       toggle (Apple ↔ your curve) with its recorder panel, the no-daemon
       popover that leads with the fixing action and polls
       `SMAppService.status`.
-- [ ] Spotlight, Shortcuts and Siri through App Intents (`toggle`,
-      `chill`, `apple`, `use <curve>`, `status`), lore's pattern over
-      Keymap's `IntentSupport`. Blocked on build plumbing, not code: the
-      intent metadata Spotlight reads is extracted by Xcode's
-      `appintentsmetadataprocessor`, which `swift build` never runs. The
-      tool is invocable by hand (`xcrun appintentsmetadataprocessor`,
-      wants a source-file list and the compiler's const-values); wire it
-      into `assemble.sh`, then write the intents.
 - [x] The lab window: the same plot larger, the curve list, an action
       bar; parked until it becomes the lab.
 - [x] Presence at 1 Hz gated on console session + screens awake +
@@ -135,6 +127,17 @@ passes; the `Ftst` paths pass on the M4 Pro. Human gate left:
       its place in `~/self/mac` are gone. Root's two files,
       `/etc/sudoers.d/smc-fan-helper` and `/usr/local/bin/smc-helper`, go
       by hand: `sudo rm -v` both.
+
+## 5 · after the ship
+
+- [ ] Spotlight, Shortcuts and Siri through App Intents (`toggle`,
+      `chill`, `apple`, `use <curve>`, `status`), lore's pattern over
+      Keymap's `IntentSupport`. Blocked on build plumbing, not code: the
+      intent metadata Spotlight reads is extracted by Xcode's
+      `appintentsmetadataprocessor`, which `swift build` never runs. The
+      tool is invocable by hand (`xcrun appintentsmetadataprocessor`,
+      wants a source-file list and the compiler's const-values); wire it
+      into `assemble.sh`, then write the intents.
 
 ## Deferred, for fun
 
