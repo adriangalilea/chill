@@ -63,7 +63,11 @@ passes; the `Ftst` paths pass on the M4 Pro. Human gate left:
       a second prompt; `sudo launchctl kill TERM` with a curve forced →
       Apple's targets within 500 ms, launchd's restart greeted by the app
       and the curve back within a second; lock the screen with a curve
-      forced → Apple at 10 s, unlock → the curve again in 1 s.
+      forced → Apple at 10 s, unlock → the curve again in 1 s. The
+      thermal veto, in the field (2026-09-25, the Mac shut in a backpack
+      under an awake claim): `.critical` → Apple within a second, three
+      hours at critical with the die at 95 °C, and macOS's Thermal
+      Emergency Sleep never delayed. What chill cannot do is move air.
 - [x] `chill status`, `system`, `daemon install|uninstall|status`, `log`.
 
 ## 2 · curves and the CLI
