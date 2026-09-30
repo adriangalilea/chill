@@ -46,8 +46,8 @@ extension Font {
     static let meta = Font.system(size: 11, weight: .medium, design: .monospaced)
 }
 
-/// tempo's ladder, one hue per meaning, alpha the only other variable:
-/// dune (its minutes) for what chill does, the curve, the fans, the
+/// One hue per meaning, alpha the only other variable:
+/// dune for what chill does, the curve, the fans, the
 /// accent; heat for the die, ice when cool through ember to the alarm
 /// red; a plain neutral for what Apple does, the cloud.
 enum Palette {
