@@ -25,7 +25,44 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
     public static func apple(at celsius: Double, for fan: Fan) -> Double {
         fan.clamp(fan.min + (fan.max - fan.min) * (celsius - 60) / 40)
     }
-    static let slewPerSecond: Double = 300
+    /// How fast a fan's rpm moves: an Apple Silicon fan spins from its
+    /// floor to its ceiling in about four seconds.
+    static let slewPerSecond: Double = 1500
+
+    // The demo's physics, one set for every clock that steps it: this
+    // daemon on the wall clock, the app's film on its own.
+
+    /// Where a fan heads: the curve's rpm while chill holds the fans (the
+    /// maximum for a boost), Apple's curve otherwise.
+    public static func target(_ fan: Fan, die: Double, intent: Intent, forced: Bool) -> Double {
+        switch intent {
+        case .curve(let curve) where forced: return curve.target(at: die, for: fan)
+        case .boost where forced: return fan.max
+        default: return apple(at: die, for: fan)
+        }
+    }
+
+    /// A fan's rpm after `seconds`, slewing toward its target.
+    public static func slew(_ actual: Double, toward target: Double, seconds: Double) -> Double {
+        let step = slewPerSecond * seconds
+        return actual + max(-step, min(step, target - actual))
+    }
+
+    public static func holder(_ intent: Intent, forced: Bool) -> Holder {
+        switch intent {
+        case .curve(let curve) where forced: return .chill(curve: curve.name)
+        case .boost where forced: return .chill(curve: "boost")
+        default: return .apple
+        }
+    }
+
+    public static func reason(_ intent: Intent, forced: Bool) -> Reason {
+        switch intent {
+        case .system: return .apple
+        case .curve(let curve): return forced ? .curve(curve.name) : .noOneWatching
+        case .boost: return forced ? .boost : .noOneWatching
+        }
+    }
 
     private struct Bin: Hashable {
         let c: Int
@@ -138,15 +175,9 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
         let forced = intent != .system && watcher != nil
         var fans: [FanState] = []
         for fan in FakeDaemon.fans {
-            let target: Double
-            switch intent {
-            case .curve(let curve) where forced: target = curve.target(at: die, for: fan)
-            case .boost where forced: target = fan.max
-            default: target = FakeDaemon.apple(at: die, for: fan)
-            }
-            let step = FakeDaemon.slewPerSecond * elapsed
-            let current = actual[fan.index]
-            actual[fan.index] = current + max(-step, min(step, target - current))
+            let target = FakeDaemon.target(fan, die: die, intent: intent, forced: forced)
+            actual[fan.index] = FakeDaemon.slew(
+                actual[fan.index], toward: target, seconds: elapsed)
             if !forced {
                 let bin = Bin(
                     c: Int(die.rounded(.down)),
@@ -158,17 +189,8 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
                     index: fan.index, actual: actual[fan.index].rounded(), target: target.rounded(),
                     mode: forced ? 1 : 3))
         }
-        let holder: Holder
-        switch intent {
-        case .curve(let curve) where forced: holder = .chill(curve: curve.name)
-        case .boost where forced: holder = .chill(curve: "boost")
-        default: holder = .apple
-        }
-        switch intent {
-        case .system: reason = .apple
-        case .curve(let curve): reason = forced ? .curve(curve.name) : .noOneWatching
-        case .boost: reason = forced ? .boost : .noOneWatching
-        }
+        let holder = FakeDaemon.holder(intent, forced: forced)
+        reason = FakeDaemon.reason(intent, forced: forced)
         return State(
             intent: intent, holder: holder, vetoes: [],
             presence: watcher.map {

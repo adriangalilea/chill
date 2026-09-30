@@ -64,10 +64,15 @@ final class Model {
     /// day. The plot exists only while its surface is up.
     var popoverShown = false
     var labShown = false
-    /// `chill --demo shot` is taking a still of the popover: what only a
-    /// live session needs, the demo kicker and the shortcut hint, stays out
-    /// of the picture. The process exits once the still is written.
-    var shooting = false
+    /// The film's clock (`chill --demo film`), nil in a live session: set,
+    /// every surface draws at this instant instead of the wall clock's, and
+    /// what only a live session needs, the demo kicker and the shortcut
+    /// hint, stays out of the picture.
+    @ObservationIgnored var filmTime: Date?
+    var filming: Bool { filmTime != nil }
+
+    /// The instant a surface draws: the film's while filming, else `wall`.
+    func now(_ wall: Date) -> Date { filmTime ?? wall }
     /// The shortcut panel and the about panel share the one floating
     /// panel; showing either dismisses the other.
     var showKeys = false { didSet { presentKeys(showKeys) } }
@@ -192,6 +197,11 @@ final class Model {
     /// The parts in one line for the foot: `cpu 55 · gpu 47 · ssd 36 ·
     /// battery 33 °C`, hottest of each.
     var partsLine: String {
+        // The demo's machine is scripted: its one number is the die the
+        // demo daemon ships, never this Mac's sensors.
+        if demo.on {
+            return state?.die.map { "\(state!.dieSource) \(Int($0.rounded())) °C" } ?? ""
+        }
         var items = parts().map { "\($0.group.rawValue) \(Int($0.celsius.max()!.rounded()))" }
         items += Badge.named(temperatures()).map { "\($0.name) \(Int($0.celsius.rounded()))" }
         return items.isEmpty ? "" : items.joined(separator: " · ") + " °C"

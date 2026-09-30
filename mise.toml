@@ -4,6 +4,7 @@
 #   build      both binaries (release): chill (app + CLI) and chilld (the root daemon)
 #   dev        the app from source (debug): ad-hoc signed, so no daemon is reachable, local sensors only
 #   demo       the app in the demo world: forked -demo roots, an in-process daemon, never chilld
+#   film       the popover's story as dist/film.mp4, rendered by the app frame by frame
 #   check      format + compile everything, debug: the FAST typecheck (0 warnings)
 #   format     swift-format in place · lint: advisory
 #   icon       Resources/chill.icns + icon.png from scripts/icon.svg (rsvg-convert)
@@ -48,12 +49,15 @@ scripts/locked.sh swift build
 .build/debug/chill --demo
 '''
 
-[tasks.shot]
-description = "The popover as a still from the demo world, the app's own pixels: dist/popover.png (needs Screen Recording for the terminal)"
+# The showcase: the popover's own views, rendered frame by frame on the
+# film's clock, so it is as sharp as the page wants and cannot drift from
+# the app. `pnpm media chill <feature> dist/film.mp4` publishes it.
+[tasks.film]
+description = "The popover's story as dist/film.mp4, rendered by the app at 3x (needs ffmpeg)"
 run = '''
 scripts/locked.sh swift build
 mkdir -p "$DIST"
-.build/debug/chill --demo shot "$DIST/popover.png"
+.build/debug/chill --demo film "$DIST/film.mp4"
 '''
 
 [tasks.format]

@@ -13,6 +13,8 @@ struct Frame {
     let actuals: [Double]
     let targets: [Double]
     let trail: Trail
+    /// The instant drawn: the timeline's, or the film's (`Model.now`).
+    let now: Date
 
     static let celsius: ClosedRange<Double> = 30...110
 }
@@ -102,9 +104,9 @@ final class Trail {
     static let stepRPM = 8.0
 
     /// Called from the live layer's draw with the point's animated
-    /// position: appends when it moved, prunes what has faded.
-    func record(die: Double, rpm: Double) {
-        let now = Date()
+    /// position at the instant drawn: appends when it moved, prunes what
+    /// has faded.
+    func record(die: Double, rpm: Double, at now: Date) {
         marks.removeAll { now.timeIntervalSince($0.at) > Trail.span }
         if let last = marks.last,
             abs(die - last.die) < Trail.stepCelsius, abs(rpm - last.rpm) < Trail.stepRPM
@@ -246,12 +248,17 @@ struct Plot: View {
     /// The frame with the live numbers where the glide has them now.
     private func glided(_ f: Frame, at date: Date) -> Frame {
         let v = glide.value(at: date).v
-        guard v.count == LiveLayer.encode(f).v.count else { return f }
+        guard v.count == LiveLayer.encode(f).v.count else {
+            return Frame(
+                envelope: f.envelope, curve: f.curve, point: f.point, die: f.die,
+                actuals: f.actuals, targets: f.targets, trail: f.trail, now: date)
+        }
         let n = f.actuals.count
         return Frame(
             envelope: f.envelope, curve: f.curve, point: f.point,
             die: v[0] < 0 ? nil : v[0], actuals: Array(v[1..<1 + n]),
-            targets: f.targets.isEmpty ? [] : Array(v[1 + n..<1 + 2 * n]), trail: f.trail)
+            targets: f.targets.isEmpty ? [] : Array(v[1 + n..<1 + 2 * n]), trail: f.trail,
+            now: date)
     }
     @SwiftUI.State private var rightClicks: Any?
     /// The pointer's last position in the plot, readable from the
@@ -356,7 +363,7 @@ struct Plot: View {
         let frame = Frame(
             envelope: model.envelope, curve: curve,
             point: editable ? model.point : -1, die: model.die, actuals: model.actuals,
-            targets: model.targets, trail: model.trail)
+            targets: model.targets, trail: model.trail, now: model.now(.now))
         GeometryReader { proxy in
             let geometry = PlotGeometry(size: proxy.size, envelope: frame.envelope)
             ZStack {
@@ -400,7 +407,7 @@ struct Plot: View {
                             minimumInterval: glide.moving(at: .now) ? 1.0 / 24 : 1.0 / 10,
                             paused: !glide.moving(at: .now) && !frame.trail.glowing(at: .now))
                     ) { timeline in
-                        let live = glided(frame, at: timeline.date)
+                        let live = glided(frame, at: model.now(timeline.date))
                         ZStack {
                             // A fresh identity whenever the live numbers
                             // appear or vanish: the layer is born at the truth
@@ -442,9 +449,15 @@ struct Plot: View {
                                     .placed { boxes.at[.fans] = $0 }
                                     .zIndex(lit == .fans ? 1 : 0)
                                     .pinned { size in
-                                        CGPoint(
+                                        // Above its rule, unless that is the
+                                        // die badge's band along the top (the
+                                        // same font, so the same height):
+                                        // then below it.
+                                        let above = y - 3 - size.height
+                                        let band = geometry.plot.minY + size.height + 2
+                                        return CGPoint(
                                             x: geometry.plot.maxX - 4 - size.width,
-                                            y: y - 3 - size.height)
+                                            y: above < band ? y + 3 : above)
                                     }
                                 }
                             }
@@ -457,7 +470,7 @@ struct Plot: View {
             }
             .coordinateSpace(.named(Plot.space))
             .onChange(of: LiveLayer.encode(frame), initial: true) { _, target in
-                glide.aim(target)
+                glide.aim(target, at: frame.now)
             }
             .animation(.inkSettle, value: lit(frame, geometry))
             .animation(.inkSettle, value: frame.curve?.name)
@@ -514,6 +527,8 @@ struct Plot: View {
             // SwiftUI gestures do not see the secondary button.
             .onChange(of: editable, initial: true) { _, on in pointer.editable = on }
             .onAppear {
+                // A film renders a fresh plot per frame and has no pointer.
+                guard !model.filming else { return }
                 // Installed once for the view's life (onAppear fires once,
                 // whichever tab was up), so whether the plot is editable
                 // right now is read from the box, never captured. The
@@ -843,9 +858,9 @@ struct LiveLayer: View {
             // three round strokes read the same and cost a path each.
             // Only positions inside the plot join the afterglow.
             if let lead = marks.first, Frame.celsius.contains(die), g.yLo...g.yHi ~= lead.1 {
-                frame.trail.record(die: die, rpm: lead.1)
+                frame.trail.record(die: die, rpm: lead.1, at: frame.now)
             }
-            let now = Date()
+            let now = frame.now
             let path = frame.trail.marks
             if path.count > 1 {
                 for (a, b) in zip(path, path.dropFirst()) {
