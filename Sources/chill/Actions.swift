@@ -37,7 +37,7 @@ enum ChillAction: String, CaseIterable, ActionSet {
         case .system:
             return Spec(title: "system: Apple's curve", symbol: "apple.logo")
         case .takeOver:
-            return Spec(title: "take over from the other watcher", symbol: "hand.raised")
+            return Spec(title: "take the fans over", symbol: "hand.raised")
         case .canvas:
             return Spec(title: "lab", symbol: "flask")
         case .back:

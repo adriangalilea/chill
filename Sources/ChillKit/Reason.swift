@@ -31,7 +31,7 @@ public enum Reason: CustomStringConvertible, Equatable, Sendable {
         case .apple: return "Apple's curve"
         case .foreign: return "forced by someone else · `chill system` reclaims"
         case .vetoed(let veto): return "vetoed: \(veto.spelled) · Apple holds the fans"
-        case .noOneWatching: return "no one watching → Apple holds the fans"
+        case .noOneWatching: return "you're away → Apple holds the fans"
         case .acquiring: return "acquiring"
         case .curve(let name): return "curve \"\(name)\""
         case .floor(let name): return "curve \"\(name)\" at its floor · Apple holds the fans"

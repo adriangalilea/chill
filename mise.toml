@@ -20,7 +20,7 @@
 
 [env]
 # THE VERSION, single source of truth: it stamps Info.plist and names the tag.
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 # /Applications, never ~/Applications: launchd bootstraps the daemon at boot,
 # before any home directory exists, and the cask lands here too, so a dev
 # build never registers a second root daemon. The CLI is a symlink into the

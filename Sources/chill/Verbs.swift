@@ -14,7 +14,7 @@ enum Verbs {
     static func said(_ message: String) -> String { "chill: \(message)" }
 
     /// Why `use` or `boost` without `--watch` refuses.
-    static let noWatcher = "no one watching: run with --watch or open chill.app"
+    static let noWatcher = "nobody at the Mac: run with --watch or open chill.app"
 
     static func note(_ message: String) {
         fputs("\(message)\n", stderr)
@@ -149,7 +149,9 @@ enum Verbs {
         let client = connect(demo, role: flags.watch ? .watch : .cli)
         do {
             if flags.take {
-                guard flags.watch else { die("--take needs --watch: only a watcher takes over") }
+                guard flags.watch else {
+                    die("--take needs --watch: only a terminal that holds the fans takes them over")
+                }
                 _ = try client.take()
             } else if flags.watch {
                 _ = try client.presence()
@@ -248,7 +250,7 @@ enum Watch {
         dispatchMain()
     }
 
-    static let greeting = "watching · Ctrl-C hands the fans back"
+    static let greeting = "holding the fans · Ctrl-C hands them back"
 }
 
 /// The one honest status line, from `State` alone.
@@ -283,7 +285,7 @@ enum Status {
             if let die = s.die {
                 parts.append("\(degrees(die)) → \(Int(curve.rpm(at: die).rounded())) rpm")
             }
-            if let presence = s.presence { parts.append("watching: \(presence.name)") }
+            if let presence = s.presence { parts.append("via \(presence.name)") }
             parts.append(rpm(s.fans))
         case (.boost(let until), .chill):
             parts[1] += " for \(remaining(until)) more"

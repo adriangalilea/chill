@@ -165,7 +165,7 @@ final class Model {
         }
         if let notice { return notice }
         if !watching, let state, state.presence == nil {
-            return "not watching: off the console, screens asleep or locked"
+            return "you're away: screen locked or asleep, or another user in front"
         }
         return nil
     }
