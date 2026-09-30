@@ -206,7 +206,7 @@ enum Scene {
             Step(kind: "output", text: Verbs.said(Verbs.noWatcher)),
             Step(
                 kind: "caption", author: true,
-                text: "Nothing forces a fan unless someone is watching"),
+                text: "On its own, a curve changes nothing"),
             Step(kind: "poster"),
             Step(kind: "command", author: true, text: "chill curve use quiet --watch"),
             Step(kind: "muted", text: Watch.greeting),
@@ -216,7 +216,9 @@ enum Scene {
             Step(
                 kind: "glyph", glyph: "filled",
                 tooltip: line(die: die, intent: .curve(quiet), watching: true, name: watch)),
-            Step(kind: "caption", author: true, text: "--watch makes the terminal the watcher"),
+            Step(
+                kind: "caption", author: true,
+                text: "--watch holds the fans while the terminal runs"),
             Step(kind: "key", author: true, keys: "⌃C"),
             Step(kind: "muted", text: "^C"),
             Step(kind: "output", text: line(die: die, intent: .system, watching: false)),
