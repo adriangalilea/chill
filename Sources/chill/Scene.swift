@@ -9,7 +9,7 @@ import SwiftUI
 /// world's state, every refusal and note the CLI's own constant, and the
 /// popover is a surface clip the film engine renders (`Film`, surface
 /// cut) into `--films`, published at `--cdn`. Writes `art.json`,
-/// `walk-away.json` and `cli.json` into every `--out`.
+/// `hero.json`, `walk-away.json` and `cli.json` into every `--out`.
 @MainActor
 enum Scene {
     /// No clock and no date: chill's stories take no time worth naming, so
@@ -72,13 +72,19 @@ enum Scene {
         let outs = values("--out").map { URL(fileURLWithPath: $0) }
         let model = Film.model()
 
-        // The popover the walk-away scene opens, as its own clip.
+        // Each popover a scene opens, as its own clip and its poster.
         let films = URL(fileURLWithPath: dir)
-        let clip = films.appending(path: "walk-away.mp4")
-        let size = Film.render(Film.walkAway, surface: true, model: model, out: clip)
-        let poster = films.appending(path: "walk-away.jpg")
-        still(clip, into: poster)
-        print("scene: \(clip.path) (\(Int(size.width))×\(Int(size.height)) pt)")
+        let clips: [(String, Film.Story)] = [("hero", Film.hero), ("walk-away", Film.walkAway)]
+        var surfaces: [String: Surface] = [:]
+        for (name, story) in clips {
+            let clip = films.appending(path: "\(name).mp4")
+            let size = Film.render(story, model: Film.model(), out: clip)
+            still(clip, into: films.appending(path: "\(name).jpg"))
+            surfaces[name] = Surface(
+                src: "\(cdn)/\(name).mp4", poster: "\(cdn)/\(name).jpg",
+                width: size.width, height: size.height, background: Film.background)
+            print("scene: \(clip.path) (\(Int(size.width))×\(Int(size.height)) pt)")
+        }
 
         let art = Art(
             icon: dataURL(png: icon()),
@@ -91,14 +97,11 @@ enum Scene {
                             dark: dataURL(png: png($0, .white)))
                     )
                 }),
-            surfaces: [
-                "walk-away": Surface(
-                    src: "\(cdn)/walk-away.mp4", poster: "\(cdn)/walk-away.jpg",
-                    width: size.width, height: size.height, background: Film.background)
-            ])
+            surfaces: surfaces)
         let chord = model.store.displayPrimary(for: .toggle)
         let files: [(String, any Encodable)] = [
             ("art.json", art),
+            ("hero.json", Timeline(chord: chord, steps: hero())),
             ("walk-away.json", Timeline(chord: chord, steps: walkAway())),
             ("cli.json", Timeline(chord: chord, steps: cli())),
         ]
@@ -119,6 +122,34 @@ enum Scene {
     }
 
     // MARK: - the stories
+
+    /// The value in one breath, the popover open from the first frame: the
+    /// pointer presses chill and pushes the knob as the heat arrives, the
+    /// fans ride the curve, it presses apple. The glyph flips at the clip's
+    /// own cuts, so the menu bar and the popover change on the same frame;
+    /// the poster is the climb at its peak, the afterglow behind it.
+    static func hero() -> [Step] {
+        let story = Film.hero
+        let (on, off) = (story.cuts[0], story.cuts[1])
+        let peak = 11.0
+        let ms = { (seconds: Double) in Int((seconds * 1000).rounded()) }
+        let idle = line(die: story.die(0), intent: .system, watching: true)
+        let curve = line(
+            die: story.die(peak), intent: Film.World.intent(.tuned, push: story.push(peak)),
+            watching: true)
+        return [
+            Step(kind: "world", author: true, world: World()),
+            Step(kind: "glyph", glyph: "outline", tooltip: idle),
+            Step(kind: "surface", text: "hero", arg: "0"),
+            Step(kind: "glyph", delay: ms(on), glyph: "filled", tooltip: curve),
+            Step(kind: "poster", delay: ms(peak - on)),
+            Step(
+                kind: "glyph", delay: ms(off - peak), glyph: "outline",
+                tooltip: line(die: story.die(off), intent: .system, watching: true)),
+            // The clip's last seconds: the fans settle on Apple's curve.
+            Step(kind: "world", delay: ms(story.length - off), world: World()),
+        ]
+    }
 
     /// Lock the Mac and walk away: the popover shows chill holding the fans;
     /// the lock screen comes up; unlocked, the popover opens on the fans at

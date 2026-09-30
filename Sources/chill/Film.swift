@@ -27,22 +27,17 @@ extension View {
 }
 
 /// The popover telling one of chill's stories, drawn by the app's own views
-/// on a virtual clock. Every frame is a fresh `ImageRenderer` pass at
-/// `scale`, so a clip is as sharp as the page wants whatever the display
-/// is; nothing animates on the wall clock, every motion is a value the
-/// story gives the frame (the heat, the tab, the knob, who is watching,
-/// the pointer) or the fans stepped by the demo daemon's physics. At a cut
-/// (a tab pressed, the watcher gone or back) the frame before crossfades
-/// into the frame after. Two cuts of the same story:
-/// - a film (`chill --demo film`): the popover on a desk under its menu bar
-///   glyph, with the pointer, a picture on its own;
-/// - a surface (`chill --demo scene`): the popover alone at its own size,
-///   the clip `@ag/macos` hangs from the glyph on its stage.
+/// on a virtual clock: the surface clip `@ag/macos` hangs from chill's glyph
+/// on its stage (`chill --demo scene`). Every frame is a fresh
+/// `ImageRenderer` pass at `scale`, so a clip is as sharp as the page wants
+/// whatever the display is; nothing animates on the wall clock, every
+/// motion is a value the story gives the frame (the heat, the tab, the
+/// knob, who is watching, the pointer) or the fans stepped by the demo
+/// daemon's physics. At a cut (a tab pressed, the watcher gone or back) the
+/// frame before crossfades into the frame after.
 @MainActor
 enum Film {
     static let fps = 30.0
-    /// The film's stage in points; the popover is 460 wide on it.
-    static let stage = CGSize(width: 640, height: 400)
     static let scale: CGFloat = 3
     static let fade = 0.3
 
@@ -53,9 +48,10 @@ enum Film {
         case handle
     }
 
-    /// Where the pointer waits between acts, and where it enters and leaves.
-    static let rest = CGPoint(x: 600, y: 380)
-    static let offstage = CGPoint(x: 700, y: 440)
+    /// Where the pointer waits between acts, in the popover's points: past
+    /// its bottom-right corner, on the desktop the stage draws around it, so
+    /// the clip shows it arriving from outside and leaving again.
+    static let outside = CGPoint(x: 540, y: 380)
 
     /// What the app sees at an instant: the tab the daemon runs and whether
     /// this Mac has someone at it.
@@ -84,8 +80,6 @@ enum Film {
         }
     }
 
-    static let stories: [String: Story] = ["hero": hero, "walk-away": walkAway]
-
     /// The value in one breath: press chill, push the knob as the heat
     /// arrives, the fans ride the curve up and down, press apple and
     /// Apple's curve takes them back.
@@ -105,7 +99,7 @@ enum Film {
         ui: { t in UI(tab: t < 1.6 || t >= 16.8 ? .apple : .tuned, watching: true) },
         cuts: [1.6, 16.8],
         path: [
-            (0.0, .at(rest), false),
+            (0.0, .at(outside), false),
             (1.3, .mark(.tab(.tuned)), false),
             (1.45, .mark(.tab(.tuned)), true),
             (1.65, .mark(.tab(.tuned)), false),
@@ -114,13 +108,13 @@ enum Film {
             (2.9, .handle, true),
             (5.3, .handle, true),
             (5.45, .handle, false),
-            (6.6, .at(rest), false),
-            (15.4, .at(rest), false),
+            (6.6, .at(outside), false),
+            (15.4, .at(outside), false),
             (16.5, .mark(.tab(.apple)), false),
             (16.65, .mark(.tab(.apple)), true),
             (16.85, .mark(.tab(.apple)), false),
             (17.6, .mark(.tab(.apple)), false),
-            (19.2, .at(rest), false),
+            (19.2, .at(outside), false),
         ])
 
     /// The contract, as the clip the stage's walk-away scene opens twice:
@@ -137,7 +131,7 @@ enum Film {
         push: { _ in 0.45 },
         ui: { t in UI(tab: .tuned, watching: t < gone || t >= back) },
         cuts: [gone, back],
-        path: [(0, .at(offstage), false)])
+        path: [(0, .at(outside), false)])
 
     // MARK: - the world
 
@@ -204,19 +198,9 @@ enum Film {
         return model
     }
 
-    static func story(_ name: String) -> Story {
-        guard let story = stories[name] else {
-            Verbs.die(
-                "film: no story '\(name)'; stories: \(stories.keys.sorted().joined(separator: ", "))"
-            )
-        }
-        return story
-    }
-
-    /// Renders `story` into `out` (H.264) and returns the frame's size in
-    /// points: the film's stage, or the popover's own for a surface.
-    @discardableResult
-    static func render(_ story: Story, surface: Bool, model: Model, out: URL) -> CGSize {
+    /// Renders `story` into `out` (H.264) and returns the popover's size in
+    /// points.
+    static func render(_ story: Story, model: Model, out: URL) -> CGSize {
         // A story opens in its steady state: the fans already where its
         // first instant puts them.
         var world = World()
@@ -247,7 +231,7 @@ enum Film {
                     world.state(
                         die: die, intent: World.intent(ui.tab, push: push),
                         watching: ui.watching))
-                return draw(model, story: story, surface: surface, t: t)
+                return draw(model, story: story, t: t)
             }
             let now = frame(ui)
             // The first frame fixes the size; a surface that changes size
@@ -274,22 +258,8 @@ enum Film {
         return size
     }
 
-    /// `chill --demo film <story> <out.mp4>`: the film cut, then exit.
-    static func run(story name: String, out: URL) -> Never {
-        let model = model()
-        render(story(name), surface: false, model: model, out: out)
-        print("film: \(out.path) (\(name))")
-        exit(0)
-    }
-
-    private static func draw(_ model: Model, story: Story, surface: Bool, t: Double) -> CGImage {
-        let renderer: ImageRenderer<AnyView>
-        if surface {
-            renderer = ImageRenderer(content: AnyView(SurfaceFrame(model: model)))
-        } else {
-            renderer = ImageRenderer(content: AnyView(FilmFrame(model: model, story: story, t: t)))
-            renderer.proposedSize = ProposedViewSize(stage)
-        }
+    private static func draw(_ model: Model, story: Story, t: Double) -> CGImage {
+        let renderer = ImageRenderer(content: SurfaceFrame(model: model, story: story, t: t))
         renderer.scale = scale
         renderer.isOpaque = true
         guard let image = renderer.cgImage else { Verbs.die("film: frame at \(t)s did not render") }
@@ -379,84 +349,21 @@ private final class Encoder {
 }
 
 /// The popover alone, as the stage hangs it: its content on the window
-/// background, the size SwiftUI lays it out at.
+/// background, the size SwiftUI lays it out at, and the pointer the story
+/// moves over it (the frame's edge cuts it where it leaves for the desktop).
 struct SurfaceFrame: View {
-    let model: Model
-
-    var body: some View {
-        PopoverView(model: model)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, .dark)
-            .environment(\.locale, .figures)
-    }
-}
-
-/// One frame of a film: a dark desk, the menu bar with chill's glyph and a
-/// clock, the popover hanging from the glyph, and the pointer.
-struct FilmFrame: View {
     let model: Model
     let story: Film.Story
     let t: Double
 
-    /// Where the glyph sits on the stage, and so the popover's arrow.
-    static let glyphX: CGFloat = 470
-    static let barHeight: CGFloat = 24
-    static let popoverX: CGFloat = 96
-
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Color(white: 0.055)
-            RadialGradient(
-                colors: [Palette.dune.opacity(0.07), .clear], center: .init(x: 0.73, y: 0),
-                startRadius: 0, endRadius: 420)
-            menuBar
-            popover
-                .offset(x: FilmFrame.popoverX, y: FilmFrame.barHeight + 4)
-        }
-        .frame(width: Film.stage.width, height: Film.stage.height, alignment: .topLeading)
-        .overlayPreferenceValue(FilmMarks.self) { marks in
-            GeometryReader { proxy in pointer(marks, proxy) }
-        }
-        .environment(\.colorScheme, .dark)
-        .environment(\.locale, .figures)
-    }
-
-    /// The glyph at `glyphX`, highlighted as a menu bar item is while its
-    /// popover is open, and a clock to its right.
-    private var menuBar: some View {
-        let mid = FilmFrame.barHeight / 2
-        return ZStack(alignment: .topLeading) {
-            Rectangle().fill(.white.opacity(0.045))
-            Rectangle().fill(.white.opacity(0.06)).frame(height: 1)
-                .offset(y: FilmFrame.barHeight - 1)
-            RoundedRectangle(cornerRadius: 5).fill(.white.opacity(0.14))
-                .frame(width: 30, height: 20)
-                .position(x: FilmFrame.glyphX, y: mid)
-            Image(nsImage: Glyph(model.link).image())
-                .renderingMode(.template)
-                .foregroundStyle(.white.opacity(0.92))
-                .position(x: FilmFrame.glyphX, y: mid)
-            Text("Tue 30 Sep  9:41")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white.opacity(0.85))
-                .fixedSize()
-                .position(x: FilmFrame.glyphX + 88, y: mid)
-        }
-        .frame(width: Film.stage.width, height: FilmFrame.barHeight)
-    }
-
-    private var popover: some View {
         PopoverView(model: model)
-            .background(
-                Balloon(arrowX: FilmFrame.glyphX - FilmFrame.popoverX)
-                    .fill(Color(nsColor: .windowBackgroundColor))
-            )
-            .overlay(
-                Balloon(arrowX: FilmFrame.glyphX - FilmFrame.popoverX)
-                    .stroke(.white.opacity(0.1), lineWidth: 1)
-            )
-            .compositingGroup()
-            .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .overlayPreferenceValue(FilmMarks.self) { marks in
+                GeometryReader { proxy in pointer(marks, proxy) }
+            }
+            .environment(\.colorScheme, .dark)
+            .environment(\.locale, .figures)
     }
 
     @ViewBuilder
@@ -490,45 +397,5 @@ struct FilmFrame: View {
             let rect = proxy[anchor]
             return CGPoint(x: rect.minX + rect.width * model.config.push, y: rect.midY)
         }
-    }
-}
-
-/// The popover's outline: a rounded body with the arrow on top at
-/// `arrowX`, one path so the border runs around both.
-struct Balloon: Shape {
-    let arrowX: CGFloat
-    static let arrow = CGSize(width: 22, height: 10)
-    static let radius: CGFloat = 16
-
-    func path(in rect: CGRect) -> Path {
-        let r = Balloon.radius
-        let a = Balloon.arrow
-        var p = Path()
-        p.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
-        p.addLine(to: CGPoint(x: arrowX - a.width / 2, y: rect.minY))
-        p.addQuadCurve(
-            to: CGPoint(x: arrowX, y: rect.minY - a.height),
-            control: CGPoint(x: arrowX - a.width / 4, y: rect.minY))
-        p.addQuadCurve(
-            to: CGPoint(x: arrowX + a.width / 2, y: rect.minY),
-            control: CGPoint(x: arrowX + a.width / 4, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
-        p.addArc(
-            center: CGPoint(x: rect.maxX - r, y: rect.minY + r), radius: r,
-            startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
-        p.addArc(
-            center: CGPoint(x: rect.maxX - r, y: rect.maxY - r), radius: r,
-            startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
-        p.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
-        p.addArc(
-            center: CGPoint(x: rect.minX + r, y: rect.maxY - r), radius: r,
-            startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
-        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
-        p.addArc(
-            center: CGPoint(x: rect.minX + r, y: rect.minY + r), radius: r,
-            startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
-        p.closeSubpath()
-        return p
     }
 }
