@@ -31,7 +31,7 @@ let usage = """
       chill daemon status            registration, pid, signature check
       chill log [-f]                 \(Wire.logFile) (-f follows)
       chill --demo ...               the demo world: -demo roots, an in-process daemon, never chilld
-      chill --demo film <out.mp4>    the popover's story, rendered frame by frame (needs ffmpeg)
+      chill --demo film <story> <out.mp4>   a popover story (hero, walk-away), rendered frame by frame (needs ffmpeg)
 
     `use` and `boost` set the intent; a fan is forced only while someone
     watches. --watch makes this process the watcher, at 1 Hz until Ctrl-C
@@ -44,11 +44,11 @@ case nil:
     // The process's own main thread, before any run loop exists.
     MainActor.assumeIsolated { App.run(demo: demo) }
 case "film":
-    guard demo.on, args.count == 2 else {
-        Verbs.die("usage: chill --demo film <out.mp4> (the demo world only)")
+    guard demo.on, args.count == 3 else {
+        Verbs.die("usage: chill --demo film <story> <out.mp4> (the demo world only)")
     }
-    let out = URL(fileURLWithPath: args[1])
-    MainActor.assumeIsolated { Film.run(out: out) }
+    let out = URL(fileURLWithPath: args[2])
+    MainActor.assumeIsolated { Film.run(story: args[1], out: out) }
 case "status":
     Verbs.status(json: args.contains("--json"), demo: demo)
 case "curve":

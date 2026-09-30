@@ -53,11 +53,14 @@ scripts/locked.sh swift build
 # film's clock, so it is as sharp as the page wants and cannot drift from
 # the app. `pnpm media chill <feature> dist/film.mp4` publishes it.
 [tasks.film]
-description = "The popover's story as dist/film.mp4, rendered by the app at 3x (needs ffmpeg)"
+description = "Every popover story as dist/films/<story>.mp4, rendered by the app at 3x (needs ffmpeg)"
 run = '''
+set -e
 scripts/locked.sh swift build
-mkdir -p "$DIST"
-.build/debug/chill --demo film "$DIST/film.mp4"
+mkdir -p "$DIST/films"
+for story in hero walk-away; do
+  .build/debug/chill --demo film "$story" "$DIST/films/$story.mp4"
+done
 '''
 
 [tasks.format]

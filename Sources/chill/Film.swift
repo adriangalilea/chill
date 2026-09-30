@@ -26,49 +26,21 @@ extension View {
     }
 }
 
-/// `chill --demo film <out.mp4>`: the popover telling chill's story, drawn
-/// by the app's own views on a virtual clock. Every frame is a fresh
-/// `ImageRenderer` pass at `scale`, so the film is as sharp as the page
-/// wants whatever the display is; nothing animates on the wall clock,
-/// every motion is a value the script gives the frame (the heat, the
-/// fans stepped by the demo daemon's physics, the knob, the pointer). A
-/// change of tab crossfades the frame before into the frame after.
+/// `chill --demo film <story> <out.mp4>`: the popover telling one of
+/// chill's stories, drawn by the app's own views on a virtual clock. Every
+/// frame is a fresh `ImageRenderer` pass at `scale`, so the film is as
+/// sharp as the page wants whatever the display is; nothing animates on
+/// the wall clock, every motion is a value the story gives the frame (the
+/// heat, the tab, the knob, who is watching, the pointer) or the fans
+/// stepped by the demo daemon's physics. At a cut (a tab pressed, the
+/// watcher gone or back) the frame before crossfades into the frame after.
 @MainActor
 enum Film {
     static let fps = 30.0
-    static let length = 20.0
     /// The stage in points; the popover is 460 wide on it.
     static let stage = CGSize(width: 640, height: 400)
     static let scale: CGFloat = 3
     static let fade = 0.3
-
-    // MARK: - the script
-
-    /// The machine: idle, a load arriving, the peak held, cooling off.
-    static func die(at t: Double) -> Double {
-        let idle = 47 + 0.4 * sin(t * 1.3)
-        let peak = 72 + 0.6 * sin(t * 1.7)
-        let cool = 53 + 0.4 * sin(t * 1.1)
-        if t < 4.5 { return idle }
-        if t < 9.5 { return mix(idle, peak, ease((t - 4.5) / 5)) }
-        if t < 11.5 { return peak }
-        if t < 16 { return mix(peak, cool, ease((t - 11.5) / 4.5)) }
-        return cool
-    }
-
-    /// The tab the pointer has pressed by `t`.
-    static func tab(at t: Double) -> Model.Tab {
-        t < clicks[0] || t >= clicks[1] ? .apple : .tuned
-    }
-
-    /// When the pointer presses: the chill tab, then apple.
-    static let clicks = [1.6, 16.8]
-
-    /// The knob: where the built-in curve starts, and the drag that
-    /// pushes it harder as the heat arrives.
-    static func push(at t: Double) -> Double {
-        mix(0.30, 0.45, ease((t - 3.0) / 2.2))
-    }
 
     enum Place {
         case at(CGPoint)
@@ -77,34 +49,103 @@ enum Film {
         case handle
     }
 
-    /// The pointer's path: keyframes of (time, place, pressed); between
-    /// two, it eases from one place to the next.
-    static let path: [(t: Double, place: Place, pressed: Bool)] = [
-        (0.0, .at(CGPoint(x: 600, y: 380)), false),
-        (1.3, .mark(.tab(.tuned)), false),
-        (1.45, .mark(.tab(.tuned)), true),
-        (1.65, .mark(.tab(.tuned)), false),
-        (2.0, .mark(.tab(.tuned)), false),
-        (2.7, .handle, false),
-        (2.9, .handle, true),
-        (5.3, .handle, true),
-        (5.45, .handle, false),
-        (6.6, .at(CGPoint(x: 600, y: 380)), false),
-        (15.4, .at(CGPoint(x: 600, y: 380)), false),
-        (16.5, .mark(.tab(.apple)), false),
-        (16.65, .mark(.tab(.apple)), true),
-        (16.85, .mark(.tab(.apple)), false),
-        (17.6, .mark(.tab(.apple)), false),
-        (19.2, .at(CGPoint(x: 600, y: 380)), false),
-    ]
+    /// Where the pointer waits between acts, and where it enters and leaves.
+    static let rest = CGPoint(x: 600, y: 380)
+    static let offstage = CGPoint(x: 700, y: 440)
 
-    static func pointer(at t: Double) -> (from: Place, to: Place, u: Double, pressed: Bool) {
-        let next = path.firstIndex { $0.t > t } ?? path.count - 1
-        let a = path[max(0, next - 1)]
-        let b = path[next]
-        let u = b.t > a.t ? min(1, max(0, (t - a.t) / (b.t - a.t))) : 1
-        return (a.place, b.place, ease(u), a.pressed)
+    /// What the app sees at an instant: the tab the daemon runs and whether
+    /// this Mac has someone at it.
+    struct UI: Equatable {
+        let tab: Model.Tab
+        let watching: Bool
     }
+
+    /// A veil over the stage: what the Mac is doing that the popover
+    /// cannot show (the screen locked), and the time it skips.
+    struct Veil {
+        let opacity: Double
+        let symbol: String
+        let text: String
+    }
+
+    struct Story {
+        let length: Double
+        let die: (Double) -> Double
+        let push: (Double) -> Double
+        let ui: (Double) -> UI
+        /// The instants `ui` changes.
+        let cuts: [Double]
+        /// Keyframes of (time, place, pressed); between two the pointer
+        /// eases from one place to the next.
+        let path: [(t: Double, place: Place, pressed: Bool)]
+        let veil: (Double) -> Veil?
+
+        func pointer(at t: Double) -> (from: Place, to: Place, u: Double, pressed: Bool) {
+            let next = path.firstIndex { $0.t > t } ?? path.count - 1
+            let a = path[max(0, next - 1)]
+            let b = path[next]
+            let u = b.t > a.t ? min(1, max(0, (t - a.t) / (b.t - a.t))) : 1
+            return (a.place, b.place, ease(u), a.pressed)
+        }
+    }
+
+    static let stories: [String: Story] = ["hero": hero, "walk-away": walkAway]
+
+    /// The value in one breath: press chill, push the knob as the heat
+    /// arrives, the fans ride the curve up and down, press apple and
+    /// Apple's curve takes them back.
+    static let hero = Story(
+        length: 20,
+        die: { t in
+            let idle = 47 + 0.4 * sin(t * 1.3)
+            let peak = 72 + 0.6 * sin(t * 1.7)
+            let cool = 53 + 0.4 * sin(t * 1.1)
+            if t < 4.5 { return idle }
+            if t < 9.5 { return mix(idle, peak, ease((t - 4.5) / 5)) }
+            if t < 11.5 { return peak }
+            if t < 16 { return mix(peak, cool, ease((t - 11.5) / 4.5)) }
+            return cool
+        },
+        push: { t in mix(0.30, 0.45, ease((t - 3.0) / 2.2)) },
+        ui: { t in UI(tab: t < 1.6 || t >= 16.8 ? .apple : .tuned, watching: true) },
+        cuts: [1.6, 16.8],
+        path: [
+            (0.0, .at(rest), false),
+            (1.3, .mark(.tab(.tuned)), false),
+            (1.45, .mark(.tab(.tuned)), true),
+            (1.65, .mark(.tab(.tuned)), false),
+            (2.0, .mark(.tab(.tuned)), false),
+            (2.7, .handle, false),
+            (2.9, .handle, true),
+            (5.3, .handle, true),
+            (5.45, .handle, false),
+            (6.6, .at(rest), false),
+            (15.4, .at(rest), false),
+            (16.5, .mark(.tab(.apple)), false),
+            (16.65, .mark(.tab(.apple)), true),
+            (16.85, .mark(.tab(.apple)), false),
+            (17.6, .mark(.tab(.apple)), false),
+            (19.2, .at(rest), false),
+        ],
+        veil: { _ in nil })
+
+    /// The contract: chill runs hot, the screen locks, and once presence
+    /// lapses (the 10 s window, skipped) Apple has the fans while the
+    /// chill tab stays pressed; unlocked, the curve takes them again.
+    static let walkAway = Story(
+        length: 12,
+        die: { t in 68 + 0.5 * sin(t * 1.4) },
+        push: { _ in 0.45 },
+        ui: { t in UI(tab: .tuned, watching: t < 3.6 || t >= 8.2) },
+        cuts: [3.6, 8.2],
+        path: [(0, .at(offstage), false)],
+        veil: { t in
+            let on = ease((t - 2.0) / 0.5) * (1 - ease((t - 7.6) / 0.5))
+            guard on > 0 else { return nil }
+            return Veil(
+                opacity: on, symbol: "lock.fill",
+                text: t < 3.4 ? "screen locked" : "screen locked · 10 s later")
+        })
 
     // MARK: - the world
 
@@ -121,24 +162,27 @@ enum Film {
                 return .curve(Model.tuned(push: push, envelope: envelope))
             case .apple: return .system
             case .gust, .custom:
-                preconditionFailure("the film's script presses apple and chill only")
+                preconditionFailure("the film's stories press apple and chill only")
             }
         }
 
-        mutating func step(die: Double, intent: Intent, seconds: Double) {
+        mutating func step(die: Double, intent: Intent, watching: Bool, seconds: Double) {
             for fan in FakeDaemon.fans {
-                let target = FakeDaemon.target(fan, die: die, intent: intent, forced: true)
+                let target = FakeDaemon.target(
+                    fan, die: die, intent: intent, forced: intent != .system && watching)
                 actual[fan.index] = FakeDaemon.slew(
                     actual[fan.index], toward: target, seconds: seconds)
             }
         }
 
-        /// What the daemon would reply: the app watching, `intent` running.
-        func state(die: Double, intent: Intent) -> ChillKit.State {
-            let forced = intent != .system
+        /// What the daemon would reply: `intent` persisted, forced only while
+        /// someone watches.
+        func state(die: Double, intent: Intent, watching: Bool) -> ChillKit.State {
+            let forced = intent != .system && watching
             return ChillKit.State(
                 intent: intent, holder: FakeDaemon.holder(intent, forced: forced), vetoes: [],
-                presence: Presence(pid: getpid(), name: Role.app.rawValue, secondsLeft: 10),
+                presence: watching
+                    ? Presence(pid: getpid(), name: Role.app.rawValue, secondsLeft: 10) : nil,
                 fans: FakeDaemon.fans.map { fan in
                     FanState(
                         index: fan.index, actual: actual[fan.index].rounded(),
@@ -153,7 +197,12 @@ enum Film {
 
     // MARK: - the render
 
-    static func run(out: URL) -> Never {
+    static func run(story name: String, out: URL) -> Never {
+        guard let story = stories[name] else {
+            Verbs.die(
+                "film: no story '\(name)'; stories: \(stories.keys.sorted().joined(separator: ", "))"
+            )
+        }
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
         app.appearance = NSAppearance(named: .darkAqua)
@@ -162,43 +211,57 @@ enum Film {
         model.hello = Hello(
             daemonVersion: Wire.version, protocolVersion: Wire.protocolVersion, pid: getpid(),
             fans: FakeDaemon.fans)
-        model.watching = true
         model.popoverShown = true
 
         let width = Int(stage.width * scale)
         let height = Int(stage.height * scale)
         let encoder = Encoder(out: out, width: width, height: height, fps: fps)
+        // A story opens in its steady state: the fans already where its
+        // first instant puts them.
         var world = World()
-        let frames = Int(length * fps)
+        for _ in 0..<Int(10 * fps) {
+            let ui = story.ui(0)
+            world.step(
+                die: story.die(0), intent: World.intent(ui.tab, push: story.push(0)),
+                watching: ui.watching, seconds: 1 / fps)
+        }
+        let frames = Int(story.length * fps)
         let start = Date(timeIntervalSinceReferenceDate: 0)
         for i in 0..<frames {
             let t = Double(i) / fps
-            let die = die(at: t)
-            let push = push(at: t)
-            let tab = tab(at: t)
-            let intent = World.intent(tab, push: push)
-            world.step(die: die, intent: intent, seconds: 1 / fps)
+            let die = story.die(t)
+            let push = story.push(t)
+            let ui = story.ui(t)
+            let intent = World.intent(ui.tab, push: push)
+            world.step(die: die, intent: intent, watching: ui.watching, seconds: 1 / fps)
             model.config.push = push
             model.filmTime = start.addingTimeInterval(t)
 
-            let now = draw(model, world.state(die: die, intent: intent), t: t)
-            // Within `fade` of a press, the tab before shows through.
-            if let click = clicks.last(where: { $0 <= t }), t - click < fade {
-                let before = World.intent(tab == .apple ? .tuned : .apple, push: push)
-                let then = draw(model, world.state(die: die, intent: before), t: t)
-                encoder.write(then, over: now, alpha: ease((t - click) / fade))
+            let frame = { (ui: UI) -> CGImage in
+                model.watching = ui.watching
+                let state = world.state(
+                    die: die, intent: World.intent(ui.tab, push: push), watching: ui.watching)
+                return draw(model, state, story: story, t: t)
+            }
+            let now = frame(ui)
+            if let cut = story.cuts.last(where: { $0 <= t }), t - cut < fade {
+                let before = story.ui(cut - 1 / fps)
+                precondition(before != ui, "film: the cut at \(cut)s changes nothing")
+                encoder.write(frame(before), over: now, alpha: ease((t - cut) / fade))
             } else {
                 encoder.write(now)
             }
         }
         encoder.finish()
-        print("film: \(out.path) (\(frames) frames, \(width)×\(height))")
+        print("film: \(out.path) (\(name), \(frames) frames, \(width)×\(height))")
         exit(0)
     }
 
-    private static func draw(_ model: Model, _ state: ChillKit.State, t: Double) -> CGImage {
+    private static func draw(_ model: Model, _ state: ChillKit.State, story: Story, t: Double)
+        -> CGImage
+    {
         model.link = .live(state)
-        let renderer = ImageRenderer(content: FilmFrame(model: model, t: t))
+        let renderer = ImageRenderer(content: FilmFrame(model: model, story: story, t: t))
         renderer.proposedSize = ProposedViewSize(stage)
         renderer.scale = scale
         renderer.isOpaque = true
@@ -209,8 +272,8 @@ enum Film {
         return image
     }
 
-    static func mix(_ a: Double, _ b: Double, _ u: Double) -> Double { a + (b - a) * u }
-    static func ease(_ u: Double) -> Double {
+    nonisolated static func mix(_ a: Double, _ b: Double, _ u: Double) -> Double { a + (b - a) * u }
+    nonisolated static func ease(_ u: Double) -> Double {
         let u = min(1, max(0, u))
         return u * u * (3 - 2 * u)
     }
@@ -278,9 +341,10 @@ private final class Encoder {
 }
 
 /// One frame: a dark desk, the menu bar with chill's glyph and a clock,
-/// the popover hanging from the glyph, and the pointer.
+/// the popover hanging from the glyph, the story's veil, and the pointer.
 struct FilmFrame: View {
     let model: Model
+    let story: Film.Story
     let t: Double
 
     /// Where the glyph sits on the stage, and so the popover's arrow.
@@ -297,6 +361,9 @@ struct FilmFrame: View {
             menuBar
             popover
                 .offset(x: FilmFrame.popoverX, y: FilmFrame.barHeight + 4)
+            if let veil = story.veil(t) {
+                veilView(veil)
+            }
         }
         .frame(width: Film.stage.width, height: Film.stage.height, alignment: .topLeading)
         .overlayPreferenceValue(FilmMarks.self) { marks in
@@ -344,9 +411,30 @@ struct FilmFrame: View {
             .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
     }
 
+    /// The Mac's state the popover cannot show: a light dim over the stage,
+    /// the plot still readable through it, and a plate below the popover
+    /// saying it.
+    private func veilView(_ veil: Film.Veil) -> some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.3)
+            HStack(spacing: 8) {
+                Image(systemName: veil.symbol).font(.system(size: 13, weight: .semibold))
+                Text(veil.text).font(.meta)
+            }
+            .foregroundStyle(.white.opacity(0.9))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.white.opacity(0.1), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 1))
+            .padding(.bottom, 10)
+        }
+        .frame(width: Film.stage.width, height: Film.stage.height)
+        .opacity(veil.opacity)
+    }
+
     @ViewBuilder
     private func pointer(_ marks: [FilmMark: Anchor<CGRect>], _ proxy: GeometryProxy) -> some View {
-        let (from, to, u, pressed) = Film.pointer(at: t)
+        let (from, to, u, pressed) = story.pointer(at: t)
         let a = place(from, marks, proxy)
         let b = place(to, marks, proxy)
         let at = CGPoint(x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u)

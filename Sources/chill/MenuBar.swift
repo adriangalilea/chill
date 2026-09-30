@@ -158,26 +158,16 @@ final class MenuBar: NSObject, NSPopoverDelegate {
 /// (the built-in curve and its knob), one per custom curve, `+` beside
 /// the rail for a new one; picking a tab sends it, the selected tab is
 /// what the daemon runs; the tab the toggle would press wears the key
-/// mark that says the shortcut. Under them a notice when there is one,
-/// the fixer when no daemon answers, the tab's plot, and a foot of one
-/// height.
+/// mark that says the shortcut. Under them the fixer when no daemon
+/// answers, the tab's plot, and a foot of one height whose explanatory
+/// line gives way to the aside (why the fans are not chill's, who holds
+/// them) while there is one: the popover never resizes for it.
 struct PopoverView: View {
     let model: Model
 
     var body: some View {
         VStack(alignment: .leading, spacing: .inkLane) {
             Tabs(model: model)
-            if let aside = model.aside {
-                HStack(spacing: .inkLane) {
-                    Text(aside).font(.meta).foregroundStyle(tone.opacity(0.8))
-                        .fixedSize(horizontal: false, vertical: true)
-                    if model.heldBy != nil {
-                        Chip(tint: tone, action: { model.perform(.takeOver) }) {
-                            Text("take over").font(.meta)
-                        }
-                    }
-                }
-            }
             Fixer(model: model)
             // The plot only while the popover is up (`popoverShown`):
             // hidden, its animations and Canvas would keep drawing at the
@@ -198,17 +188,20 @@ struct PopoverView: View {
             ZStack(alignment: .topLeading) {
                 switch model.tab {
                 case .apple:
-                    Foot(first: vetoNote, second: model.partsLine)
+                    Foot(model: model, first: vetoNote, second: model.partsLine)
                         .transition(.opacity)
                 case .gust:
-                    Foot(first: gustLine + vetoNote, second: model.partsLine)
+                    Foot(model: model, first: gustLine + vetoNote, second: model.partsLine)
                         .transition(.opacity)
                 case .tuned:
                     Knobs(model: model).transition(.opacity)
                 case .custom:
                     HStack(spacing: .inkLane) {
-                        Text("press the line to add a point and drag it · right-click removes one")
-                            .font(.meta).foregroundStyle(.tertiary)
+                        AsideOr(
+                            model: model,
+                            fallback:
+                                "press the line to add a point and drag it · right-click removes one"
+                        )
                         Spacer(minLength: 0)
                         Chip(action: { model.perform(.deleteCurve) }) {
                             HStack(spacing: .inkTight) {
@@ -269,14 +262,45 @@ struct PopoverView: View {
 /// The foot of the apple and gust tabs: two mono lines in the knobs'
 /// space, what the plot cannot say at a glance.
 struct Foot: View {
+    let model: Model
     let first: String
     let second: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: .inkGap) {
             Text(first).font(.meta).foregroundStyle(.secondary).frame(height: 16)
-            Text(second).font(.meta).foregroundStyle(.tertiary).lineLimit(1).frame(height: 16)
+            AsideOr(model: model, fallback: second)
         }
+    }
+}
+
+/// A foot's explanatory line, or the aside in its place while there is
+/// one (with "take over" when another watcher holds the fans): one line,
+/// so no tab's foot grows for it.
+struct AsideOr: View {
+    let model: Model
+    let fallback: String
+
+    var body: some View {
+        Group {
+            if let aside = model.aside {
+                HStack(spacing: .inkLane) {
+                    // A long notice truncates here; the whole of it is the
+                    // tooltip.
+                    Text(aside).foregroundStyle(tone.opacity(0.8)).help(aside)
+                    if model.heldBy != nil {
+                        Chip(tint: tone, action: { model.perform(.takeOver) }) {
+                            Text("take over").font(.meta)
+                        }
+                    }
+                }
+            } else {
+                Text(fallback).foregroundStyle(.tertiary)
+            }
+        }
+        .font(.meta)
+        .lineLimit(1)
+        .frame(height: 16)
     }
 }
 
@@ -591,7 +615,7 @@ struct Knobs: View {
             // No reading: the knob picks a curve, and the curve above moves
             // with it; a number here would read as an rpm being chosen.
             Knob(label: "push", value: push, range: 0...1, step: 0.02, reading: "")
-            Text(hint).font(.meta).foregroundStyle(.tertiary).frame(height: 16)
+            AsideOr(model: model, fallback: hint)
         }
         .disabled(model.envelope == nil)
     }
