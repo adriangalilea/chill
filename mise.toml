@@ -48,6 +48,14 @@ scripts/locked.sh swift build
 .build/debug/chill --demo
 '''
 
+[tasks.shot]
+description = "The popover as a still from the demo world, the app's own pixels: dist/popover.png (needs Screen Recording for the terminal)"
+run = '''
+scripts/locked.sh swift build
+mkdir -p "$DIST"
+.build/debug/chill --demo shot "$DIST/popover.png"
+'''
+
 [tasks.format]
 description = "swift-format in place (the Xcode toolchain's)"
 run = "xcrun swift-format --recursive Sources/ --in-place"

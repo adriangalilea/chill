@@ -23,7 +23,8 @@ final class CanvasWindow: NSObject, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 720, height: 420)
-        window.contentView = NSHostingView(rootView: CanvasView(model: model))
+        window.contentView = NSHostingView(
+            rootView: CanvasView(model: model).environment(\.locale, .figures))
         window.delegate = self
         window.center()
     }
@@ -44,6 +45,13 @@ final class CanvasWindow: NSObject, NSWindowDelegate {
 extension Font {
     /// Mono for metadata only: kickers, the status line, axis labels.
     static let meta = Font.system(size: 11, weight: .medium, design: .monospaced)
+}
+
+extension Locale {
+    /// The figures every surface prints, the CLI's: `2400 rpm` in any
+    /// locale. SwiftUI's `Text` would group them by the system's
+    /// (`2.400 rpm` in Spanish, a decimal to most readers).
+    static let figures = Locale(identifier: "en_US_POSIX")
 }
 
 /// One hue per meaning, alpha the only other variable:

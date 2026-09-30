@@ -23,7 +23,8 @@ final class MenuBar: NSObject, NSPopoverDelegate {
         precondition(item.button != nil, "no status bar button")
         popover.behavior = .transient
         popover.animates = false
-        let hosting = NSHostingController(rootView: PopoverView(model: model))
+        let hosting = NSHostingController(
+            rootView: PopoverView(model: model).environment(\.locale, .figures))
         // The popover takes SwiftUI's ideal size, not the first guess:
         // without this the top row is measured short and clipped.
         hosting.sizingOptions = [.preferredContentSize]
@@ -68,7 +69,15 @@ final class MenuBar: NSObject, NSPopoverDelegate {
             popover.performClose(nil)
             return
         }
+        open()
+    }
+
+    /// The popover, key, under the status item: a left-click, or a still
+    /// being taken.
+    func open() {
         log.info("popover opened; \(self.model.statusLine, privacy: .public)")
+        // A still must not close because focus went elsewhere mid-shot.
+        popover.behavior = model.shooting ? .applicationDefined : .transient
         // An accessory app owns no key window until it activates; the
         // keys route only into a key popover.
         NSApp.activate()
@@ -318,7 +327,7 @@ struct Tabs: View {
                     Text("+").font(.system(size: 15, weight: .medium))
                 }
             }
-            if model.demo.on {
+            if model.demo.on && !model.shooting {
                 Text("demo").font(.meta).foregroundStyle(.tertiary)
             }
             Spacer(minLength: 0)
@@ -359,6 +368,7 @@ struct Tabs: View {
         return TabCell(
             model: model, name: name, tab: tab, glyph: glyph, rail: rail,
             mark: model.toggleTarget == tab && !key.isEmpty && !model.config.keyHintDismissed
+                && !model.shooting
         ) { on, at in
             overDot = on
             if on { tip = Tip(key: key, at: at) }

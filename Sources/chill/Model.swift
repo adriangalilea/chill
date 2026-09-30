@@ -64,6 +64,10 @@ final class Model {
     /// day. The plot exists only while its surface is up.
     var popoverShown = false
     var labShown = false
+    /// `chill --demo shot` is taking a still of the popover: what only a
+    /// live session needs, the demo kicker and the shortcut hint, stays out
+    /// of the picture. The process exits once the still is written.
+    var shooting = false
     /// The shortcut panel and the about panel share the one floating
     /// panel; showing either dismisses the other.
     var showKeys = false { didSet { presentKeys(showKeys) } }

@@ -7,11 +7,13 @@ import Foundation
 /// canvas on demand. In the demo world every content-bearing root is the
 /// `-demo` sibling and the daemon is `FakeDaemon` through the same
 /// `Client`; the canvas opens at once, since the demo exists to be seen.
+/// `shot` is the demo's still: the popover with your curve running, written
+/// as a PNG by the app itself, then the process exits.
 enum App {
-    @MainActor static func run(demo: Demo) -> Never {
+    @MainActor static func run(demo: Demo, shot: URL? = nil) -> Never {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
-        let delegate = Delegate(demo: demo)
+        let delegate = Delegate(demo: demo, shot: shot)
         app.delegate = delegate
         app.run()
         fatalError("NSApplication.run returned")
@@ -21,12 +23,17 @@ enum App {
 @MainActor
 final class Delegate: NSObject, NSApplicationDelegate {
     let demo: Demo
+    let shot: URL?
     private var model: Model!
     private var menuBar: MenuBar!
     private var pulse: Pulse!
     private var signals: [DispatchSourceSignal] = []
 
-    init(demo: Demo) { self.demo = demo }
+    init(demo: Demo, shot: URL?) {
+        precondition(shot == nil || demo.on, "a still is taken in the demo world only")
+        self.demo = demo
+        self.shot = shot
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
@@ -53,7 +60,44 @@ final class Delegate: NSObject, NSApplicationDelegate {
             source.resume()
             signals.append(source)
         }
-        if demo.on { model.openCanvas() }
+        if let shot {
+            take(shot)
+        } else if demo.on {
+            model.openCanvas()
+        }
+    }
+
+    /// The link needs a moment to go live before `use` lands, and the plot
+    /// a while longer: the curve's morph, the die's breath, the afterglow
+    /// the live point leaves. Then the popover's own window is captured,
+    /// shadow off, and the app quits. A capture that writes nothing is
+    /// fatal: the likely cause is Screen Recording, not granted to the
+    /// terminal that launched this.
+    private func take(_ shot: URL) {
+        model.shooting = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [self] in
+            guard let curve = model.yourCurve else { Verbs.die("shot: no curve to run") }
+            model.use(curve)
+            menuBar.open()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [self] in
+            guard let window = model.popover?.contentViewController?.view.window else {
+                Verbs.die("shot: the popover has no window")
+            }
+            let capture = Process()
+            capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            capture.arguments = ["-x", "-o", "-l", String(window.windowNumber), shot.path]
+            do { try capture.run() } catch { Verbs.die("shot: \(error)") }
+            capture.waitUntilExit()
+            guard capture.terminationStatus == 0, FileManager.default.fileExists(atPath: shot.path)
+            else {
+                Verbs.die(
+                    "shot: screencapture wrote nothing (exit \(capture.terminationStatus)); grant Screen Recording to the terminal"
+                )
+            }
+            print("shot: \(shot.path)")
+            NSApp.terminate(nil)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -31,6 +31,7 @@ let usage = """
       chill daemon status            registration, pid, signature check
       chill log [-f]                 \(Wire.logFile) (-f follows)
       chill --demo ...               the demo world: -demo roots, an in-process daemon, never chilld
+      chill --demo shot <out.png>    the popover as a still, your curve running, then quit
 
     `use` and `boost` set the intent; a fan is forced only while someone
     watches. --watch makes this process the watcher, at 1 Hz until Ctrl-C
@@ -42,6 +43,12 @@ switch args.first {
 case nil:
     // The process's own main thread, before any run loop exists.
     MainActor.assumeIsolated { App.run(demo: demo) }
+case "shot":
+    guard demo.on, args.count == 2 else {
+        Verbs.die("usage: chill --demo shot <out.png> (the popover, demo world only)")
+    }
+    let out = URL(fileURLWithPath: args[1])
+    MainActor.assumeIsolated { App.run(demo: demo, shot: out) }
 case "status":
     Verbs.status(json: args.contains("--json"), demo: demo)
 case "curve":
