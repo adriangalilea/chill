@@ -531,7 +531,7 @@ final class Model {
         Prior art: SoloFan's Swift app (MIT, github.com/SoloTeamDev/solofan). \
         The Ftst unlock: agoodkind/macos-smc-fan (MIT). \
         The SMC keys that name the chip's parts: exelban/stats (MIT). \
-        Sensors through mach's read-only package.
+        Sensors through swift-hw, read-only by construction.
 
         MIT. github.com/adriangalilea/chill
         """
@@ -599,9 +599,12 @@ final class Model {
     /// The daemon's registration as SMAppService reports it this instant.
     var registration: SMAppService.Status { Client.registration }
 
+    /// The same two registrations `chill daemon install` makes, so a cask
+    /// install (whose steps cannot reach SMAppService) resumes at login too.
     func installDaemon() {
         do {
             try SMAppService.daemon(plistName: Wire.plistName).register()
+            try SMAppService.mainApp.register()
             notice = nil
         } catch {
             notice = "install chilld: \(error.localizedDescription)"

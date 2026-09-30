@@ -111,7 +111,7 @@ codesign --force --options runtime --sign "$sign_id" "$APP"
 ln -sf "$APPBIN" "$prefix/bin/chill"
 echo "installed $APP (+ chill on PATH)"
 # The binary owns the registration (SMAppService + the login item), not this
-# file: the cask's postflight lands the same one, one implementation.
+# file: the popover's "install chilld" makes the same two for a cask install.
 "$APPBIN" daemon install
 '''
 
