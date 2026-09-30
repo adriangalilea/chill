@@ -26,18 +26,22 @@ extension View {
     }
 }
 
-/// `chill --demo film <story> <out.mp4>`: the popover telling one of
-/// chill's stories, drawn by the app's own views on a virtual clock. Every
-/// frame is a fresh `ImageRenderer` pass at `scale`, so the film is as
-/// sharp as the page wants whatever the display is; nothing animates on
-/// the wall clock, every motion is a value the story gives the frame (the
-/// heat, the tab, the knob, who is watching, the pointer) or the fans
-/// stepped by the demo daemon's physics. At a cut (a tab pressed, the
-/// watcher gone or back) the frame before crossfades into the frame after.
+/// The popover telling one of chill's stories, drawn by the app's own views
+/// on a virtual clock. Every frame is a fresh `ImageRenderer` pass at
+/// `scale`, so a clip is as sharp as the page wants whatever the display
+/// is; nothing animates on the wall clock, every motion is a value the
+/// story gives the frame (the heat, the tab, the knob, who is watching,
+/// the pointer) or the fans stepped by the demo daemon's physics. At a cut
+/// (a tab pressed, the watcher gone or back) the frame before crossfades
+/// into the frame after. Two cuts of the same story:
+/// - a film (`chill --demo film`): the popover on a desk under its menu bar
+///   glyph, with the pointer, a picture on its own;
+/// - a surface (`chill --demo scene`): the popover alone at its own size,
+///   the clip `@ag/macos` hangs from the glyph on its stage.
 @MainActor
 enum Film {
     static let fps = 30.0
-    /// The stage in points; the popover is 460 wide on it.
+    /// The film's stage in points; the popover is 460 wide on it.
     static let stage = CGSize(width: 640, height: 400)
     static let scale: CGFloat = 3
     static let fade = 0.3
@@ -60,14 +64,6 @@ enum Film {
         let watching: Bool
     }
 
-    /// A veil over the stage: what the Mac is doing that the popover
-    /// cannot show (the screen locked), and the time it skips.
-    struct Veil {
-        let opacity: Double
-        let symbol: String
-        let text: String
-    }
-
     struct Story {
         let length: Double
         let die: (Double) -> Double
@@ -78,7 +74,6 @@ enum Film {
         /// Keyframes of (time, place, pressed); between two the pointer
         /// eases from one place to the next.
         let path: [(t: Double, place: Place, pressed: Bool)]
-        let veil: (Double) -> Veil?
 
         func pointer(at t: Double) -> (from: Place, to: Place, u: Double, pressed: Bool) {
             let next = path.firstIndex { $0.t > t } ?? path.count - 1
@@ -126,26 +121,23 @@ enum Film {
             (16.85, .mark(.tab(.apple)), false),
             (17.6, .mark(.tab(.apple)), false),
             (19.2, .at(rest), false),
-        ],
-        veil: { _ in nil })
+        ])
 
-    /// The contract: chill runs hot, the screen locks, and once presence
-    /// lapses (the 10 s window, skipped) Apple has the fans while the
-    /// chill tab stays pressed; unlocked, the curve takes them again.
+    /// The contract, as the clip the stage's walk-away scene opens twice:
+    /// chill holding the fans while someone watches (`holding`), nobody
+    /// watching from `gone` (the lock screen is the stage's), and the
+    /// watcher back at `back`, where the scene reopens the popover a beat
+    /// before, on the fans at Apple's curve with the drop in the afterglow.
+    static let holding = 0.0
+    static let gone = 10.0
+    static let back = 15.0
     static let walkAway = Story(
-        length: 12,
+        length: 22,
         die: { t in 68 + 0.5 * sin(t * 1.4) },
         push: { _ in 0.45 },
-        ui: { t in UI(tab: .tuned, watching: t < 3.6 || t >= 8.2) },
-        cuts: [3.6, 8.2],
-        path: [(0, .at(offstage), false)],
-        veil: { t in
-            let on = ease((t - 2.0) / 0.5) * (1 - ease((t - 7.6) / 0.5))
-            guard on > 0 else { return nil }
-            return Veil(
-                opacity: on, symbol: "lock.fill",
-                text: t < 3.4 ? "screen locked" : "screen locked · 10 s later")
-        })
+        ui: { t in UI(tab: .tuned, watching: t < gone || t >= back) },
+        cuts: [gone, back],
+        path: [(0, .at(offstage), false)])
 
     // MARK: - the world
 
@@ -177,12 +169,13 @@ enum Film {
 
         /// What the daemon would reply: `intent` persisted, forced only while
         /// someone watches.
-        func state(die: Double, intent: Intent, watching: Bool) -> ChillKit.State {
+        func state(die: Double, intent: Intent, watching: Bool, name: String = Role.app.rawValue)
+            -> ChillKit.State
+        {
             let forced = intent != .system && watching
             return ChillKit.State(
                 intent: intent, holder: FakeDaemon.holder(intent, forced: forced), vetoes: [],
-                presence: watching
-                    ? Presence(pid: getpid(), name: Role.app.rawValue, secondsLeft: 10) : nil,
+                presence: watching ? Presence(pid: getpid(), name: name, secondsLeft: 10) : nil,
                 fans: FakeDaemon.fans.map { fan in
                     FanState(
                         index: fan.index, actual: actual[fan.index].rounded(),
@@ -197,12 +190,8 @@ enum Film {
 
     // MARK: - the render
 
-    static func run(story name: String, out: URL) -> Never {
-        guard let story = stories[name] else {
-            Verbs.die(
-                "film: no story '\(name)'; stories: \(stories.keys.sorted().joined(separator: ", "))"
-            )
-        }
+    /// The demo model the frames draw, in the dark appearance the page wears.
+    static func model() -> Model {
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
         app.appearance = NSAppearance(named: .darkAqua)
@@ -212,10 +201,22 @@ enum Film {
             daemonVersion: Wire.version, protocolVersion: Wire.protocolVersion, pid: getpid(),
             fans: FakeDaemon.fans)
         model.popoverShown = true
+        return model
+    }
 
-        let width = Int(stage.width * scale)
-        let height = Int(stage.height * scale)
-        let encoder = Encoder(out: out, width: width, height: height, fps: fps)
+    static func story(_ name: String) -> Story {
+        guard let story = stories[name] else {
+            Verbs.die(
+                "film: no story '\(name)'; stories: \(stories.keys.sorted().joined(separator: ", "))"
+            )
+        }
+        return story
+    }
+
+    /// Renders `story` into `out` (H.264) and returns the frame's size in
+    /// points: the film's stage, or the popover's own for a surface.
+    @discardableResult
+    static func render(_ story: Story, surface: Bool, model: Model, out: URL) -> CGSize {
         // A story opens in its steady state: the fans already where its
         // first instant puts them.
         var world = World()
@@ -225,6 +226,8 @@ enum Film {
                 die: story.die(0), intent: World.intent(ui.tab, push: story.push(0)),
                 watching: ui.watching, seconds: 1 / fps)
         }
+        var encoder: Encoder?
+        var size = CGSize.zero
         let frames = Int(story.length * fps)
         let start = Date(timeIntervalSinceReferenceDate: 0)
         for i in 0..<frames {
@@ -232,44 +235,78 @@ enum Film {
             let die = story.die(t)
             let push = story.push(t)
             let ui = story.ui(t)
-            let intent = World.intent(ui.tab, push: push)
-            world.step(die: die, intent: intent, watching: ui.watching, seconds: 1 / fps)
+            world.step(
+                die: die, intent: World.intent(ui.tab, push: push), watching: ui.watching,
+                seconds: 1 / fps)
             model.config.push = push
             model.filmTime = start.addingTimeInterval(t)
 
             let frame = { (ui: UI) -> CGImage in
                 model.watching = ui.watching
-                let state = world.state(
-                    die: die, intent: World.intent(ui.tab, push: push), watching: ui.watching)
-                return draw(model, state, story: story, t: t)
+                model.link = .live(
+                    world.state(
+                        die: die, intent: World.intent(ui.tab, push: push),
+                        watching: ui.watching))
+                return draw(model, story: story, surface: surface, t: t)
             }
             let now = frame(ui)
+            // The first frame fixes the size; a surface that changes size
+            // mid-story is a popover that resized, the bug the foot exists
+            // to prevent.
+            if encoder == nil {
+                size = CGSize(
+                    width: CGFloat(now.width) / scale, height: CGFloat(now.height) / scale)
+                encoder = Encoder(out: out, width: now.width, height: now.height, fps: fps)
+            }
+            precondition(
+                CGFloat(now.width) == size.width * scale
+                    && CGFloat(now.height) == size.height * scale,
+                "film: the frame at \(t)s is \(now.width)×\(now.height), not \(size) at \(scale)x")
             if let cut = story.cuts.last(where: { $0 <= t }), t - cut < fade {
                 let before = story.ui(cut - 1 / fps)
                 precondition(before != ui, "film: the cut at \(cut)s changes nothing")
-                encoder.write(frame(before), over: now, alpha: ease((t - cut) / fade))
+                encoder!.write(frame(before), over: now, alpha: ease((t - cut) / fade))
             } else {
-                encoder.write(now)
+                encoder!.write(now)
             }
         }
-        encoder.finish()
-        print("film: \(out.path) (\(name), \(frames) frames, \(width)×\(height))")
+        encoder!.finish()
+        return size
+    }
+
+    /// `chill --demo film <story> <out.mp4>`: the film cut, then exit.
+    static func run(story name: String, out: URL) -> Never {
+        let model = model()
+        render(story(name), surface: false, model: model, out: out)
+        print("film: \(out.path) (\(name))")
         exit(0)
     }
 
-    private static func draw(_ model: Model, _ state: ChillKit.State, story: Story, t: Double)
-        -> CGImage
-    {
-        model.link = .live(state)
-        let renderer = ImageRenderer(content: FilmFrame(model: model, story: story, t: t))
-        renderer.proposedSize = ProposedViewSize(stage)
+    private static func draw(_ model: Model, story: Story, surface: Bool, t: Double) -> CGImage {
+        let renderer: ImageRenderer<AnyView>
+        if surface {
+            renderer = ImageRenderer(content: AnyView(SurfaceFrame(model: model)))
+        } else {
+            renderer = ImageRenderer(content: AnyView(FilmFrame(model: model, story: story, t: t)))
+            renderer.proposedSize = ProposedViewSize(stage)
+        }
         renderer.scale = scale
         renderer.isOpaque = true
         guard let image = renderer.cgImage else { Verbs.die("film: frame at \(t)s did not render") }
-        precondition(
-            image.width == Int(stage.width * scale) && image.height == Int(stage.height * scale),
-            "film: frame at \(t)s is \(image.width)×\(image.height)")
         return image
+    }
+
+    /// The color the popover is drawn on, as `#rrggbb` in sRGB: the dark
+    /// window background, which the stage's arrow and border wear too.
+    static var background: String {
+        var hex = ""
+        NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
+            let c = NSColor.windowBackgroundColor.usingColorSpace(.sRGB)!
+            hex = String(
+                format: "#%02x%02x%02x", Int((c.redComponent * 255).rounded()),
+                Int((c.greenComponent * 255).rounded()), Int((c.blueComponent * 255).rounded()))
+        }
+        return hex
     }
 
     nonisolated static func mix(_ a: Double, _ b: Double, _ u: Double) -> Double { a + (b - a) * u }
@@ -305,7 +342,8 @@ private final class Encoder {
             "ffmpeg", "-loglevel", "error", "-y",
             "-f", "rawvideo", "-pix_fmt", "bgra", "-s", "\(width)x\(height)", "-r", "\(Int(fps))",
             "-i", "-",
-            "-vf", "scale=out_color_matrix=bt709:out_range=tv",
+            // H.264 in 4:2:0 wants even dimensions.
+            "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2,scale=out_color_matrix=bt709:out_range=tv",
             "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-pix_fmt", "yuv420p",
             "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
             "-movflags", "+faststart", out.path,
@@ -340,8 +378,21 @@ private final class Encoder {
     }
 }
 
-/// One frame: a dark desk, the menu bar with chill's glyph and a clock,
-/// the popover hanging from the glyph, the story's veil, and the pointer.
+/// The popover alone, as the stage hangs it: its content on the window
+/// background, the size SwiftUI lays it out at.
+struct SurfaceFrame: View {
+    let model: Model
+
+    var body: some View {
+        PopoverView(model: model)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, .dark)
+            .environment(\.locale, .figures)
+    }
+}
+
+/// One frame of a film: a dark desk, the menu bar with chill's glyph and a
+/// clock, the popover hanging from the glyph, and the pointer.
 struct FilmFrame: View {
     let model: Model
     let story: Film.Story
@@ -361,9 +412,6 @@ struct FilmFrame: View {
             menuBar
             popover
                 .offset(x: FilmFrame.popoverX, y: FilmFrame.barHeight + 4)
-            if let veil = story.veil(t) {
-                veilView(veil)
-            }
         }
         .frame(width: Film.stage.width, height: Film.stage.height, alignment: .topLeading)
         .overlayPreferenceValue(FilmMarks.self) { marks in
@@ -409,27 +457,6 @@ struct FilmFrame: View {
             )
             .compositingGroup()
             .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
-    }
-
-    /// The Mac's state the popover cannot show: a light dim over the stage,
-    /// the plot still readable through it, and a plate below the popover
-    /// saying it.
-    private func veilView(_ veil: Film.Veil) -> some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.3)
-            HStack(spacing: 8) {
-                Image(systemName: veil.symbol).font(.system(size: 13, weight: .semibold))
-                Text(veil.text).font(.meta)
-            }
-            .foregroundStyle(.white.opacity(0.9))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(.white.opacity(0.1), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 1))
-            .padding(.bottom, 10)
-        }
-        .frame(width: Film.stage.width, height: Film.stage.height)
-        .opacity(veil.opacity)
     }
 
     @ViewBuilder

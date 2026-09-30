@@ -32,6 +32,7 @@ let usage = """
       chill log [-f]                 \(Wire.logFile) (-f follows)
       chill --demo ...               the demo world: -demo roots, an in-process daemon, never chilld
       chill --demo film <story> <out.mp4>   a popover story (hero, walk-away), rendered frame by frame (needs ffmpeg)
+      chill --demo scene --cdn <url> --films <dir> --out <dir>...   the @ag/macos stage timelines + art
 
     `use` and `boost` set the intent; a fan is forced only while someone
     watches. --watch makes this process the watcher, at 1 Hz until Ctrl-C
@@ -49,6 +50,9 @@ case "film":
     }
     let out = URL(fileURLWithPath: args[2])
     MainActor.assumeIsolated { Film.run(story: args[1], out: out) }
+case "scene":
+    guard demo.on else { Verbs.die("scene: the demo world only (chill --demo scene ...)") }
+    MainActor.assumeIsolated { Scene.run(Array(args.dropFirst())) }
 case "status":
     Verbs.status(json: args.contains("--json"), demo: demo)
 case "curve":

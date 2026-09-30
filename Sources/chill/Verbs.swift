@@ -6,9 +6,15 @@ import Foundation
 /// themselves with `--watch`; the rest do not.
 enum Verbs {
     static func die(_ message: String, exit code: Int32 = 1) -> Never {
-        fputs("chill: \(message)\n", stderr)
+        fputs(said(message) + "\n", stderr)
         exit(code)
     }
+
+    /// An error as the CLI says it.
+    static func said(_ message: String) -> String { "chill: \(message)" }
+
+    /// Why `use` or `boost` without `--watch` refuses.
+    static let noWatcher = "no one watching: run with --watch or open chill.app"
 
     static func note(_ message: String) {
         fputs("\(message)\n", stderr)
@@ -150,7 +156,7 @@ enum Verbs {
             } else {
                 let before = try client.state()
                 guard let other = before.presence, other.secondsLeft > 0 else {
-                    die("no one watching: run with --watch or open chill.app", exit: 2)
+                    die(noWatcher, exit: 2)
                 }
             }
             print(demo.mark(Status.line(try act(client))))
@@ -238,9 +244,11 @@ enum Watch {
         }
         timer.resume()
         sources.append(timer)
-        Verbs.note("watching · Ctrl-C hands the fans back")
+        Verbs.note(greeting)
         dispatchMain()
     }
+
+    static let greeting = "watching · Ctrl-C hands the fans back"
 }
 
 /// The one honest status line, from `State` alone.

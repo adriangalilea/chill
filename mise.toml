@@ -4,7 +4,8 @@
 #   build      both binaries (release): chill (app + CLI) and chilld (the root daemon)
 #   dev        the app from source (debug): ad-hoc signed, so no daemon is reachable, local sensors only
 #   demo       the app in the demo world: forked -demo roots, an in-process daemon, never chilld
-#   film       the popover's story as dist/film.mp4, rendered by the app frame by frame
+#   film       the hero film as dist/films/hero.mp4, rendered by the app frame by frame
+#   scene      the @ag/macos stage scenes into the garden, the popover clip onto the CDN
 #   check      format + compile everything, debug: the FAST typecheck (0 warnings)
 #   format     swift-format in place · lint: advisory
 #   icon       Resources/chill.icns + icon.png from scripts/icon.svg (rsvg-convert)
@@ -49,18 +50,32 @@ scripts/locked.sh swift build
 .build/debug/chill --demo
 '''
 
-# The showcase: the popover's own views, rendered frame by frame on the
-# film's clock, so it is as sharp as the page wants and cannot drift from
-# the app. `pnpm media chill <feature> dist/film.mp4` publishes it.
+# The showcase, drawn by the app so it cannot drift from it. The hero is a
+# film: the popover on a desk, rendered frame by frame on the film's clock
+# (`pnpm media chill <feature> dist/films/hero.mp4` publishes it). The
+# other stories are scenes on @ag/macos's MacBook: timelines + art written
+# into the garden, and the popover clip they open published beside
+# awake's films on the CDN.
 [tasks.film]
-description = "Every popover story as dist/films/<story>.mp4, rendered by the app at 3x (needs ffmpeg)"
+description = "The hero film as dist/films/hero.mp4, rendered by the app at 3x (needs ffmpeg)"
 run = '''
 set -e
 scripts/locked.sh swift build
 mkdir -p "$DIST/films"
-for story in hero walk-away; do
-  .build/debug/chill --demo film "$story" "$DIST/films/$story.mp4"
-done
+.build/debug/chill --demo film hero "$DIST/films/hero.mp4"
+'''
+
+[tasks.scene]
+description = "The stage scenes: timelines + art into the garden, the popover clip onto the CDN (needs ffmpeg, the garden checkout)"
+run = '''
+set -e
+garden="${GARDEN:-$HOME/Developer/untitled}"
+test -d "$garden/tools/release" || { echo "no garden at $garden (GARDEN overrides)"; exit 1; }
+scripts/locked.sh swift build
+mkdir -p "$DIST/scenes"
+.build/debug/chill --demo scene --cdn https://cdn.untitled.garden/media/chill/films \
+  --films "$DIST/scenes" --out "$garden/apps/garden/components/scenes/chill"
+pnpm --dir "$garden/tools/release" exec tsx film.ts chill "$PWD/$DIST/scenes/walk-away.mp4" "$PWD/$DIST/scenes/walk-away.jpg"
 '''
 
 [tasks.format]
