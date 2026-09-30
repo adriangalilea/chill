@@ -63,6 +63,9 @@ scripts/locked.sh swift build
 mkdir -p "$DIST/scenes"
 .build/debug/chill --demo scene --cdn https://cdn.untitled.garden/media/chill/films \
   --films "$DIST/scenes" --out "$garden/apps/garden/components/scenes/chill"
+# The garden's formatter owns every file in its tree: formatted here, a fresh
+# compile is byte-identical to what is committed.
+pnpm --dir "$garden/apps/garden" exec biome format --write components/scenes/chill > /dev/null
 pnpm --dir "$garden/tools/release" exec tsx film.ts chill "$PWD/$DIST"/scenes/*.mp4 "$PWD/$DIST"/scenes/*.jpg
 '''
 
