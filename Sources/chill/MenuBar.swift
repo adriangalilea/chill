@@ -680,9 +680,10 @@ struct Knob: View {
 
 /// The one action that gets a daemon answering, first. A daemon that
 /// answered and refused this process for good is fixed by a relaunch,
-/// whatever the registration says. A bare build reads `.notFound` (no
-/// LaunchDaemons plist beside its executable) and is told what installs
-/// one. Renders nothing while the daemon is live.
+/// whatever the registration says. `.notFound` is judged against the
+/// bundle (`Placement`): installable gets the install chip, a bundle
+/// outside /Applications is told to move, a bare build what installs one.
+/// Renders nothing while the daemon is live.
 struct Fixer: View {
     let model: Model
 
@@ -719,8 +720,16 @@ struct Fixer: View {
                 }
             }
         case .notFound:
-            Text("no chilld in this bundle (a bare build): mise run install")
-                .font(.meta).foregroundStyle(.secondary)
+            // Never registered reads the same as no plist at all; the bundle
+            // says which (Placement).
+            if Placement.current == .installable {
+                Chip(tint: tone, action: { model.installDaemon() }) {
+                    Text("install chilld").font(.system(size: 12))
+                }
+            } else {
+                Text(Placement.current.notFound)
+                    .font(.meta).foregroundStyle(.secondary)
+            }
         case .enabled:
             Text("chilld is registered and not answering: chill daemon status")
                 .font(.meta).foregroundStyle(.secondary)

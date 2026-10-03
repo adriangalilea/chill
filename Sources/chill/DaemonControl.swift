@@ -28,6 +28,7 @@ enum DaemonControl {
     /// approval is needed), reach the daemon, refuse a fanless Mac, then
     /// the login item so presence returns at login.
     static func install() {
+        if Placement.current != .installable { Verbs.die(Placement.current.notFound) }
         register(daemon, "chilld")
         var told = false
         poll: for _ in 0..<approvalPolls {
@@ -156,7 +157,7 @@ enum DaemonControl {
         case .enabled: return "enabled"
         case .requiresApproval: return "awaiting approval (\(Wire.approvalPath))"
         case .notRegistered: return "not installed"
-        case .notFound: return "not found (no \(Wire.plistName) in this bundle)"
+        case .notFound: return Placement.current.notFound
         @unknown default: return "status \(status.rawValue)"
         }
     }
