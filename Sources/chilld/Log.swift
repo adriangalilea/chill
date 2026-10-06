@@ -67,5 +67,20 @@ enum Log {
     private static func line(_ message: String) {
         print("\(Date.now.formatted(.iso8601)) \(message)")
         fflush(stdout)
+        if ftell(stdout) > cap { rotate() }
+    }
+
+    /// The file's size before it rotates: a daemon running for months
+    /// otherwise grows it without end (20 MB in three weeks). One previous
+    /// generation is kept beside it, so at most twice this is on disk.
+    private static let cap = 4 << 20
+
+    private static func rotate() {
+        let previous = Wire.logFile + ".1"
+        unlink(previous)
+        rename(Wire.logFile, previous)
+        do { try open() } catch {
+            os.error("log rotation: \(String(describing: error), privacy: .public)")
+        }
     }
 }

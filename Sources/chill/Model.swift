@@ -294,6 +294,21 @@ final class Model {
         link = Link.live(state)
         local = nil
         if let hello { clouds.absorb(state.clouds, from: hello.pid) }
+        start(state)
+    }
+
+    /// The first live daemon this Mac's chill meets (`Config.started`): if it
+    /// still runs Apple's curve, the `chill` curve starts. A daemon already
+    /// carrying an intent (chill reinstalled over its own policy) keeps it.
+    private func start(_ state: ChillKit.State) {
+        // The curve needs the fans' envelope (from `hello`): until it exists,
+        // the next state tries again.
+        guard !config.started, let tuned else { return }
+        config.started = true
+        saveConfig()
+        guard case .system = state.intent else { return }
+        log.info("first run: the chill curve starts")
+        use(tuned)
     }
 
     // MARK: - the built-in curve
@@ -627,6 +642,42 @@ final class Model {
 
     func approveDaemon() { SMAppService.openSystemSettingsLoginItems() }
 
+    /// Set by `forget`: the state is in the Trash and nothing writes it back.
+    private(set) var forgotten = false
+
+    /// chill.app was deleted under this process (`Pulse`): leave nothing.
+    /// Both Login Items records (the daemon's and the app's) are this
+    /// process's to remove, the state goes to the Trash (a drawn curve is
+    /// still recoverable there), the preferences go. chilld removes its own
+    /// root files on the same signal. Each step is logged, never assumed.
+    func forget() {
+        // No writer recreates the state from here on (the clouds land on quit).
+        forgotten = true
+        for (what, service) in [
+            ("chilld", SMAppService.daemon(plistName: Wire.plistName)), ("login item", .mainApp),
+        ] {
+            do {
+                try service.unregister()
+                log.notice("forget: \(what, privacy: .public) unregistered")
+            } catch {
+                log.error(
+                    "forget: \(what, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+        if !demo.on, FileManager.default.fileExists(atPath: demo.state.path) {
+            do {
+                try FileManager.default.trashItem(at: demo.state, resultingItemURL: nil)
+                log.notice("forget: \(self.demo.state.path, privacy: .public) moved to the Trash")
+            } catch {
+                log.error("forget: state: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        if let id = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: id)
+        }
+    }
+
     /// A misplaced chill puts itself in /Applications (`Placement.move`),
     /// opens that one and quits; there the popover offers "install chilld".
     func moveToApplications() {
@@ -785,6 +836,7 @@ final class Model {
     }
 
     private func saveConfig() {
+        guard !forgotten else { return }
         do {
             try config.save(demo)
         } catch {
@@ -926,6 +978,7 @@ final class Model {
     // MARK: - persistence
 
     func writeClouds() {
+        guard !forgotten else { return }
         do {
             try clouds.write()
         } catch {

@@ -70,6 +70,24 @@ final class Pulse {
     private func tick() {
         let watching = screensAwake && !locked && Pulse.onConsole
         Task { await model.pulse(watching: watching) }
+        leaveIfDeleted()
+    }
+
+    /// Ticks the bundle has been missing in a row.
+    private var orphaned = 0
+
+    /// Deleting chill.app while it runs leaves this process behind, a menu
+    /// bar icon with no app and no daemon (chilld removes itself on the
+    /// same signal). Gone 15 ticks in a row, chilld's own window, so an
+    /// upgrade's copy in flight never quits it: the app quits too.
+    private func leaveIfDeleted() {
+        let bundle = Bundle.main.bundleURL
+        guard bundle.pathExtension == "app" else { return }
+        orphaned = FileManager.default.fileExists(atPath: bundle.path) ? 0 : orphaned + 1
+        guard orphaned >= 15 else { return }
+        log.notice("chill.app is gone (\(bundle.path, privacy: .public)): quitting")
+        model.forget()
+        NSApp.terminate(nil)
     }
 
     /// Whether this login session owns the console right now; no session

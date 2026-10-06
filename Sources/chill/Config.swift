@@ -15,10 +15,19 @@ struct Config: Codable, Equatable {
     /// The dot on the tab the toggle would press, and its tip: shown
     /// until "got it", then never.
     var keyHintDismissed = false
+    /// chill has met a live daemon on this Mac. The first time it does, with
+    /// the daemon still on Apple's curve, chill starts the `chill` curve:
+    /// installing chill is asking for it, and a fresh install that left the
+    /// fans to Apple read as broken. Never again after: from then on what
+    /// runs is what the person chose.
+    var started: Bool
 
     static let defaultPush = 0.0
 
-    init(lastCurve: String?) { self.lastCurve = lastCurve }
+    init(lastCurve: String?, started: Bool) {
+        self.lastCurve = lastCurve
+        self.started = started
+    }
 
     /// Fields read their first-run value when the file predates them.
     init(from decoder: Decoder) throws {
@@ -26,14 +35,16 @@ struct Config: Codable, Equatable {
         lastCurve = try c.decodeIfPresent(String.self, forKey: .lastCurve)
         push = try c.decodeIfPresent(Double.self, forKey: .push) ?? Config.defaultPush
         keyHintDismissed = try c.decodeIfPresent(Bool.self, forKey: .keyHintDismissed) ?? false
+        // A file from before the field is a Mac that already chose.
+        started = try c.decodeIfPresent(Bool.self, forKey: .started) ?? true
     }
 
     /// The file, or the first-run value (the demo world starts on its
-    /// seed curve). A file that does not parse is an error, not a reset:
-    /// the app wrote it, the app can read it.
+    /// seed curve, already chosen). A file that does not parse is an error,
+    /// not a reset: the app wrote it, the app can read it.
     static func load(_ demo: Demo) throws -> Config {
         guard FileManager.default.fileExists(atPath: demo.config.path) else {
-            return Config(lastCurve: demo.on ? Demo.seedLastCurve : nil)
+            return Config(lastCurve: demo.on ? Demo.seedLastCurve : nil, started: demo.on)
         }
         return try Wire.decode(Config.self, from: Data(contentsOf: demo.config))
     }

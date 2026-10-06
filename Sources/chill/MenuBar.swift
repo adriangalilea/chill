@@ -317,10 +317,10 @@ struct Tabs: View {
     var body: some View {
         HStack(spacing: .inkGap) {
             HStack(spacing: 2) {
-                // The house's two, each with its glyph, then a hairline,
-                // then yours by name.
-                cell("apple", .apple, glyph: "apple.logo")
+                // The house's two, each with its glyph, chill first (what a
+                // fresh install runs), then a hairline, then yours by name.
                 cell("chill", .tuned, glyph: "snowflake")
+                cell("apple", .apple, glyph: "apple.logo")
                 Rectangle()
                     .fill(Color.primary.opacity(0.12))
                     .frame(width: 1, height: 16)
