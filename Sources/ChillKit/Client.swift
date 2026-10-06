@@ -225,7 +225,13 @@ public actor Client {
         switch registration {
         case .notRegistered, .notFound: return .notInstalled
         case .requiresApproval: return .awaitingApproval
-        case .enabled: return .unreachable(error.localizedDescription)
+        // Registered and silent: a crash between restarts, or the record of
+        // a chill deleted earlier with no job loaded. Opening the app
+        // registers it again.
+        case .enabled:
+            return .unreachable(
+                "registered, not running: open chill.app, or `chill daemon install` (\(error.localizedDescription))"
+            )
         @unknown default: return .unreachable("registration status \(registration.rawValue)")
         }
     }

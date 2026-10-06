@@ -488,6 +488,24 @@ final class Model {
         client = nil
         hello = nil
         sampleLocally()
+        reregister(error)
+    }
+
+    /// Registering again has been tried in this launch.
+    private var reregistered = false
+
+    /// Registered, yet nothing answers: macOS keeps the record of a chill
+    /// deleted earlier, so a reinstalled bundle reads `.enabled` with no job
+    /// loaded, and the popover had nothing to press. Registering again
+    /// loads it without a prompt, the approval being on record. Once per
+    /// launch: a daemon that dies again is for its log to explain.
+    private func reregister(_ error: Error) {
+        guard !reregistered, case .unreachable? = error as? ClientError,
+            registration == .enabled, Placement.current == .installable
+        else { return }
+        reregistered = true
+        log.notice("chilld registered but unreachable: registering it again")
+        installDaemon()
     }
 
     private func connect() -> Client? {
@@ -632,8 +650,11 @@ final class Model {
     /// install (whose steps cannot reach SMAppService) resumes at login too.
     func installDaemon() {
         do {
-            try SMAppService.daemon(plistName: Wire.plistName).register()
-            try SMAppService.mainApp.register()
+            for service in [SMAppService.daemon(plistName: Wire.plistName), .mainApp] {
+                do { try service.register() } catch let error as NSError
+                    where error.code == kSMErrorAlreadyRegistered
+                {}
+            }
             notice = nil
         } catch {
             notice = "install chilld: \(error.localizedDescription)"
