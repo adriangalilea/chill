@@ -15,6 +15,8 @@ final class MenuBar: NSObject, NSPopoverDelegate {
     private let item: NSStatusItem
     private let popover = NSPopover()
     private var glyph: Glyph?
+    /// Watches the button's appearance: the glyph redraws for a light or dark bar.
+    private var appearance: NSKeyValueObservation?
 
     init(model: Model) {
         self.model = model
@@ -51,9 +53,23 @@ final class MenuBar: NSObject, NSPopoverDelegate {
         let next = Glyph(model.link)
         if next != glyph {
             glyph = next
-            item.button!.image = next.image()
+            draw()
         }
         item.button!.toolTip = model.statusLine
+    }
+
+    /// The glyph drawn for the bar the button sits on: chill's own color
+    /// resolves per bar, and the bar turns light or dark with the wallpaper
+    /// under it, so a change of the button's appearance draws it again.
+    private func draw() {
+        guard let glyph else { return }
+        let button = item.button!
+        button.image = glyph.image(on: button.effectiveAppearance)
+        if appearance == nil {
+            appearance = button.observe(\.effectiveAppearance) { [weak self] _, _ in
+                Task { @MainActor in self?.draw() }
+            }
+        }
     }
 
     @objc private func clicked() {

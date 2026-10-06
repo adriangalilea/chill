@@ -333,8 +333,14 @@ enum Scene {
         rep.size = NSSize(width: Glyph.side, height: Glyph.side)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        NSAppearance(named: appearance)!.performAsCurrentDrawingAppearance {
-            glyph.image().draw(in: NSRect(x: 0, y: 0, width: Glyph.side, height: Glyph.side))
+        let bar = NSAppearance(named: appearance)!
+        let rect = NSRect(x: 0, y: 0, width: Glyph.side, height: Glyph.side)
+        glyph.image(on: bar).draw(in: rect)
+        // A template is the bar's own ink, as the system tints it: black on a
+        // light bar, white on a dark one, its alpha kept.
+        if !glyph.tinted {
+            (appearance == .darkAqua ? NSColor.white : NSColor.black).set()
+            rect.fill(using: .sourceAtop)
         }
         NSGraphicsContext.restoreGraphicsState()
         return rep.representation(using: .png, properties: [:])!

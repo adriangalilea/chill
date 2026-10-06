@@ -77,33 +77,37 @@ enum Glyph: Equatable {
             : NSColor(srgbRed: 0x6a / 255, green: 0x55 / 255, blue: 0x30 / 255, alpha: 1)
     }
 
-    /// Who holds the fans, at a glance: chill's curve in dune and heavier,
-    /// Apple's idle as an outline in the bar's own ink, receded, and a
-    /// trouble state (no daemon, a foreign writer) in the full ink, since it
-    /// asks for attention. Dynamic colors resolve per appearance at draw time.
-    var ink: NSColor {
-        switch self {
-        case .filled, .bar: Glyph.dune
-        case .outline: .labelColor.withAlphaComponent(0.7)
-        case .slashed, .dotted: .labelColor
-        }
-    }
+    /// Who holds the fans, at a glance. chill's curve (filled, bar) is its
+    /// own color, dune, stroked heavy. Every other state is the menu bar's
+    /// own ink as a template image, which the system tints for whatever bar
+    /// it sits on: Apple's idle (outline) thinner and see-through, trouble
+    /// (slashed, dotted) at full strength, since it asks for attention.
+    var tinted: Bool { self == .filled || self == .bar }
 
-    func image() -> NSImage {
-        let ink = self.ink
+    /// The glyph for a menu bar in `appearance`. A template is the same on
+    /// any bar; chill's dune is resolved for that bar here, since a status
+    /// item's image is drawn without its button's appearance current.
+    func image(on appearance: NSAppearance) -> NSImage {
+        var ink = NSColor.black.cgColor
+        if tinted {
+            appearance.performAsCurrentDrawingAppearance { ink = Glyph.dune.cgColor }
+        }
         let image = NSImage(size: NSSize(width: Glyph.side, height: Glyph.side), flipped: true) {
             rect in
             let cg = NSGraphicsContext.current!.cgContext
             let scale = rect.width / Mark.box
             cg.scaleBy(x: scale, y: scale)
             // chill's own states carry the most ink: the filled blades
-            // stroked heavy, so the fan has mass at 18 pt.
-            let stroke = (self == .filled || self == .bar ? 2.4 : 1.6) / scale
+            // stroked heavy, so the fan has mass at 18 pt; Apple's idle the
+            // least.
+            let stroke =
+                (self.tinted ? 2.4 : self == .outline ? 1.2 : 1.6) / scale
+            cg.setAlpha(self.strength)
             cg.setLineWidth(stroke)
             cg.setLineCap(.round)
             cg.setLineJoin(.round)
-            cg.setStrokeColor(ink.cgColor)
-            cg.setFillColor(ink.cgColor)
+            cg.setStrokeColor(ink)
+            cg.setFillColor(ink)
             switch self {
             case .outline:
                 cg.addPath(Mark.blades)
@@ -135,14 +139,19 @@ enum Glyph: Equatable {
             }
             return true
         }
+        image.isTemplate = !tinted
         return image
     }
 
-    /// The hub at the SVG's .55 alpha, a fill or a stroke like the blades.
+    /// How strongly the glyph is drawn: Apple's idle half, the rest whole.
+    private var strength: CGFloat { self == .outline ? 0.5 : 1 }
+
+    /// The hub at the SVG's .55 of the glyph's strength, a fill or a stroke
+    /// like the blades.
     private func hub(_ cg: CGContext, filled: Bool) {
-        cg.setAlpha(0.55)
+        cg.setAlpha(strength * 0.55)
         cg.addPath(Mark.hub)
         if filled { cg.fillPath() } else { cg.strokePath() }
-        cg.setAlpha(1)
+        cg.setAlpha(strength)
     }
 }
