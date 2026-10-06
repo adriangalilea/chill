@@ -103,6 +103,10 @@ final class Model {
     @ObservationIgnored private var busy = false
     /// Set once the process has opened its upgraded bundle and is leaving.
     @ObservationIgnored private var relaunching = false
+    /// Pulses since launch, for the every-few-seconds look at the bundle.
+    @ObservationIgnored private var pulses = 0
+    /// How many pulses (seconds) between looks at the bundle on disk.
+    private static let upgradeEvery = 5
     /// The verbs in flight, each behind the one before: `link` is set by
     /// replies in the order the verbs were sent, never by whichever lands
     /// last.
@@ -252,6 +256,12 @@ final class Model {
             log.info("presence: \(watching ? "watching" : "not watching", privacy: .public)")
         }
         self.watching = watching
+        // A bundle replaced under this process (`brew upgrade`, a dmg dragged
+        // over) is seen here, every few pulses, not left to a newer client
+        // that may never come: the old app and the old chilld agree with each
+        // other forever. The relaunched app's hello upgrades chilld too.
+        pulses += 1
+        if pulses % Model.upgradeEvery == 0, relaunchIntoUpgrade(.check) { return }
         guard !busy else {
             log.debug("pulse skipped: the last one has not answered")
             return
@@ -277,7 +287,7 @@ final class Model {
                 }
             case .refused(.stale):
                 link = .stale(error.description)
-                relaunchIntoUpgrade()
+                relaunchIntoUpgrade(.stale)
             case .refused, .malformed:
                 link = .stale(error.description)
             case .notInstalled, .awaitingApproval, .unreachable:
@@ -288,22 +298,34 @@ final class Model {
         }
     }
 
+    /// What made the app look at its bundle on disk: chilld refused it as
+    /// stale, or a plain check (the pulse's, a link gone down). A check
+    /// matters as much: an upgraded chilld cannot always even answer a
+    /// process whose bundle was replaced under it, so no refusal arrives
+    /// (0.1.7 → 0.1.8 on an M5: "Couldn't communicate", every pulse), and
+    /// before anything newer speaks, nothing refuses at all.
+    private enum Suspect { case stale, check }
+
     /// A newer chill replaced this bundle while this process ran (`brew
-    /// upgrade`, a new dmg dragged over the old app): chilld, already the
-    /// new version, refuses this one as stale. Upgrading is never the
+    /// upgrade`, a new dmg dragged over the old app). Upgrading is never the
     /// person's job, so the process opens the bundle it was launched from,
     /// now the new version, and leaves, as chilld restarts itself. Only when
-    /// the bundle on disk really is another version, so a refusal a relaunch
-    /// cannot cure stays on the popover's chip instead of looping.
-    private func relaunchIntoUpgrade() {
-        guard !relaunching else { return }
+    /// the bundle on disk really is another version, so a failure a relaunch
+    /// cannot cure never loops; the same version is said only for a stale
+    /// refusal, where it is a real puzzle, and is silent for a check, which
+    /// finds nothing almost always. Returns whether it is relaunching.
+    @discardableResult
+    private func relaunchIntoUpgrade(_ why: Suspect) -> Bool {
+        guard !relaunching else { return true }
         let bundle = Bundle.main.bundleURL
         guard
             let info = NSDictionary(contentsOf: bundle.appending(path: "Contents/Info.plist")),
             let disk = info["CFBundleShortVersionString"] as? String, disk != Wire.version
         else {
-            log.error("stale, and the bundle on disk is this version: no relaunch can fix it")
-            return
+            if why == .stale {
+                log.error("stale, and the bundle on disk is this version: no relaunch can fix it")
+            }
+            return false
         }
         relaunching = true
         log.info(
@@ -320,6 +342,7 @@ final class Model {
                 NSApp.terminate(nil)
             }
         }
+        return true
     }
 
     private func arrived(_ state: ChillKit.State, from client: Client) async {
@@ -521,6 +544,9 @@ final class Model {
     }
 
     private func drop(_ error: Error) {
+        // An upgrade under this process is the one link failure the app
+        // cures by itself, before anything else is tried.
+        if relaunchIntoUpgrade(.check) { return }
         log.error(
             "link down: \(error, privacy: .public); tabs disabled until the next pulse answers")
         link = .down(error as? ClientError ?? .unreachable("\(error)"))
@@ -660,7 +686,7 @@ final class Model {
                     notice = error.description
                 case .refused(.stale):
                     link = .stale(error.description)
-                    relaunchIntoUpgrade()
+                    relaunchIntoUpgrade(.stale)
                 case .malformed:
                     link = .stale(error.description)
                 case .refused(let refusal):
