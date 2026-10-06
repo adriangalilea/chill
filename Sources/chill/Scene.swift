@@ -9,8 +9,7 @@ import SwiftUI
 /// world's state, every refusal and note the CLI's own constant, and the
 /// popover is a surface clip the film engine renders (`Film`, surface
 /// cut) into `--films`, published at `--cdn`. Writes `art.json`,
-/// `hero.json`, `walk-away.json`, `cli.json` and `heat.json` into every
-/// `--out`.
+/// `hero.json`, `walk-away.json` and `cli.json` into every `--out`.
 @MainActor
 enum Scene {
     /// No clock and no date: chill's stories take no time worth naming, so
@@ -125,7 +124,6 @@ enum Scene {
             ("hero.json", Timeline(chord: chord, steps: hero())),
             ("walk-away.json", Timeline(chord: chord, steps: walkAway())),
             ("cli.json", Timeline(chord: chord, steps: cli())),
-            ("heat.json", Timeline(chord: chord, steps: heat(chord: chord))),
         ]
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -145,32 +143,59 @@ enum Scene {
 
     // MARK: - the stories
 
-    /// The value in one breath, the popover open from the first frame: the
-    /// pointer presses chill and pushes the knob as the heat arrives, the
-    /// fans ride the curve, it presses apple. The glyph flips at the clip's
-    /// own cuts, so the menu bar and the popover change on the same frame;
-    /// the poster is the climb at its peak, the afterglow behind it.
+    /// The value in one breath, a hot Mac, the popover open from the first
+    /// frame (`Film.hero`) and the machine's heat in the stage's MacBook,
+    /// both from one simulation (`Film.heroHeat`): under a long load on
+    /// Apple's curve the case warms (the skin) and then the stage looks
+    /// inside, the chip hot and Apple's fans at their floor; the pointer
+    /// presses chill and pushes the knob, the fans ride the curve and the
+    /// parts cool; back out, the case cool again under the same load. The
+    /// glyph flips on the clip's own cut; the poster is chill cooling it,
+    /// seen inside. Readings every half second; the stage glides between.
     static func hero() -> [Step] {
-        let story = Film.hero
-        let (on, off) = (story.cuts[0], story.cuts[1])
-        let peak = 11.0
-        let ms = { (seconds: Double) in Int((seconds * 1000).rounded()) }
-        let idle = line(die: story.die(0), intent: .system, watching: true)
-        let curve = line(
-            die: story.die(peak), intent: Film.World.intent(.tuned, push: story.push(peak)),
-            watching: true)
-        return [
+        let heat = Film.heroHeat
+        let at = { (t: Double) in heat[min(heat.count - 1, Int((t * Film.fps).rounded()))] }
+        let curve = Film.World.intent(.tuned, push: Film.heroPush(Film.heroChill))
+        // What happens when, in story seconds: the readings, the view going
+        // deeper and back, the glyph, the poster.
+        var events: [(t: Double, step: Step)] = stride(from: 0.5, through: Film.heroLength, by: 0.5)
+            .map { t in
+                let m = at(t)
+                let depth: Double? =
+                    switch t {
+                    case 1.0: 1
+                    case 5.5: 2
+                    case Film.heroChill + 5.5: 1
+                    default: nil
+                    }
+                return (
+                    t, Step(kind: "thermal", thermal: Reading(m.heat, rpm: m.rpm), depth: depth)
+                )
+            }
+        events.append(
+            (
+                Film.heroChill,
+                Step(
+                    kind: "glyph", glyph: "filled",
+                    tooltip: line(die: at(Film.heroChill).heat.cpu, intent: curve, watching: true))
+            ))
+        events.append((Film.heroChill + 4, Step(kind: "poster")))
+        var steps = [
             Step(kind: "world", author: true, world: World()),
-            Step(kind: "glyph", glyph: "outline", tooltip: idle),
-            Step(kind: "surface", text: "hero", arg: "0"),
-            Step(kind: "glyph", delay: ms(on), glyph: "filled", tooltip: curve),
-            Step(kind: "poster", delay: ms(peak - on)),
             Step(
-                kind: "glyph", delay: ms(off - peak), glyph: "outline",
-                tooltip: line(die: story.die(off), intent: .system, watching: true)),
-            // The clip's last seconds: the fans settle on Apple's curve.
-            Step(kind: "world", delay: ms(story.length - off), world: World()),
+                kind: "glyph", glyph: "outline",
+                tooltip: line(die: at(0).heat.cpu, intent: .system, watching: true)),
+            Step(kind: "surface", text: "hero", arg: "0"),
+            Step(kind: "thermal", thermal: Reading(at(0).heat, rpm: at(0).rpm)),
         ]
+        var last = 0.0
+        for (t, step) in events.sorted(by: { $0.t < $1.t }) {
+            var s = step
+            s.delay = Int(((t - last) * 1000).rounded())
+            steps.append(s)
+            last = t
+        }
+        return steps
     }
 
     /// Lock the Mac and walk away: the popover shows chill holding the fans;
@@ -207,82 +232,6 @@ enum Scene {
             Step(
                 kind: "caption", author: true, text: "Back at the Mac, your curve takes them again"),
         ]
-    }
-
-    /// A hot Mac, Apple's curve against chill's, told by its heat on the
-    /// stage's MacBook (`thermal` steps): under a long load the case warms
-    /// while Apple keeps the fans off; inside, the chip sits hot with the
-    /// fans at their floor; the chord hands them to chill's curve and the
-    /// parts cool; back out, the case is cool again under the same load.
-    /// The heat is `Heat`, the fans the demo daemon's own physics, every
-    /// number in a caption the model's, sampled every half second (the
-    /// stage eases between readings).
-    static func heat(chord: String) -> [Step] {
-        var heat = Heat()
-        var rpm = FakeDaemon.fans.map { _ in 0.0 }
-        var intent = Intent.system
-        let chill = Film.World.intent(.tuned, push: 0.45)
-        let dt = 0.1
-        func run(_ seconds: Double, load: Double) {
-            for _ in 0..<Int((seconds / dt).rounded()) {
-                for fan in FakeDaemon.fans {
-                    let target = FakeDaemon.target(
-                        fan, die: heat.cpu, intent: intent, forced: intent != .system)
-                    rpm[fan.index] = FakeDaemon.slew(rpm[fan.index], toward: target, seconds: dt)
-                }
-                heat.step(load: load, air: Heat.air(rpm, fans: FakeDaemon.fans), seconds: dt)
-            }
-        }
-        func readings(_ seconds: Double, depth: Double? = nil) -> [Step] {
-            (0..<Int(seconds * 2)).map { i in
-                run(0.5, load: 1)
-                return Step(
-                    kind: "thermal", delay: 500, thermal: Reading(heat, rpm: rpm),
-                    depth: i == 0 ? depth : nil)
-            }
-        }
-        let c = { (v: Double) in "\(Int(v.rounded())) °C" }
-        // An idle Mac, settled: the fans off, the case cool.
-        run(60, load: 0)
-        var steps = [
-            Step(kind: "world", author: true, world: World()),
-            Step(
-                kind: "glyph", glyph: "outline",
-                tooltip: line(die: heat.cpu, intent: .system, watching: true)),
-            Step(kind: "thermal", thermal: Reading(heat, rpm: rpm)),
-        ]
-        steps += readings(6, depth: 1)
-        steps.append(
-            Step(
-                kind: "caption", author: true,
-                text: "Under load the case heats up, to \(c(heat.skin)) under your palms"))
-        steps += readings(5, depth: 2)
-        let floor = rpm.max()!
-        steps.append(
-            Step(
-                kind: "caption", author: true,
-                text: floor == 0
-                    ? "Inside, the chip at \(c(heat.cpu)) and Apple's fans still off"
-                    : "Inside, the chip at \(c(heat.cpu)) and Apple's fans at \(Int(floor.rounded())) rpm"
-            ))
-        steps.append(Step(kind: "key", author: true, keys: chord))
-        intent = chill
-        steps.append(
-            Step(
-                kind: "glyph", glyph: "filled",
-                tooltip: line(die: heat.cpu, intent: chill, watching: true)))
-        steps += readings(6)
-        steps.append(Step(kind: "poster"))
-        steps.append(
-            Step(
-                kind: "caption", author: true,
-                text: "\(chord) hands the fans to chill: the chip down to \(c(heat.cpu))"))
-        steps += readings(6, depth: 1)
-        steps.append(
-            Step(
-                kind: "caption", author: true,
-                text: "The case at \(c(heat.skin)), cool again under the same load"))
-        return steps
     }
 
     /// The same rules in a terminal: nothing forces a fan without a

@@ -80,42 +80,70 @@ enum Film {
         }
     }
 
-    /// The value in one breath: press chill, push the knob as the heat
-    /// arrives, the fans ride the curve up and down, press apple and
-    /// Apple's curve takes them back.
+    /// The value in one breath, a hot Mac: a long load arrives on Apple's
+    /// curve, which keeps the fans off while the chip climbs and then holds
+    /// them at their floor; the pointer presses chill and pushes the knob,
+    /// the fans ride the curve up and the chip comes down under the same
+    /// load. The die is the heat model's chip (`heroHeat`), so the plot and
+    /// the stage's thermal view (`Scene.hero`) are one simulation.
+    nonisolated static let heroChill = 9.0
+    nonisolated static let heroLength = 21.0
+    nonisolated static func heroUI(_ t: Double) -> UI {
+        UI(tab: t < heroChill ? .apple : .tuned, watching: true)
+    }
+    nonisolated static func heroPush(_ t: Double) -> Double {
+        mix(0.35, 0.5, ease((t - heroChill - 1.0) / 1.6))
+    }
     static let hero = Story(
-        length: 20,
-        die: { t in
-            let idle = 47 + 0.4 * sin(t * 1.3)
-            let peak = 72 + 0.6 * sin(t * 1.7)
-            let cool = 53 + 0.4 * sin(t * 1.1)
-            if t < 4.5 { return idle }
-            if t < 9.5 { return mix(idle, peak, ease((t - 4.5) / 5)) }
-            if t < 11.5 { return peak }
-            if t < 16 { return mix(peak, cool, ease((t - 11.5) / 4.5)) }
-            return cool
-        },
-        push: { t in mix(0.30, 0.45, ease((t - 3.0) / 2.2)) },
-        ui: { t in UI(tab: t < 1.6 || t >= 16.8 ? .apple : .tuned, watching: true) },
-        cuts: [1.6, 16.8],
+        length: heroLength,
+        die: { t in heroHeat[min(heroHeat.count - 1, Int((t * fps).rounded()))].heat.cpu },
+        push: heroPush,
+        ui: heroUI,
+        cuts: [heroChill],
         path: [
             (0.0, .at(outside), false),
-            (1.3, .mark(.tab(.tuned)), false),
-            (1.45, .mark(.tab(.tuned)), true),
-            (1.65, .mark(.tab(.tuned)), false),
-            (2.0, .mark(.tab(.tuned)), false),
-            (2.7, .handle, false),
-            (2.9, .handle, true),
-            (5.3, .handle, true),
-            (5.45, .handle, false),
-            (6.6, .at(outside), false),
-            (15.4, .at(outside), false),
-            (16.5, .mark(.tab(.apple)), false),
-            (16.65, .mark(.tab(.apple)), true),
-            (16.85, .mark(.tab(.apple)), false),
-            (17.6, .mark(.tab(.apple)), false),
-            (19.2, .at(outside), false),
+            (heroChill - 1.0, .mark(.tab(.tuned)), false),
+            (heroChill - 0.15, .mark(.tab(.tuned)), true),
+            (heroChill + 0.05, .mark(.tab(.tuned)), false),
+            (heroChill + 0.4, .mark(.tab(.tuned)), false),
+            (heroChill + 0.9, .handle, false),
+            (heroChill + 1.0, .handle, true),
+            (heroChill + 2.6, .handle, true),
+            (heroChill + 2.75, .handle, false),
+            (heroChill + 3.9, .at(outside), false),
         ])
+
+    /// One frame of the hero's machine: its heat and the fans' rpm.
+    struct Moment {
+        let heat: Heat
+        let rpm: [Double]
+    }
+
+    /// The hero's heat at every frame: an idle Mac, settled, then a long load
+    /// from 0.8 s; the chip stepped by `Heat`, the fans by the demo daemon's
+    /// physics under the story's tab, in the order `render` steps them, so
+    /// the fans this predicts are the ones the clip draws.
+    static let heroHeat: [Moment] = {
+        var heat = Heat()
+        for _ in 0..<600 { heat.step(load: 0, air: 0, seconds: 0.1) }
+        var world = World()
+        for _ in 0..<Int(10 * fps) {
+            world.step(
+                die: heat.cpu, intent: World.intent(heroUI(0).tab, push: heroPush(0)),
+                watching: true, seconds: 1 / fps)
+        }
+        return (0...Int(heroLength * fps)).map { i in
+            let t = Double(i) / fps
+            let now = heat
+            world.step(
+                die: now.cpu, intent: World.intent(heroUI(t).tab, push: heroPush(t)),
+                watching: true, seconds: 1 / fps)
+            heat.step(
+                load: t < 0.8 ? 0 : 1, air: Heat.air(world.actual, fans: FakeDaemon.fans),
+                seconds: 1 / fps)
+            return Moment(heat: now, rpm: world.actual)
+        }
+    }()
 
     /// The contract, as the clip the stage's walk-away scene opens twice:
     /// chill holding the fans while someone watches (`holding`), nobody
