@@ -21,9 +21,14 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
     }
     /// The die count the trace stands for: a 14-die chip, as status says.
     public static let dieSensors = 14
-    /// Apple's curve as the demo plays it: idle to 60 C, max at 100 C.
+    /// Where Apple's curve wakes the fans: a MacBook keeps them off until
+    /// the chip is hot, the value chill is for.
+    public static let appleWakes = 90.0
+    /// Apple's curve as the demo plays it, the way a MacBook runs it: off
+    /// below `appleWakes`, then from the floor toward the ceiling at 120 C.
     public static func apple(at celsius: Double, for fan: Fan) -> Double {
-        fan.clamp(fan.min + (fan.max - fan.min) * (celsius - 60) / 40)
+        celsius < appleWakes
+            ? 0 : fan.clamp(fan.min + (fan.max - fan.min) * (celsius - appleWakes) / 30)
     }
     /// How fast a fan's rpm moves: an Apple Silicon fan spins from its
     /// floor to its ceiling in about four seconds.
@@ -85,7 +90,7 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
     public override init() {
         started = clock.now
         ticked = started
-        actual = FakeDaemon.fans.map(\.min)
+        actual = FakeDaemon.fans.map { FakeDaemon.apple(at: FakeDaemon.trace(at: 0), for: $0) }
         clouds = FakeDaemon.fans.map { _ in [:] }
         super.init()
     }

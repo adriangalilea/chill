@@ -54,15 +54,17 @@ scripts/locked.sh swift build
 # the popover clips they open (rendered frame by frame on the film's clock)
 # published beside awake's films on the CDN.
 [tasks.scene]
-description = "The stage scenes: timelines + art into the garden, the popover clips onto the CDN (needs ffmpeg, the garden checkout)"
+description = "The stage scenes: timelines + art into the garden (and the ui studio when UI is set), the popover clips onto the CDN (needs ffmpeg, the garden checkout)"
 run = '''
 set -e
 garden="${GARDEN:?the scenes are written into the garden checkout: set GARDEN to it}"
 test -d "$garden/tools/release" || { echo "GARDEN=$garden is not the garden checkout"; exit 1; }
 scripts/locked.sh swift build
 mkdir -p "$DIST/scenes"
+set -- --out "$garden/apps/garden/components/scenes/chill"
+if [ -n "$UI" ]; then set -- "$@" --out "$UI/public/macos/chill"; fi
 .build/debug/chill --demo scene --cdn https://cdn.untitled.garden/media/chill/films \
-  --films "$DIST/scenes" --out "$garden/apps/garden/components/scenes/chill"
+  --films "$DIST/scenes" "$@"
 # The garden's formatter owns every file in its tree: formatted here, a fresh
 # compile is byte-identical to what is committed.
 pnpm --dir "$garden/apps/garden" exec biome format --write components/scenes/chill > /dev/null

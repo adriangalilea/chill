@@ -139,7 +139,7 @@ enum Film {
     /// with the same physics (`FakeDaemon.target`, `slew`, `holder`,
     /// `reason`), so the film shows what the demo world does.
     @MainActor struct World {
-        var actual = FakeDaemon.fans.map(\.min)
+        var actual = FakeDaemon.fans.map { _ in 0.0 }
 
         static func intent(_ tab: Model.Tab, push: Double) -> Intent {
             switch tab {
