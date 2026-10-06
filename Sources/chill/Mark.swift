@@ -68,14 +68,20 @@ enum Glyph: Equatable {
     /// the SVG's proportion: 34/1024 of 18 pt is under a point, invisible.
     static let side: CGFloat = 18
 
-    /// chill's ink while it holds the fans: its brand sand, the hue the plot
-    /// gives what chill does. On a light bar the pale sand would vanish and a
-    /// darker one turns brown, so there it is saturated toward gold, keeping
-    /// the hue; on a dark bar, the bright sand itself.
+    /// chill's fan while it holds the fans: its brand sand, the hue the plot
+    /// gives what chill does, as the fill. The edge is what keeps it legible
+    /// on any wallpaper: on a light bar, where sand alone would fade or turn
+    /// brown if darkened, it is the bar's own dark ink; on a dark bar the
+    /// bright sand already stands out, so edge and fill are one.
     static let sand = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             ? NSColor(srgbRed: 0xe9 / 255, green: 0xd7 / 255, blue: 0xb0 / 255, alpha: 1)
-            : NSColor(srgbRed: 0xad / 255, green: 0x84 / 255, blue: 0x42 / 255, alpha: 1)
+            : NSColor(srgbRed: 0xd9 / 255, green: 0xc1 / 255, blue: 0x93 / 255, alpha: 1)
+    }
+    static let sandEdge = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? Glyph.sand
+            : NSColor(white: 0, alpha: 0.85)
     }
 
     /// Who holds the fans, at a glance. chill's curve (filled, bar) is its
@@ -90,24 +96,27 @@ enum Glyph: Equatable {
     /// item's image is drawn without its button's appearance current.
     func image(on appearance: NSAppearance) -> NSImage {
         var ink = NSColor.black.cgColor
+        var edge = NSColor.black.cgColor
         if tinted {
-            appearance.performAsCurrentDrawingAppearance { ink = Glyph.sand.cgColor }
+            appearance.performAsCurrentDrawingAppearance {
+                ink = Glyph.sand.cgColor
+                edge = Glyph.sandEdge.cgColor
+            }
         }
         let image = NSImage(size: NSSize(width: Glyph.side, height: Glyph.side), flipped: true) {
             rect in
             let cg = NSGraphicsContext.current!.cgContext
             let scale = rect.width / Mark.box
             cg.scaleBy(x: scale, y: scale)
-            // chill's own states carry the most ink: the filled blades
-            // stroked heavy, so the fan has mass at 18 pt; Apple's idle the
-            // least.
+            // chill's own states: sand blades with a crisp edge, so the fan
+            // has its tone and its shape at 18 pt; Apple's idle the least ink.
             let stroke =
-                (self.tinted ? 2.4 : self == .outline ? 1.2 : 1.6) / scale
+                (self.tinted ? 1.6 : self == .outline ? 1.2 : 1.6) / scale
             cg.setAlpha(self.strength)
             cg.setLineWidth(stroke)
             cg.setLineCap(.round)
             cg.setLineJoin(.round)
-            cg.setStrokeColor(ink)
+            cg.setStrokeColor(edge)
             cg.setFillColor(ink)
             switch self {
             case .outline:
@@ -152,7 +161,7 @@ enum Glyph: Equatable {
     private func hub(_ cg: CGContext, filled: Bool) {
         cg.setAlpha(strength * 0.55)
         cg.addPath(Mark.hub)
-        if filled { cg.fillPath() } else { cg.strokePath() }
+        if filled { cg.drawPath(using: .fillStroke) } else { cg.strokePath() }
         cg.setAlpha(strength)
     }
 }
