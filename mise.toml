@@ -11,12 +11,17 @@
 #   install    /Applications/chill.app, Developer ID signed, chilld registered, `chill` on PATH
 #   uninstall  `chill daemon uninstall` first, then the bundle and the symlink
 #   notes      draft notes/$VERSION.md from the commits (you then rewrite it)
-#   release    signed, notarized, stapled dmg → tag → GitHub Release → publish → cask
-#   publish    dmg → R2 behind chill.untitled.garden/releases (the COUNTED url) + notes → garden
-#   cask       bump the Homebrew cask to the built dmg (release does this)
+#   release    `ship release` (swift-utils): signed, notarized dmg → tag → GitHub Release → publish → cask ($TAP)
+#   ship-check what would stop a release right now, each blocked gate with its real answer
+#   publish    dmg → R2 behind chill.untitled.garden/releases (the COUNTED url) + notes → garden ($GARDEN)
 #   clean      remove the build directory and dist
 # Every compiling task runs under scripts/locked.sh (the build mutex);
 # scripts/assemble.sh builds the .app for install AND release, one implementation.
+
+[tools]
+# The release (swift-utils' `ship`): gates, signing, notarization, dmg, tag,
+# channels, one implementation shared with every app.
+"spm:adriangalilea/swift-utils" = { version = "0.19.0", filter_bins = "ship" }
 
 [env]
 # THE VERSION, single source of truth: it stamps Info.plist and names the tag.
@@ -57,8 +62,8 @@ scripts/locked.sh swift build
 description = "The stage scenes: timelines + art into the garden, the popover clips onto the CDN (needs ffmpeg, the garden checkout)"
 run = '''
 set -e
-garden="${GARDEN:-$HOME/Developer/untitled}"
-test -d "$garden/tools/release" || { echo "no garden at $garden (GARDEN overrides)"; exit 1; }
+garden="${GARDEN:?the scenes are written into the garden checkout: set GARDEN to it}"
+test -d "$garden/tools/release" || { echo "GARDEN=$garden is not the garden checkout"; exit 1; }
 scripts/locked.sh swift build
 mkdir -p "$DIST/scenes"
 .build/debug/chill --demo scene --cdn https://cdn.untitled.garden/media/chill/films \
@@ -173,98 +178,38 @@ echo "drafted $notes: REWRITE it for humans, then commit it"
 #     --key ~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8 \
 #     --key-id <KEYID> --issuer <ISSUER-UUID>
 [tasks.release]
-description = "Signed, notarized, stapled dmg → tag → GitHub Release → publish → cask (LOCAL: needs the Developer ID + notary profile)"
-depends = ["icon"]
+description = "ship release: gates, Developer ID, notarized dmg, tag, GitHub Release, publish, cask (LOCAL: needs the Developer ID + notary profile)"
+depends = ["icon", "check"]
 run = '''
-set -e
-# The tag and the push land in whatever repo holds this directory: chill's
-# own, never the studio checkout that vendors it.
-test "$(git rev-parse --show-toplevel)" = "$PWD" || { echo "release runs from chill's own repo, not the studio checkout"; exit 1; }
-mise run check
-mise run build
-notes="notes/$VERSION.md"
-dmg="$DIST/chill-$VERSION.dmg"
-release_app="$DIST/chill.app"
-notary="${NOTARY_PROFILE:-chill}"
-test -z "$(git status --porcelain)" || { echo "working tree is dirty"; exit 1; }
-! git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null || { echo "tag $VERSION exists: bump VERSION in mise.toml"; exit 1; }
-test -f "$notes" || { echo "no $notes: run 'mise notes', then write it"; exit 1; }
-# The grammar, checked HERE rather than by whoever renders it later: notes
-# publish as DESIGNED releases (a glyph per group), so a body without groups
-# and items renders as a dated heading with nothing underneath.
-grep -q '^### ' "$notes" && grep -q '^- ' "$notes" || \
-  { echo "$notes needs '### Added|Fixed|Changed|Performance|Polish' sections with '- ' items"; exit 1; }
-sign_id=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
-test -n "$sign_id" || { echo "no 'Developer ID Application' certificate in the keychain"; exit 1; }
-# notarytool's own answer, not a guess at it: a missing profile, a revoked
-# key and an unsigned agreement all fail here, and need different hands.
-if ! answer=$(xcrun notarytool history --keychain-profile "$notary" 2>&1); then
-  echo "notary profile '$notary': $answer"
-  case "$answer" in
-    *"No Keychain password item found"*) echo "create it once: see the header of mise.toml" ;;
-    *agreement*) echo "the Account Holder accepts the pending agreement at https://developer.apple.com/account, then rerun" ;;
-  esac
-  exit 1
-fi
-rm -rf "$DIST" && mkdir -p "$DIST/stage"
-scripts/assemble.sh "$release_app"
-# Hardened runtime + secure timestamp: notarization rejects anything less.
-codesign --force --options runtime --timestamp --sign "$sign_id" "$release_app/Contents/MacOS/chilld"
-codesign --force --options runtime --timestamp --sign "$sign_id" "$release_app/Contents/MacOS/chill"
-codesign --force --options runtime --timestamp --sign "$sign_id" "$release_app"
-ditto -c -k --keepParent "$release_app" "$DIST/chill.zip"
-xcrun notarytool submit "$DIST/chill.zip" --keychain-profile "$notary" --wait
-# The REAL verdict: stapling fails unless a ticket was actually issued, so
-# this is the check, not notarytool's exit status.
-xcrun stapler staple "$release_app"
-cp -R "$release_app" "$DIST/stage/" && ln -sf /Applications "$DIST/stage/Applications"
-rm -f "$dmg"
-diskutil image create from --format UDZO --volumeName chill "$DIST/stage" "$dmg"
-git tag -a "$VERSION" -m "$VERSION" && git push origin "$VERSION"
-gh release create "$VERSION" --title "$VERSION" --notes-file "$notes" "$dmg"
-mise run publish
-mise run cask
-echo "released $VERSION: $dmg"
+ship release --name chill --app "$DIST/chill.app" \
+  --assemble "mise run build && scripts/assemble.sh $DIST/chill.app" \
+  --sign Contents/MacOS/chilld --sign Contents/MacOS/chill \
+  --github --after "mise run publish" --cask
 '''
 
-# The garden half of a release: the dmg behind the counted download URL, the
-# notes on the surface. Publish BEFORE the cask bump: the cask's URL is this
-# one, and brew fetches it the moment the tap updates. The untitled garden
-# monorepo's release tool is the ONE writer to the R2 bucket behind
-# <slug>.untitled.garden/releases/<file>, the download URL that is COUNTED
-# (garden KPI `download`), and `pnpm garden notes` syncs notes/<v>.md to the
-# surface's release rows. A fork without the checkout skips both and its
-# downloads simply go unmeasured. GARDEN overrides the checkout path.
+# Every gate the release would hold, each blocked one with its real answer.
+[tasks.ship-check]
+description = "ship check: what would stop a release right now"
+run = '''
+ship check --name chill --app "$DIST/chill.app" --assemble "scripts/assemble.sh $DIST/chill.app" \
+  --github --after "mise run publish" --cask
+'''
+
+# The garden half of a release, ship's --after: the dmg behind the counted
+# download URL, the notes on the surface. It runs BEFORE the cask bump: the
+# cask's URL is this one, and brew fetches it the moment the tap updates. The
+# untitled garden monorepo's release tool is the ONE writer to the R2 bucket
+# behind <slug>.untitled.garden/releases/<file>, the download URL that is
+# COUNTED (garden KPI `download`), and `pnpm garden notes` syncs notes/<v>.md
+# to the surface's release rows. GARDEN names that checkout; unset (a fork),
+# both are skipped and downloads simply go unmeasured.
 [tasks.publish]
 description = "dmg → R2 behind chill.untitled.garden/releases (the counted url) + notes → garden"
 run = '''
 dmg="$DIST/chill-$VERSION.dmg"
-garden="${GARDEN:-$HOME/Developer/untitled}"
 test -f "$dmg" || { echo "no $dmg: run 'mise release'"; exit 1; }
-if [ ! -d "$garden/tools/release" ]; then echo "no garden at $garden, skipping publish (downloads uncounted)"; exit 0; fi
-url=$(pnpm --dir "$garden/tools/release" exec tsx dmg.ts chill "$PWD/$dmg") && echo "published $url"
-cd "$garden" && pnpm --silent garden notes chill
-'''
-
-# The cask points at the release asset by URL + sha256, so it can only be bumped
-# once the dmg is public. The Homebrew tap holding the recipe is a separate repo
-# because Homebrew only discovers taps by the `homebrew-` name prefix, so it can
-# never live here; TAP overrides its path. A fork without the tap checked out
-# just skips it.
-[tasks.cask]
-description = "Bump the Homebrew cask (adriangalilea/homebrew-tap) to the built dmg"
-run = '''
-dmg="$DIST/chill-$VERSION.dmg"
-tap="${TAP:-$HOME/Developer/homebrew-tap}"
-test -f "$dmg" || { echo "no $dmg: run 'mise release'"; exit 1; }
-if [ ! -d "$tap/.git" ]; then echo "no tap at $tap, skipping cask bump"; exit 0; fi
-sha=$(shasum -a 256 "$dmg" | cut -d' ' -f1)
-sed -i '' \
-  -e "s|^  version .*|  version \"$VERSION\"|" \
-  -e "s|^  sha256 .*|  sha256 \"$sha\"|" \
-  "$tap/Casks/chill.rb"
-git -C "$tap" add Casks/chill.rb
-git -C "$tap" commit -q -m "chill $VERSION"
-git -C "$tap" push -q origin main
-echo "cask bumped to $VERSION ($sha)"
+if [ -z "$GARDEN" ]; then echo "GARDEN is not set, skipping publish (downloads uncounted)"; exit 0; fi
+test -d "$GARDEN/tools/release" || { echo "GARDEN=$GARDEN is not the garden checkout"; exit 1; }
+url=$(pnpm --dir "$GARDEN/tools/release" exec tsx dmg.ts chill "$PWD/$dmg") && echo "published $url"
+cd "$GARDEN" && pnpm --silent garden notes chill
 '''
