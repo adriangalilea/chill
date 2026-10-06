@@ -55,6 +55,8 @@ scripts/locked.sh swift build
 # published beside awake's films on the CDN.
 [tasks.scene]
 description = "The stage scenes: timelines + art into the garden (and the ui studio when UI is set), the popover clips onto the CDN (needs ffmpeg, the garden checkout)"
+# art.json carries the app icon, Resources/icon.png.
+depends = ["icon"]
 run = '''
 set -e
 garden="${GARDEN:?the scenes are written into the garden checkout: set GARDEN to it}"
@@ -88,9 +90,10 @@ echo "chill: 0 errors, 0 warnings"
 
 # One drawing, every icon file: chill.icon (Icon Composer's package, its
 # layers SVG) is the icon; swift-utils' `mark` compiles the glass
-# Assets.car, the flat chill.icns and the site's icon.png from it.
-# `mark preview chill.icon` is the review. Skipped while the package is
-# unchanged.
+# Assets.car, the flat chill.icns and the site's icon.png from it, build
+# output never committed (actool's is not byte-stable), so every task that
+# bundles or shows the icon depends on this one. `mark preview chill.icon`
+# is the review. Skipped while the package is unchanged.
 [tasks.icon]
 description = "Compile chill.icon: Resources/Assets.car + chill.icns + icon.png (swift-utils' mark)"
 tools = { "spm:adriangalilea/swift-utils" = { version = "0.20.0", filter_bins = "mark" } }

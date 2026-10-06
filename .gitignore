@@ -1,3 +1,7 @@
 .build/
 .swiftpm/
 dist/
+# Compiled from chill.icon by `mise icon` (actool output is not byte-stable)
+Resources/Assets.car
+Resources/chill.icns
+Resources/icon.png
