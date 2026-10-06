@@ -86,8 +86,12 @@ enum Film {
     /// the fans ride the curve up and the chip comes down under the same
     /// load. The die is the heat model's chip (`heroHeat`), so the plot and
     /// the stage's thermal view (`Scene.hero`) are one simulation.
-    nonisolated static let heroChill = 5.5
-    nonisolated static let heroLength = 12.0
+    nonisolated static let heroChill = 3.5
+    nonisolated static let heroLength = 10.5
+    /// When the pointer takes the knob: once the stage has gone inside
+    /// (Scene.hero), so the push and the fans answering it are seen together
+    /// and nothing moves on the popover while the view changes.
+    nonisolated static let heroPushAt = 5.2
     /// The clip runs past the story's last beat, so the stage, which holds
     /// the last caption until it is read, never outruns the popover.
     nonisolated static let heroClip = heroLength + 5
@@ -95,7 +99,7 @@ enum Film {
         UI(tab: t < heroChill ? .apple : .tuned, watching: true)
     }
     nonisolated static func heroPush(_ t: Double) -> Double {
-        mix(0.35, 0.75, ease((t - heroChill - 0.6) / 0.7))
+        mix(0.35, 0.75, ease((t - heroPushAt) / 0.8))
     }
     static let hero = Story(
         length: heroClip,
@@ -105,17 +109,20 @@ enum Film {
         cuts: [heroChill],
         path: [
             (0.0, .at(outside), false),
-            (heroChill - 0.7, .mark(.tab(.tuned)), false),
-            (heroChill - 0.12, .mark(.tab(.tuned)), true),
-            (heroChill + 0.05, .mark(.tab(.tuned)), false),
-            // Held on the tab until the cut's crossfade is over: the knob is
-            // only on screen once the frame is chill's alone.
+            (heroChill - 0.6, .at(outside), false),
+            (heroChill - 0.12, .mark(.tab(.tuned)), false),
+            (heroChill - 0.05, .mark(.tab(.tuned)), true),
+            (heroChill + 0.1, .mark(.tab(.tuned)), false),
+            // Held on the tab until the cut's crossfade is over (the knob is
+            // only on screen once the frame is chill's alone), then onto the
+            // knob before the stage goes inside, resting there while it does.
             (heroChill + fade + 0.05, .mark(.tab(.tuned)), false),
-            (heroChill + 0.55, .handle, false),
-            (heroChill + 0.6, .handle, true),
-            (heroChill + 1.3, .handle, true),
-            (heroChill + 1.4, .handle, false),
-            (heroChill + 2.2, .at(outside), false),
+            (heroChill + 0.65, .handle, false),
+            (heroPushAt - 0.05, .handle, false),
+            (heroPushAt, .handle, true),
+            (heroPushAt + 0.8, .handle, true),
+            (heroPushAt + 0.9, .handle, false),
+            (heroPushAt + 1.6, .at(outside), false),
         ])
 
     /// One frame of the hero's machine: its heat and the fans' rpm.

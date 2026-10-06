@@ -146,11 +146,14 @@ enum Scene {
     /// The value in one breath, a hot Mac in five acts, the popover open from
     /// the first frame (`Film.hero`) and the machine's heat in the stage's
     /// MacBook, both from one simulation (`Film.heroHeat`):
-    ///   1. under a long load on Apple's curve, the case heats up (the skin);
-    ///   2. inside, every part hot, Apple's fans at their floor;
-    ///   3. the pointer presses chill and pushes the knob;
-    ///   4. the fans ride the curve and every part cools;
-    ///   5. back out, the case cool again under the same load.
+    ///   1. under a long load on Apple's curve, the MacBook heats up (the skin);
+    ///   2. the pointer presses chill, the view still;
+    ///   3. the stage goes inside, the pointer resting on the knob; once in,
+    ///      it pushes the knob and the fans answer;
+    ///   4. every part cools;
+    ///   5. back out, the MacBook cool again under the same load, ending as
+    ///      soon as the heat settles.
+    /// The pointer and the view never move together: one thing at a time.
     /// Each act is a chapter its caption closes, every number in it the
     /// model's. The glyph flips on the clip's own cut; the poster is act 4.
     /// Readings every quarter second; the stage glides between. Captions are
@@ -164,7 +167,10 @@ enum Scene {
         let c = { (v: Double) in "\(Int(v.rounded())) °C" }
         // The acts' ends, in story seconds: where each caption closes one and
         // the view changes for the next.
-        let acts = (heats: 3.0, inside: Film.heroChill, press: Film.heroChill + 1.2, cools: 9.5)
+        let acts = (
+            heats: 3.0, press: Film.heroChill + 0.75, push: Film.heroPushAt + 1.05, cools: 8.0,
+            cool: 8.5
+        )
         // What happens when, in story seconds, and in which order at one
         // instant: a caption closes its act before the next act's change.
         var events: [(t: Double, rank: Int, step: Step)] =
@@ -173,7 +179,7 @@ enum Scene {
                 let depth: Double? =
                     switch t {
                     case 0.25: 1
-                    case acts.heats: 2
+                    case acts.press: 2
                     case acts.cools: 1
                     default: nil
                     }
@@ -185,20 +191,20 @@ enum Scene {
         let caption = { (t: Double, text: String) in
             (t, 0, Step(kind: "caption", text: text))
         }
-        let hot = at(acts.inside)
+        let hot = at(Film.heroChill)
         events += [
-            caption(acts.heats, "Under load, the case heats up"),
-            caption(acts.inside, "Inside: \(c(hot.heat.cpu)), Apple's fans at their floor"),
+            caption(acts.heats, "Your MacBook heats up"),
             caption(acts.press, "Press chill"),
-            caption(acts.cools, "Every part cools, the chip to \(c(at(acts.cools).heat.cpu))"),
-            caption(Film.heroLength, "The case, cool again: \(c(at(Film.heroLength).heat.skin))"),
+            caption(acts.push, "The fans spin up"),
+            caption(acts.cools, "Everything cools: \(c(at(acts.cools).heat.cpu))"),
+            caption(acts.cool, "Cool again: \(c(at(Film.heroLength).heat.skin))"),
             (
                 Film.heroChill, 1,
                 Step(
                     kind: "glyph", glyph: "filled",
                     tooltip: line(die: hot.heat.cpu, intent: curve, watching: true))
             ),
-            (acts.press + 1.0, 1, Step(kind: "poster")),
+            (acts.push + 0.5, 1, Step(kind: "poster")),
         ]
         var steps = [
             Step(kind: "world", author: true, world: World()),
