@@ -73,18 +73,18 @@ enum Glyph: Equatable {
     /// light bar as on a dark one.
     static let dune = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 0xcf / 255, green: 0xc5 / 255, blue: 0xb4 / 255, alpha: 1)
-            : NSColor(srgbRed: 0x86 / 255, green: 0x76 / 255, blue: 0x5a / 255, alpha: 1)
+            ? NSColor(srgbRed: 0xe6 / 255, green: 0xd6 / 255, blue: 0xb8 / 255, alpha: 1)
+            : NSColor(srgbRed: 0x6a / 255, green: 0x55 / 255, blue: 0x30 / 255, alpha: 1)
     }
 
     /// Who holds the fans, at a glance: chill's curve in dune and heavier,
-    /// Apple's idle in the bar's own ink at half strength and lighter, and a
+    /// Apple's idle as an outline in the bar's own ink, receded, and a
     /// trouble state (no daemon, a foreign writer) in the full ink, since it
     /// asks for attention. Dynamic colors resolve per appearance at draw time.
     var ink: NSColor {
         switch self {
         case .filled, .bar: Glyph.dune
-        case .outline: .labelColor.withAlphaComponent(0.5)
+        case .outline: .labelColor.withAlphaComponent(0.7)
         case .slashed, .dotted: .labelColor
         }
     }
@@ -96,7 +96,9 @@ enum Glyph: Equatable {
             let cg = NSGraphicsContext.current!.cgContext
             let scale = rect.width / Mark.box
             cg.scaleBy(x: scale, y: scale)
-            let stroke = (self == .outline ? 1.2 : 1.6) / scale
+            // chill's own states carry the most ink: the filled blades
+            // stroked heavy, so the fan has mass at 18 pt.
+            let stroke = (self == .filled || self == .bar ? 2.4 : 1.6) / scale
             cg.setLineWidth(stroke)
             cg.setLineCap(.round)
             cg.setLineJoin(.round)

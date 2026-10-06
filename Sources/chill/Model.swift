@@ -101,6 +101,8 @@ final class Model {
     let clouds: CloudStore
     @ObservationIgnored private var client: Client?
     @ObservationIgnored private var busy = false
+    /// Set once the process has opened its upgraded bundle and is leaving.
+    @ObservationIgnored private var relaunching = false
     /// The verbs in flight, each behind the one before: `link` is set by
     /// replies in the order the verbs were sent, never by whichever lands
     /// last.
@@ -273,6 +275,9 @@ final class Model {
                 } catch {
                     drop(error)
                 }
+            case .refused(.stale):
+                link = .stale(error.description)
+                relaunchIntoUpgrade()
             case .refused, .malformed:
                 link = .stale(error.description)
             case .notInstalled, .awaitingApproval, .unreachable:
@@ -280,6 +285,40 @@ final class Model {
             }
         } catch {
             drop(error)
+        }
+    }
+
+    /// A newer chill replaced this bundle while this process ran (`brew
+    /// upgrade`, a new dmg dragged over the old app): chilld, already the
+    /// new version, refuses this one as stale. Upgrading is never the
+    /// person's job, so the process opens the bundle it was launched from,
+    /// now the new version, and leaves, as chilld restarts itself. Only when
+    /// the bundle on disk really is another version, so a refusal a relaunch
+    /// cannot cure stays on the popover's chip instead of looping.
+    private func relaunchIntoUpgrade() {
+        guard !relaunching else { return }
+        let bundle = Bundle.main.bundleURL
+        guard
+            let info = NSDictionary(contentsOf: bundle.appending(path: "Contents/Info.plist")),
+            let disk = info["CFBundleShortVersionString"] as? String, disk != Wire.version
+        else {
+            log.error("stale, and the bundle on disk is this version: no relaunch can fix it")
+            return
+        }
+        relaunching = true
+        log.info(
+            "upgrade: \(Wire.version, privacy: .public) → \(disk, privacy: .public), relaunching")
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: bundle, configuration: configuration) { _, error in
+            Task { @MainActor in
+                if let error {
+                    log.error("upgrade: relaunch failed: \(error, privacy: .public)")
+                    self.relaunching = false
+                    return
+                }
+                NSApp.terminate(nil)
+            }
         }
     }
 
@@ -619,7 +658,10 @@ final class Model {
                 case .refused(.heldBy(let pid, let name)):
                     heldBy = (pid, name)
                     notice = error.description
-                case .refused(.stale), .malformed:
+                case .refused(.stale):
+                    link = .stale(error.description)
+                    relaunchIntoUpgrade()
+                case .malformed:
                     link = .stale(error.description)
                 case .refused(let refusal):
                     notice = refusal.description
