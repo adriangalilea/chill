@@ -92,7 +92,7 @@ enum Film {
         UI(tab: t < heroChill ? .apple : .tuned, watching: true)
     }
     nonisolated static func heroPush(_ t: Double) -> Double {
-        mix(0.35, 0.5, ease((t - heroChill - 1.0) / 1.6))
+        mix(0.35, 0.75, ease((t - heroChill - 1.0) / 1.6))
     }
     static let hero = Story(
         length: heroLength,

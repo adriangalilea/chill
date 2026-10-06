@@ -149,9 +149,10 @@ enum Scene {
     /// Apple's curve the case warms (the skin) and then the stage looks
     /// inside, the chip hot and Apple's fans at their floor; the pointer
     /// presses chill and pushes the knob, the fans ride the curve and the
-    /// parts cool; back out, the case cool again under the same load. The
-    /// glyph flips on the clip's own cut; the poster is chill cooling it,
-    /// seen inside. Readings every half second; the stage glides between.
+    /// parts and the case cool under the same load, seen inside to the end:
+    /// the fans doing it are the point. The glyph flips on the clip's own
+    /// cut; the poster is chill cooling it. Readings every half second; the
+    /// stage glides between.
     static func hero() -> [Step] {
         let heat = Film.heroHeat
         let at = { (t: Double) in heat[min(heat.count - 1, Int((t * Film.fps).rounded()))] }
@@ -165,7 +166,6 @@ enum Scene {
                     switch t {
                     case 1.0: 1
                     case 5.5: 2
-                    case Film.heroChill + 5.5: 1
                     default: nil
                     }
                 return (

@@ -23,17 +23,20 @@ public struct Heat: Sendable, Equatable {
     static let tau = (cpu: 1.2, gpu: 1.6, ssd: 3.5, battery: 3.0, skin: 3.0)
 
     /// One step: `load` 0 (idle) to 1 (a long render), `air` how hard the
-    /// fans blow, 0 (off) to 1 (both at their ceiling).
+    /// fans blow, 0 (off) to 1 (both at their ceiling). Air carries heat away
+    /// with the square of its speed: a fan at its floor barely moves the
+    /// chip, one at its ceiling pulls everything down, the case included.
     public mutating func step(load: Double, air: Double, seconds: Double) {
         func toward(_ v: Double, _ target: Double, _ tau: Double) -> Double {
             v + (target - v) * (1 - exp(-seconds / tau))
         }
-        cpu = toward(cpu, 46 + 55 * load - 30 * air, Heat.tau.cpu)
-        gpu = toward(gpu, 44 + 40 * load - 22 * air, Heat.tau.gpu)
-        ssd = toward(ssd, 36 + 12 * load - 4 * air, Heat.tau.ssd)
-        battery = toward(battery, 31 + 0.3 * (cpu - 46) - 3 * air, Heat.tau.battery)
+        let flow = air * air
+        cpu = toward(cpu, 46 + 55 * load - 48 * flow, Heat.tau.cpu)
+        gpu = toward(gpu, 44 + 40 * load - 35 * flow, Heat.tau.gpu)
+        ssd = toward(ssd, 36 + 12 * load - 8 * flow, Heat.tau.ssd)
+        battery = toward(battery, 31 + 0.3 * (cpu - 46) - 4 * flow, Heat.tau.battery)
         skin = toward(
-            skin, 30 + 0.2 * (cpu - 46) + 0.45 * (battery - 31) - 6 * air, Heat.tau.skin)
+            skin, 30 + 0.2 * (cpu - 46) + 0.45 * (battery - 31) - 8 * flow, Heat.tau.skin)
     }
 
     /// How hard the fans blow at these rpm: each one's share of its ceiling
