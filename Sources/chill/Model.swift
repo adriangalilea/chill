@@ -627,6 +627,32 @@ final class Model {
 
     func approveDaemon() { SMAppService.openSystemSettingsLoginItems() }
 
+    /// A misplaced chill puts itself in /Applications (`Placement.move`),
+    /// opens that one and quits; there the popover offers "install chilld".
+    func moveToApplications() {
+        let home = Placement.home
+        do {
+            if Placement.move == .copy {
+                try FileManager.default.copyItem(at: Bundle.main.bundleURL, to: home)
+            }
+        } catch {
+            notice = "move to Applications: \(error.localizedDescription)"
+            return
+        }
+        // Same bundle id as this process: without a new instance, macOS would
+        // only bring this one forward.
+        let open = NSWorkspace.OpenConfiguration()
+        open.createsNewApplicationInstance = true
+        Task {
+            do {
+                _ = try await NSWorkspace.shared.openApplication(at: home, configuration: open)
+                NSApp.terminate(nil)
+            } catch {
+                notice = "open \(home.path): \(error.localizedDescription)"
+            }
+        }
+    }
+
     // MARK: - curves and points
 
     func reload() {

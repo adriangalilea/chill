@@ -38,6 +38,19 @@ enum Placement: Equatable {
         return .installable
     }
 
+    /// Where chill belongs, the one path a registration may be bound to.
+    static let home = URL(filePath: "/Applications/chill.app")
+
+    /// The act that puts a misplaced chill where it belongs, from the app
+    /// (the popover's chip; the CLI says it in words): an install already
+    /// there is THE chill and is opened; otherwise this bundle is copied
+    /// there, a copy because the dmg is read-only and a translocated bundle's
+    /// origin is hidden from it.
+    enum Move { case open, copy }
+    static var move: Move {
+        FileManager.default.fileExists(atPath: home.path) ? .open : .copy
+    }
+
     /// What a `.notFound` registration means here, in the words every
     /// surface shows.
     var notFound: String {
@@ -49,7 +62,7 @@ enum Placement: Equatable {
                 ? "the disk image"
                 : path.contains("/AppTranslocation/")
                     ? "a copy macOS made of the download" : path
-            return "chill is running from \(from): move it to Applications and open it there"
+            return "chill is running from \(from), and it runs its daemon only from Applications"
         case .bare: return "no chilld in this bundle (a bare build): mise run install"
         }
     }

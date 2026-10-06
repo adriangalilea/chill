@@ -682,7 +682,8 @@ struct Knob: View {
 /// answered and refused this process for good is fixed by a relaunch,
 /// whatever the registration says. `.notFound` is judged against the
 /// bundle (`Placement`): installable gets the install chip, a bundle
-/// outside /Applications is told to move, a bare build what installs one.
+/// outside /Applications the chip that moves it there, a bare build what
+/// installs one.
 /// Renders nothing while the daemon is live.
 struct Fixer: View {
     let model: Model
@@ -722,11 +723,21 @@ struct Fixer: View {
         case .notFound:
             // Never registered reads the same as no plist at all; the bundle
             // says which (Placement).
-            if Placement.current == .installable {
+            switch Placement.current {
+            case .installable:
                 Chip(tint: tone, action: { model.installDaemon() }) {
                     Text("install chilld").font(.system(size: 12))
                 }
-            } else {
+            case .misplaced:
+                Text(Placement.current.notFound)
+                    .font(.meta).foregroundStyle(.secondary)
+                Chip(tint: tone, action: { model.moveToApplications() }) {
+                    Text(
+                        Placement.move == .copy
+                            ? "move to Applications" : "open chill in Applications"
+                    ).font(.system(size: 12))
+                }
+            case .bare:
                 Text(Placement.current.notFound)
                     .font(.meta).foregroundStyle(.secondary)
             }

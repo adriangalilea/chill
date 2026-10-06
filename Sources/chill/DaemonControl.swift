@@ -28,7 +28,11 @@ enum DaemonControl {
     /// approval is needed), reach the daemon, refuse a fanless Mac, then
     /// the login item so presence returns at login.
     static func install() {
-        if Placement.current != .installable { Verbs.die(Placement.current.notFound) }
+        if case .misplaced = Placement.current {
+            Verbs.die(
+                "\(Placement.current.notFound): open chill.app and press \"move to Applications\"")
+        }
+        if Placement.current == .bare { Verbs.die(Placement.current.notFound) }
         register(daemon, "chilld")
         var told = false
         poll: for _ in 0..<approvalPolls {
