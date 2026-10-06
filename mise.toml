@@ -178,6 +178,7 @@ ship release --name chill --app "$DIST/chill.app" \
 # Every gate the release would hold, each blocked one with its real answer.
 [tasks.ship-check]
 description = "ship check: what would stop a release right now"
+depends = ["icon"]
 tools = { "spm:adriangalilea/swift-utils" = { version = "0.20.0", filter_bins = "mark,ship" } }
 run = '''
 ship check --name chill --app "$DIST/chill.app" --assemble "scripts/assemble.sh $DIST/chill.app" \
