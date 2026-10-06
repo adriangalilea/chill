@@ -143,43 +143,63 @@ enum Scene {
 
     // MARK: - the stories
 
-    /// The value in one breath, a hot Mac, the popover open from the first
-    /// frame (`Film.hero`) and the machine's heat in the stage's MacBook,
-    /// both from one simulation (`Film.heroHeat`): under a long load on
-    /// Apple's curve the case warms (the skin) and then the stage looks
-    /// inside, the chip hot and Apple's fans at their floor; the pointer
-    /// presses chill and pushes the knob, the fans ride the curve and the
-    /// parts and the case cool under the same load, seen inside to the end:
-    /// the fans doing it are the point. The glyph flips on the clip's own
-    /// cut; the poster is chill cooling it. Readings every half second; the
-    /// stage glides between.
+    /// The value in one breath, a hot Mac in five acts, the popover open from
+    /// the first frame (`Film.hero`) and the machine's heat in the stage's
+    /// MacBook, both from one simulation (`Film.heroHeat`):
+    ///   1. under a long load on Apple's curve, the case heats up (the skin);
+    ///   2. inside, every part hot, Apple's fans at their floor;
+    ///   3. the pointer presses chill and pushes the knob;
+    ///   4. the fans ride the curve and every part cools;
+    ///   5. back out, the case cool again under the same load.
+    /// Each act is a chapter its caption closes, every number in it the
+    /// model's. The glyph flips on the clip's own cut; the poster is act 4.
+    /// Readings every quarter second; the stage glides between. Captions are
+    /// not author steps: they land on the story's clock and never hold it
+    /// for reading, so the stage stays frame for frame with the clip, and
+    /// each is short enough to read inside its act.
     static func hero() -> [Step] {
         let heat = Film.heroHeat
         let at = { (t: Double) in heat[min(heat.count - 1, Int((t * Film.fps).rounded()))] }
         let curve = Film.World.intent(.tuned, push: Film.heroPush(Film.heroChill))
-        // What happens when, in story seconds: the readings, the view going
-        // deeper and back, the glyph, the poster.
-        var events: [(t: Double, step: Step)] = stride(from: 0.5, through: Film.heroLength, by: 0.5)
-            .map { t in
+        let c = { (v: Double) in "\(Int(v.rounded())) °C" }
+        // The acts' ends, in story seconds: where each caption closes one and
+        // the view changes for the next.
+        let acts = (heats: 3.0, inside: Film.heroChill, press: Film.heroChill + 1.2, cools: 9.5)
+        // What happens when, in story seconds, and in which order at one
+        // instant: a caption closes its act before the next act's change.
+        var events: [(t: Double, rank: Int, step: Step)] =
+            stride(from: 0.25, through: Film.heroLength, by: 0.25).map { t in
                 let m = at(t)
                 let depth: Double? =
                     switch t {
-                    case 1.0: 1
-                    case 5.5: 2
+                    case 0.25: 1
+                    case acts.heats: 2
+                    case acts.cools: 1
                     default: nil
                     }
                 return (
-                    t, Step(kind: "thermal", thermal: Reading(m.heat, rpm: m.rpm), depth: depth)
+                    t, 1,
+                    Step(kind: "thermal", thermal: Reading(m.heat, rpm: m.rpm), depth: depth)
                 )
             }
-        events.append(
+        let caption = { (t: Double, text: String) in
+            (t, 0, Step(kind: "caption", text: text))
+        }
+        let hot = at(acts.inside)
+        events += [
+            caption(acts.heats, "Under load, the case heats up"),
+            caption(acts.inside, "Inside: \(c(hot.heat.cpu)), Apple's fans at their floor"),
+            caption(acts.press, "Press chill"),
+            caption(acts.cools, "Every part cools, the chip to \(c(at(acts.cools).heat.cpu))"),
+            caption(Film.heroLength, "The case, cool again: \(c(at(Film.heroLength).heat.skin))"),
             (
-                Film.heroChill,
+                Film.heroChill, 1,
                 Step(
                     kind: "glyph", glyph: "filled",
-                    tooltip: line(die: at(Film.heroChill).heat.cpu, intent: curve, watching: true))
-            ))
-        events.append((Film.heroChill + 4, Step(kind: "poster")))
+                    tooltip: line(die: hot.heat.cpu, intent: curve, watching: true))
+            ),
+            (acts.press + 1.0, 1, Step(kind: "poster")),
+        ]
         var steps = [
             Step(kind: "world", author: true, world: World()),
             Step(
@@ -189,7 +209,7 @@ enum Scene {
             Step(kind: "thermal", thermal: Reading(at(0).heat, rpm: at(0).rpm)),
         ]
         var last = 0.0
-        for (t, step) in events.sorted(by: { $0.t < $1.t }) {
+        for (t, _, step) in events.sorted(by: { ($0.t, $0.rank) < ($1.t, $1.rank) }) {
             var s = step
             s.delay = Int(((t - last) * 1000).rounded())
             steps.append(s)

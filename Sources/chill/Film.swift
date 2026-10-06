@@ -86,31 +86,36 @@ enum Film {
     /// the fans ride the curve up and the chip comes down under the same
     /// load. The die is the heat model's chip (`heroHeat`), so the plot and
     /// the stage's thermal view (`Scene.hero`) are one simulation.
-    nonisolated static let heroChill = 9.0
-    nonisolated static let heroLength = 21.0
+    nonisolated static let heroChill = 5.5
+    nonisolated static let heroLength = 12.0
+    /// The clip runs past the story's last beat, so the stage, which holds
+    /// the last caption until it is read, never outruns the popover.
+    nonisolated static let heroClip = heroLength + 5
     nonisolated static func heroUI(_ t: Double) -> UI {
         UI(tab: t < heroChill ? .apple : .tuned, watching: true)
     }
     nonisolated static func heroPush(_ t: Double) -> Double {
-        mix(0.35, 0.75, ease((t - heroChill - 1.0) / 1.6))
+        mix(0.35, 0.75, ease((t - heroChill - 0.6) / 0.7))
     }
     static let hero = Story(
-        length: heroLength,
+        length: heroClip,
         die: { t in heroHeat[min(heroHeat.count - 1, Int((t * fps).rounded()))].heat.cpu },
         push: heroPush,
         ui: heroUI,
         cuts: [heroChill],
         path: [
             (0.0, .at(outside), false),
-            (heroChill - 1.0, .mark(.tab(.tuned)), false),
-            (heroChill - 0.15, .mark(.tab(.tuned)), true),
+            (heroChill - 0.7, .mark(.tab(.tuned)), false),
+            (heroChill - 0.12, .mark(.tab(.tuned)), true),
             (heroChill + 0.05, .mark(.tab(.tuned)), false),
-            (heroChill + 0.4, .mark(.tab(.tuned)), false),
-            (heroChill + 0.9, .handle, false),
-            (heroChill + 1.0, .handle, true),
-            (heroChill + 2.6, .handle, true),
-            (heroChill + 2.75, .handle, false),
-            (heroChill + 3.9, .at(outside), false),
+            // Held on the tab until the cut's crossfade is over: the knob is
+            // only on screen once the frame is chill's alone.
+            (heroChill + fade + 0.05, .mark(.tab(.tuned)), false),
+            (heroChill + 0.55, .handle, false),
+            (heroChill + 0.6, .handle, true),
+            (heroChill + 1.3, .handle, true),
+            (heroChill + 1.4, .handle, false),
+            (heroChill + 2.2, .at(outside), false),
         ])
 
     /// One frame of the hero's machine: its heat and the fans' rpm.
@@ -132,7 +137,7 @@ enum Film {
                 die: heat.cpu, intent: World.intent(heroUI(0).tab, push: heroPush(0)),
                 watching: true, seconds: 1 / fps)
         }
-        return (0...Int(heroLength * fps)).map { i in
+        return (0...Int(heroClip * fps)).map { i in
             let t = Double(i) / fps
             let now = heat
             world.step(
