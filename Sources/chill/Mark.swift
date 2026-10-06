@@ -4,7 +4,7 @@ import ChillKit
 /// The mark's geometry on the app side, ONE constant: the blade and the
 /// hub of `scripts/icon.svg` in its 1024 viewBox. The SVG IS the drawing;
 /// `mise icon` rasterizes the icns from it and the menu bar glyph is a
-/// template render of these same numbers, so the app and the icon can
+/// render of these same numbers (`Glyph`), so the app and the icon can
 /// never draw two different fans.
 enum Mark {
     static let box: CGFloat = 1024
@@ -64,35 +64,57 @@ enum Glyph: Equatable {
         }
     }
 
-    /// 18 pt square, the menu bar's native size; a template image so it
-    /// reads on any menu bar. The stroke is thickened past the SVG's
-    /// proportion: 34/1024 of 18 pt is under a point, invisible.
+    /// 18 pt square, the menu bar's native size. The stroke is thickened past
+    /// the SVG's proportion: 34/1024 of 18 pt is under a point, invisible.
     static let side: CGFloat = 18
 
+    /// chill's ink while it holds the fans: dune, the hue the plot gives
+    /// what chill does, toned per menu bar appearance so it reads on a
+    /// light bar as on a dark one.
+    static let dune = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 0xcf / 255, green: 0xc5 / 255, blue: 0xb4 / 255, alpha: 1)
+            : NSColor(srgbRed: 0x86 / 255, green: 0x76 / 255, blue: 0x5a / 255, alpha: 1)
+    }
+
+    /// Who holds the fans, at a glance: chill's curve in dune and heavier,
+    /// Apple's idle in the bar's own ink at half strength and lighter, and a
+    /// trouble state (no daemon, a foreign writer) in the full ink, since it
+    /// asks for attention. Dynamic colors resolve per appearance at draw time.
+    var ink: NSColor {
+        switch self {
+        case .filled, .bar: Glyph.dune
+        case .outline: .labelColor.withAlphaComponent(0.5)
+        case .slashed, .dotted: .labelColor
+        }
+    }
+
     func image() -> NSImage {
+        let ink = self.ink
         let image = NSImage(size: NSSize(width: Glyph.side, height: Glyph.side), flipped: true) {
             rect in
             let cg = NSGraphicsContext.current!.cgContext
             let scale = rect.width / Mark.box
             cg.scaleBy(x: scale, y: scale)
-            let stroke = 1.6 / scale
+            let stroke = (self == .outline ? 1.2 : 1.6) / scale
             cg.setLineWidth(stroke)
             cg.setLineCap(.round)
             cg.setLineJoin(.round)
-            cg.setStrokeColor(NSColor.black.cgColor)
-            cg.setFillColor(NSColor.black.cgColor)
+            cg.setStrokeColor(ink.cgColor)
+            cg.setFillColor(ink.cgColor)
             switch self {
             case .outline:
                 cg.addPath(Mark.blades)
                 cg.strokePath()
                 self.hub(cg, filled: false)
             case .filled:
+                // Filled and stroked: the blades at their full mass.
                 cg.addPath(Mark.blades)
-                cg.fillPath()
+                cg.drawPath(using: .fillStroke)
                 self.hub(cg, filled: true)
             case .bar:
                 cg.addPath(Mark.blades)
-                cg.fillPath()
+                cg.drawPath(using: .fillStroke)
                 self.hub(cg, filled: true)
                 cg.fill(CGRect(x: 96, y: 930, width: Mark.box - 192, height: 70))
             case .slashed:
@@ -111,7 +133,6 @@ enum Glyph: Equatable {
             }
             return true
         }
-        image.isTemplate = true
         return image
     }
 

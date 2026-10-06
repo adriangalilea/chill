@@ -114,8 +114,8 @@ enum Scene {
                     (
                         "\($0)",
                         Pair(
-                            light: dataURL(png: png($0, .black)),
-                            dark: dataURL(png: png($0, .white)))
+                            light: dataURL(png: png($0, .aqua)),
+                            dark: dataURL(png: png($0, .darkAqua)))
                     )
                 }),
             surfaces: surfaces)
@@ -347,9 +347,9 @@ enum Scene {
 
     // MARK: - the pixels
 
-    /// A glyph state as the menu bar draws it: the template in `ink`, at 2x.
-    static func png(_ glyph: Glyph, _ ink: NSColor) -> Data {
-        let template = glyph.image()
+    /// A glyph state as a menu bar in `appearance` draws it, at 2x: its own
+    /// colors, resolved for that bar.
+    static func png(_ glyph: Glyph, _ appearance: NSAppearance.Name) -> Data {
         let side = Int(Glyph.side * 2)
         let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
@@ -358,10 +358,9 @@ enum Scene {
         rep.size = NSSize(width: Glyph.side, height: Glyph.side)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        let rect = NSRect(x: 0, y: 0, width: Glyph.side, height: Glyph.side)
-        template.draw(in: rect)
-        ink.set()
-        rect.fill(using: .sourceAtop)
+        NSAppearance(named: appearance)!.performAsCurrentDrawingAppearance {
+            glyph.image().draw(in: NSRect(x: 0, y: 0, width: Glyph.side, height: Glyph.side))
+        }
         NSGraphicsContext.restoreGraphicsState()
         return rep.representation(using: .png, properties: [:])!
     }
