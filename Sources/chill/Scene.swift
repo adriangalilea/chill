@@ -143,19 +143,20 @@ enum Scene {
 
     // MARK: - the stories
 
-    /// The value in one breath, a hot Mac in five acts, the popover open from
+    /// The value in one breath, a hot Mac in four acts, the popover open from
     /// the first frame (`Film.hero`) and the machine's heat in the stage's
     /// MacBook, both from one simulation (`Film.heroHeat`):
     ///   1. under a long load on Apple's curve, the MacBook heats up (the skin);
     ///   2. the pointer presses chill, the view still;
     ///   3. the stage goes inside, the pointer resting on the knob; once in,
     ///      it pushes the knob and the fans answer;
-    ///   4. every part cools;
-    ///   5. back out, the MacBook cool again under the same load, ending as
-    ///      soon as the heat settles.
-    /// The pointer and the view never move together: one thing at a time.
-    /// Each act is a chapter its caption closes, every number in it the
-    /// model's. The glyph flips on the clip's own cut; the poster is act 4.
+    ///   4. every part cools.
+    /// Then the end is a moment, not an act: the popover closes and the view
+    /// comes back out to the case, still cooling, and the story stops. No
+    /// frame is ever held still. The pointer and the view never move
+    /// together: one thing at a time. Each act is a chapter its caption
+    /// closes, every number in it the model's. The glyph flips on the clip's
+    /// own cut; the poster is act 3.
     /// Readings every quarter second; the stage glides between. Captions are
     /// not author steps: they land on the story's clock and never hold it
     /// for reading, so the stage stays frame for frame with the clip, and
@@ -168,8 +169,7 @@ enum Scene {
         // The acts' ends, in story seconds: where each caption closes one and
         // the view changes for the next.
         let acts = (
-            heats: 3.0, press: Film.heroChill + 0.75, push: Film.heroPushAt + 1.05, cools: 8.0,
-            cool: 8.5
+            heats: 3.0, press: Film.heroChill + 0.75, push: Film.heroPushAt + 1.05, cools: 8.0
         )
         // What happens when, in story seconds, and in which order at one
         // instant: a caption closes its act before the next act's change.
@@ -197,7 +197,8 @@ enum Scene {
             caption(acts.press, "Press chill"),
             caption(acts.push, "The fans spin up"),
             caption(acts.cools, "Everything cools: \(c(at(acts.cools).heat.cpu))"),
-            caption(acts.cool, "Cool again: \(c(at(Film.heroLength).heat.skin))"),
+            // The end: chill's popover closes as the view comes back out.
+            (acts.cools, 1, Step(kind: "close")),
             (
                 Film.heroChill, 1,
                 Step(
