@@ -87,7 +87,7 @@ enum Film {
     /// load. The die is the heat model's chip (`heroHeat`), so the plot and
     /// the stage's thermal view (`Scene.hero`) are one simulation.
     nonisolated static let heroChill = 3.5
-    nonisolated static let heroLength = 10.5
+    nonisolated static let heroLength = 12.5
     /// When the pointer takes the knob: once the stage has gone inside
     /// (Scene.hero), so the push and the fans answering it are seen together
     /// and nothing moves on the popover while the view changes.

@@ -20,7 +20,7 @@ public struct Heat: Sendable, Equatable {
     public init() {}
 
     /// Seconds for each part to go most of the way to where it is heading.
-    static let tau = (cpu: 0.6, gpu: 0.8, ssd: 1.8, battery: 1.5, skin: 1.5)
+    static let tau = (cpu: 0.6, gpu: 0.8, ssd: 1.8, battery: 2.5, skin: 3.0)
 
     /// One step: `load` 0 (idle) to 1 (a long render), `air` how hard the
     /// fans blow, 0 (off) to 1 (both at their ceiling). Air carries heat away
