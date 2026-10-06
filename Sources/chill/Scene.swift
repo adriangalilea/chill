@@ -155,8 +155,8 @@ enum Scene {
     /// comes back out to the case, still cooling, and the story stops. No
     /// frame is ever held still. The pointer and the view never move
     /// together: one thing at a time. Each act is a chapter its caption
-    /// closes, every number in it the model's. The glyph flips on the clip's
-    /// own cut; the poster is act 3.
+    /// closes, in words, no figures: the picture carries the numbers. The
+    /// glyph flips on the clip's own cut; the poster is act 3.
     /// Readings every quarter second; the stage glides between. Captions are
     /// not author steps: they land on the story's clock and never hold it
     /// for reading, so the stage stays frame for frame with the clip, and
@@ -165,7 +165,6 @@ enum Scene {
         let heat = Film.heroHeat
         let at = { (t: Double) in heat[min(heat.count - 1, Int((t * Film.fps).rounded()))] }
         let curve = Film.World.intent(.tuned, push: Film.heroPush(Film.heroChill))
-        let c = { (v: Double) in "\(Int(v.rounded())) °C" }
         // The acts' ends, in story seconds: where each caption closes one and
         // the view changes for the next.
         let acts = (
@@ -196,7 +195,7 @@ enum Scene {
             caption(acts.heats, "Your MacBook heats up"),
             caption(acts.press, "Press chill"),
             caption(acts.push, "The fans spin up"),
-            caption(acts.cools, "Everything cools: \(c(at(acts.cools).heat.cpu))"),
+            caption(acts.cools, "Everything cools down"),
             // The end: chill's popover closes as the view comes back out.
             (acts.cools, 1, Step(kind: "close")),
             (
