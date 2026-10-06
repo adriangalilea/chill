@@ -15,5 +15,6 @@ mkdir -p "$dest/Contents/MacOS" "$dest/Contents/Resources" "$dest/Contents/Libra
 ditto .build/release/chill "$dest/Contents/MacOS/chill"
 ditto .build/release/chilld "$dest/Contents/MacOS/chilld"
 ditto launchd/garden.untitled.chilld.plist "$dest/Contents/Library/LaunchDaemons/garden.untitled.chilld.plist"
+ditto Resources/Assets.car "$dest/Contents/Resources/Assets.car"
 ditto Resources/chill.icns "$dest/Contents/Resources/chill.icns"
 sed "s|__VERSION__|$VERSION|g" launchd/Info.plist.in > "$dest/Contents/Info.plist"

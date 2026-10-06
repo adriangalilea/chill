@@ -7,7 +7,7 @@
 #   scene      the @ag/macos stage scenes into the garden, the popover clip onto the CDN
 #   check      format + compile everything, debug: the FAST typecheck (0 warnings)
 #   format     swift-format in place · lint: advisory
-#   icon       Resources/chill.icns + icon.png from scripts/icon.svg (rsvg-convert)
+#   icon       chill.icon (Icon Composer, SVG layers) → Assets.car + chill.icns + icon.png (swift-utils' mark)
 #   install    /Applications/chill.app, Developer ID signed, chilld registered, `chill` on PATH
 #   uninstall  `chill daemon uninstall` first, then the bundle and the symlink
 #   notes      draft notes/$VERSION.md from the commits (you then rewrite it)
@@ -86,25 +86,17 @@ if echo "$out" | grep -q "warning:"; then echo "$out"; echo "chill: warnings are
 echo "chill: 0 errors, 0 warnings"
 '''
 
-# One drawing, every icon file: the mark is scripts/icon.svg and rasterizing
-# is a pipeline step (rsvg-convert, librsvg). Skipped while the svg is unchanged.
+# One drawing, every icon file: chill.icon (Icon Composer's package, its
+# layers SVG) is the icon; swift-utils' `mark` compiles the glass
+# Assets.car, the flat chill.icns and the site's icon.png from it.
+# `mark preview chill.icon` is the review. Skipped while the package is
+# unchanged.
 [tasks.icon]
-description = "Render Resources/chill.icns + Resources/icon.png from scripts/icon.svg"
-sources = ["scripts/icon.svg"]
-outputs = ["Resources/chill.icns", "Resources/icon.png"]
-run = '''
-command -v rsvg-convert >/dev/null 2>&1 || { echo "rsvg-convert missing: brew install librsvg"; exit 1; }
-mkdir -p Resources
-set=$(mktemp -d)/chill.iconset
-mkdir -p "$set"
-for p in 16 32 128 256 512; do
-  rsvg-convert -w "$p" -h "$p" scripts/icon.svg -o "$set/icon_${p}x${p}.png"
-  rsvg-convert -w $((p * 2)) -h $((p * 2)) scripts/icon.svg -o "$set/icon_${p}x${p}@2x.png"
-done
-iconutil -c icns "$set" -o Resources/chill.icns
-rsvg-convert -w 512 -h 512 scripts/icon.svg -o Resources/icon.png
-rm -rf "$(dirname "$set")"
-'''
+description = "Compile chill.icon: Resources/Assets.car + chill.icns + icon.png (swift-utils' mark)"
+tools = { "spm:adriangalilea/swift-utils" = { version = "0.20.0", filter_bins = "mark" } }
+sources = ["chill.icon/icon.json", "chill.icon/Assets/*.svg"]
+outputs = ["Resources/Assets.car", "Resources/chill.icns", "Resources/icon.png"]
+run = "mark build chill.icon --out Resources --png Resources/icon.png"
 
 # A Developer ID is REQUIRED, no ad-hoc fallback: SMAppService refuses an
 # unsigned or ad-hoc bundle (kSMErrorInvalidSignature), and the daemon's

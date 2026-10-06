@@ -1,11 +1,10 @@
 import AppKit
 import ChillKit
 
-/// The mark's geometry on the app side, ONE constant: the blade and the
-/// hub of `scripts/icon.svg` in its 1024 viewBox. The SVG IS the drawing;
-/// `mise icon` rasterizes the icns from it and the menu bar glyph is a
-/// render of these same numbers (`Glyph`), so the app and the icon can
-/// never draw two different fans.
+/// The menu bar glyph's geometry, ONE constant: the blade and the hub of
+/// `scripts/glyph.svg` in its 1024 viewBox. The SVG is the drawing and
+/// `Glyph` renders these same numbers, so the file and the bar never draw
+/// two different fans. The app icon is `chill.icon` (Icon Composer).
 enum Mark {
     static let box: CGFloat = 1024
     static let center = CGPoint(x: 512, y: 512)

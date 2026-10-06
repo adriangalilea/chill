@@ -6,6 +6,8 @@
 	<string>chill</string>
 	<key>CFBundleIconFile</key>
 	<string>chill</string>
+	<key>CFBundleIconName</key>
+	<string>chill</string>
 	<key>CFBundleIdentifier</key>
 	<string>garden.untitled.chill</string>
 	<key>CFBundleName</key>

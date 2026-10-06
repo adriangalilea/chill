@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" color="#000">
+  <!-- chill's menu bar glyph: a three-blade fan, the drawing `Mark` (Mark.swift)
+       renders in the bar's ink, filled and stroked by who holds the fans. The
+       app icon is chill.icon, Icon Composer's package. -->
+  <g fill="none" stroke="currentColor" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
+    <!-- three blades, one shape rotated by 120 -->
+    <path d="M 512 430 Q 462 300 522 176 Q 606 296 512 430 Z"/>
+    <path d="M 512 430 Q 462 300 522 176 Q 606 296 512 430 Z" transform="rotate(120 512 512)"/>
+    <path d="M 512 430 Q 462 300 522 176 Q 606 296 512 430 Z" transform="rotate(240 512 512)"/>
+    <!-- the hub -->
+    <circle cx="512" cy="512" r="52" opacity="0.55"/>
+  </g>
+</svg>

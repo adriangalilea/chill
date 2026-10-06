@@ -346,7 +346,7 @@ enum Scene {
         return rep.representation(using: .png, properties: [:])!
     }
 
-    /// The app icon, the one `mise icon` renders from `scripts/icon.svg`.
+    /// The app icon, the 512 px rendering `mise icon` compiles from `chill.icon`.
     static func icon() -> Data {
         let path = "Resources/icon.png"
         guard let data = FileManager.default.contents(atPath: path) else {
