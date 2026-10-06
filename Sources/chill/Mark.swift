@@ -68,29 +68,30 @@ enum Glyph: Equatable {
     /// the SVG's proportion: 34/1024 of 18 pt is under a point, invisible.
     static let side: CGFloat = 18
 
-    /// chill's ink while it holds the fans: dune, the hue the plot gives
-    /// what chill does, toned per menu bar appearance so it reads on a
-    /// light bar as on a dark one.
-    static let dune = NSColor(name: nil) { appearance in
+    /// chill's ink while it holds the fans: ice, the app icon's own ink, so
+    /// the fan says cool at a glance the way awake's orange cup says on.
+    /// Saturated on a light bar, where a pale ice would vanish; the icon's
+    /// bright ice on a dark one.
+    static let ice = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 0xe6 / 255, green: 0xd6 / 255, blue: 0xb8 / 255, alpha: 1)
-            : NSColor(srgbRed: 0x6a / 255, green: 0x55 / 255, blue: 0x30 / 255, alpha: 1)
+            ? NSColor(srgbRed: 0x9f / 255, green: 0xd8 / 255, blue: 0xff / 255, alpha: 1)
+            : NSColor(srgbRed: 0x1a / 255, green: 0x7f / 255, blue: 0xe0 / 255, alpha: 1)
     }
 
     /// Who holds the fans, at a glance. chill's curve (filled, bar) is its
-    /// own color, dune, stroked heavy. Every other state is the menu bar's
+    /// own color, ice, stroked heavy. Every other state is the menu bar's
     /// own ink as a template image, which the system tints for whatever bar
     /// it sits on: Apple's idle (outline) thinner and see-through, trouble
     /// (slashed, dotted) at full strength, since it asks for attention.
     var tinted: Bool { self == .filled || self == .bar }
 
     /// The glyph for a menu bar in `appearance`. A template is the same on
-    /// any bar; chill's dune is resolved for that bar here, since a status
+    /// any bar; chill's ice is resolved for that bar here, since a status
     /// item's image is drawn without its button's appearance current.
     func image(on appearance: NSAppearance) -> NSImage {
         var ink = NSColor.black.cgColor
         if tinted {
-            appearance.performAsCurrentDrawingAppearance { ink = Glyph.dune.cgColor }
+            appearance.performAsCurrentDrawingAppearance { ink = Glyph.ice.cgColor }
         }
         let image = NSImage(size: NSSize(width: Glyph.side, height: Glyph.side), flipped: true) {
             rect in
