@@ -187,17 +187,33 @@ final class Model {
     /// temperature hover card (the daemon ships one number, the hottest;
     /// the names live only in the HID reader). Opens the local sensors
     /// once, the same object the daemon-less canvas samples.
-    func temperatures() -> [Sensor] {
-        if sensors == nil { sensors = Result { try LocalSensors() } }
-        guard case .success(let local)? = sensors else { return [] }
-        return local.temperatures()
-    }
+    /// Read at most once a second, the rate the sensors move at: the card
+    /// is drawn on every pointer move and every frame of the plot's glide,
+    /// and a read per draw (two dozen SMC keys and the HID walk, on the main
+    /// thread) stuttered the pointer.
+    func temperatures() -> [Sensor] { reading().temperatures }
 
     /// cpu, gpu, memory by their SMC keys, read on demand for the badge.
-    func parts() -> [Parts.Reading] {
+    func parts() -> [Parts.Reading] { reading().parts }
+
+    private struct Reading {
+        let at: ContinuousClock.Instant
+        let temperatures: [Sensor]
+        let parts: [Parts.Reading]
+    }
+    @ObservationIgnored private var lastReading: Reading?
+
+    private func reading() -> Reading {
+        let now = ContinuousClock.now
+        if let lastReading, now - lastReading.at < .seconds(1) { return lastReading }
         if sensors == nil { sensors = Result { try LocalSensors() } }
-        guard case .success(let local)? = sensors else { return [] }
-        return local.partReadings()
+        guard case .success(let local)? = sensors else {
+            return Reading(at: now, temperatures: [], parts: [])
+        }
+        let fresh = Reading(
+            at: now, temperatures: local.temperatures(), parts: local.partReadings())
+        lastReading = fresh
+        return fresh
     }
 
     /// The parts in one line for the foot: `cpu 55 · gpu 47 · ssd 36 ·

@@ -311,11 +311,53 @@ struct Plot: View {
         case die, fans
     }
 
-    static func hovered(_ p: CGPoint, _ f: Frame, _ g: PlotGeometry, boxes: [Hovered: CGRect])
-        -> Hovered?
-    {
+    /// What the pointer rests on, held where it was when the pointer
+    /// arrived: the die's temperature or the fans' rpm at that moment. The
+    /// live line goes on moving with every sample; the card and the reach
+    /// that keeps it open stay put, so a pointer resting on a card is never
+    /// left behind by it.
+    struct Held: Equatable {
+        let on: Hovered
+        let at: Double
+    }
+    @SwiftUI.State private var held: Held?
+    /// Where the badges sit, kept between layouts (`Pinboard.Choice`).
+    @SwiftUI.State private var spots = Pinboard.Choice()
+
+    /// What the badges should not hide: the curve and its points, each
+    /// live point's halo, the die's line, the fans' rules, chill's targets.
+    static func clutter(_ f: Frame, _ g: PlotGeometry) -> Pinboard.Clutter {
+        var c = Pinboard.Clutter()
+        if let curve = f.curve {
+            c.traces = CurveLayer.samples.map { CGPoint(x: g.x($0), y: g.y(curve.rpm(at: $0))) }
+            c.discs = curve.points.filter { Frame.celsius.contains($0.c) }.map {
+                (CGPoint(x: g.x($0.c), y: g.y($0.rpm)), 6)
+            }
+        }
+        let rpms = LiveLayer.marks(f.actuals).map(\.1)
+        if let die = f.die {
+            c.verticals = [g.x(die)]
+            c.discs += rpms.map { (CGPoint(x: g.x(die), y: g.y($0)), 14) }
+        }
+        c.horizontals = rpms.map(g.y) + f.targets.map(g.y)
+        return c
+    }
+
+    static func hovered(
+        _ p: CGPoint, _ f: Frame, _ g: PlotGeometry, boxes: [Hovered: CGRect], held: Held?
+    ) -> Hovered? {
         guard g.plot.contains(p) else { return nil }
         if g.hit(f.curve, at: p) != nil || ghost(at: p, f, g) != nil { return nil }
+        if let held {
+            switch held.on {
+            case .die where abs(p.x - g.x(held.at)) < hoverReach:
+                return .die
+            case .fans where abs(p.y - g.y(held.at)) < hoverReach:
+                return .fans
+            default:
+                if boxes[held.on]?.contains(p) == true { return held.on }
+            }
+        }
         if let die = f.die, abs(p.x - g.x(die)) < hoverReach || boxes[.die]?.contains(p) == true {
             return .die
         }
@@ -350,7 +392,24 @@ struct Plot: View {
     /// What the pointer rests on right now.
     private func lit(_ f: Frame, _ g: PlotGeometry?) -> Hovered? {
         guard let hover, let g else { return nil }
-        return Plot.hovered(hover, f, g, boxes: boxes.at)
+        return Plot.hovered(hover, f, g, boxes: boxes.at, held: held)
+    }
+
+    /// Where a lit card's line was when the pointer reached it.
+    private func hold(_ on: Hovered?, _ f: Frame) -> Held? {
+        switch on {
+        case .die: return f.die.map { Held(on: .die, at: $0) }
+        case .fans: return LiveLayer.marks(f.actuals).first.map { Held(on: .fans, at: $0.1) }
+        case nil: return nil
+        }
+    }
+
+    /// While the pointer is on one thing, the other labels recede, so the
+    /// one it is on reads whole however crowded the plot is.
+    private func dimmed(_ on: Hovered, _ f: Frame, _ g: PlotGeometry) -> Bool {
+        if riding(f, g) { return true }
+        guard let lit = lit(f, g) else { return false }
+        return lit != on
     }
 
     init(model: Model, curve: Curve?, editable: Bool) {
@@ -421,44 +480,62 @@ struct Plot: View {
                             // the size it has right now and keeps it inside the
                             // plot, so the same view expands under the pointer
                             // and shrinks back in place, its anchored edge
-                            // still, never past an edge. The expanded one is on
-                            // top of the other.
-                            Pinboard {
-                                if let die = live.die {
+                            // still, never past an edge. Each has a few spots
+                            // along its own line and the board takes the ones
+                            // that hide the least of the plot and of each
+                            // other; while the pointer is on one, both stay.
+                            // The expanded one is on top of the other.
+                            Pinboard(
+                                clutter: Plot.clutter(live, geometry),
+                                choice: spots, frozen: held != nil
+                            ) {
+                                if let live = live.die {
+                                    let die = held?.on == .die ? held!.at : live
                                     let right = LiveLayer.dieLabelRight(die, geometry)
                                     let x = geometry.x(die)
+                                    let plot = geometry.plot
                                     Badge(
                                         model: model, frame: frame, on: .die, expanded: lit == .die
                                     )
                                     .fixedSize()
+                                    .opacity(dimmed(.die, frame, geometry) ? 0.3 : 1)
                                     .placed { boxes.at[.die] = $0 }
                                     .zIndex(lit == .die ? 1 : 0)
-                                    .pinned { size in
-                                        CGPoint(
-                                            x: right ? x + 6 : x - 6 - size.width,
-                                            y: geometry.plot.minY - 2)
-                                    }
+                                    // At the top of its line, on the side with
+                                    // room or the other: never far from where
+                                    // the eye already found it.
+                                    .pinned(among: { size in
+                                        let near = right ? x + 6 : x - 6 - size.width
+                                        let far = right ? x - 6 - size.width : x + 6
+                                        return [
+                                            CGPoint(x: near, y: plot.minY - 2),
+                                            CGPoint(x: far, y: plot.minY - 2),
+                                        ]
+                                    })
                                 }
-                                if let rpm = LiveLayer.marks(live.actuals).first?.1 {
+                                if let lead = LiveLayer.marks(live.actuals).first?.1 {
+                                    let rpm = held?.on == .fans ? held!.at : lead
                                     let y = geometry.y(rpm)
+                                    let plot = geometry.plot
                                     Badge(
                                         model: model, frame: frame, on: .fans,
                                         expanded: lit == .fans
                                     )
                                     .fixedSize()
+                                    .opacity(dimmed(.fans, frame, geometry) ? 0.3 : 1)
                                     .placed { boxes.at[.fans] = $0 }
                                     .zIndex(lit == .fans ? 1 : 0)
-                                    .pinned { size in
-                                        // Above its rule, unless that is the
-                                        // die badge's band along the top (the
-                                        // same font, so the same height):
-                                        // then below it.
-                                        let above = y - 3 - size.height
-                                        let band = geometry.plot.minY + size.height + 2
-                                        return CGPoint(
-                                            x: geometry.plot.maxX - 4 - size.width,
-                                            y: above < band ? y + 3 : above)
-                                    }
+                                    // On its rule, above or below it, at
+                                    // the right end or the left.
+                                    .pinned(among: { size in
+                                        let xs = [plot.maxX - 4 - size.width, plot.minX + 4]
+                                        return xs.flatMap { x in
+                                            [
+                                                CGPoint(x: x, y: y - 3 - size.height),
+                                                CGPoint(x: x, y: y + 3),
+                                            ]
+                                        }
+                                    })
                                 }
                             }
                             .allowsHitTesting(false)
@@ -473,6 +550,11 @@ struct Plot: View {
                 glide.aim(target, at: frame.now)
             }
             .animation(.inkSettle, value: lit(frame, geometry))
+            // Held from the moment the pointer reaches a card until it
+            // leaves it; a move from one card to the other holds the other.
+            .onChange(of: lit(frame, geometry)) { _, now in
+                held = now == held?.on ? held : hold(now, frame)
+            }
             .animation(.inkSettle, value: frame.curve?.name)
             .animation(.inkSettle, value: frame.die != nil && !frame.actuals.isEmpty)
             .onContinuousHover { phase in
@@ -939,9 +1021,10 @@ struct LiveLayer: View {
 /// A label on the plot that is also its own card: the one line at rest,
 /// the details under it when the pointer is on its line, the same view
 /// growing and shrinking in place.
-/// Where a pinboard child wants its top-left, for the size it has.
+/// Where a pinboard child may put its top-left, for the size it has: one
+/// spot, or several in order of preference, the board picking among them.
 struct Pin: LayoutValueKey {
-    static let defaultValue: @Sendable (CGSize) -> CGPoint = { _ in .zero }
+    static let defaultValue: @Sendable (CGSize) -> [CGPoint] = { _ in [.zero] }
 }
 
 extension View {
@@ -949,7 +1032,14 @@ extension View {
     /// between the value and the layout drops it (verified), and the
     /// child then lands at the origin.
     func pinned(_ origin: @escaping @Sendable (CGSize) -> CGPoint) -> some View {
-        layoutValue(key: Pin.self, value: origin)
+        layoutValue(key: Pin.self, value: { [origin($0)] })
+    }
+
+    /// Several spots, best first: the board puts the child in the one
+    /// that covers the least of what is drawn (`Pinboard.Clutter`) and of
+    /// the other children. Outermost, as `pinned`.
+    func pinned(among spots: @escaping @Sendable (CGSize) -> [CGPoint]) -> some View {
+        layoutValue(key: Pin.self, value: spots)
     }
 
     /// The frame this view ended up with, in the plot's space: the truth
@@ -969,7 +1059,57 @@ extension View {
 /// with no frame of lag between growing and moving. A layout, not a
 /// stack of offsets, because only a layout sees a child's size before
 /// placing it.
+///
+/// A child with several spots goes where it covers the least: every
+/// combination of the children's spots is scored against the clutter (what
+/// is drawn under them) and against each other, and the cheapest wins. A
+/// label stays in its spot while it hides nothing that matters
+/// (`Choice.tolerable`); forced off it, as few labels move as can
+/// (`Choice.move`); and none moves while `frozen` (the pointer is on one).
 struct Pinboard: Layout {
+    /// What the children should not cover, in the board's own space.
+    struct Clutter {
+        /// Lines drawn as points close together (the curve every half
+        /// degree): each one under a child costs `Cost.trace`.
+        var traces: [CGPoint] = []
+        /// Marks (a curve point, the live point's halo).
+        var discs: [(center: CGPoint, radius: CGFloat)] = []
+        /// Rules across the plot, vertical at an x or horizontal at a y,
+        /// that a child should rather not sit across.
+        var verticals: [CGFloat] = []
+        var horizontals: [CGFloat] = []
+    }
+
+    /// The pick, kept between layouts: a reference, since a layout has no
+    /// state of its own across passes.
+    /// Unchecked: SwiftUI runs layout on the main thread only, the one
+    /// place this is read or written.
+    final class Choice: @unchecked Sendable {
+        var spots: [Int] = []
+        /// Below this the labels stay put: a stretch of curve under one,
+        /// a rule's end. Above it something real is hidden: the other
+        /// label, a live point, a curve point, most of a label's width
+        /// of curve.
+        static let tolerable: CGFloat = 400
+        /// What each label that changes spot adds to a combination.
+        static let move: CGFloat = 250
+    }
+
+    /// The cost of covering each kind of clutter; children overlapping
+    /// each other cost the most, a label hiding a label being the failure.
+    enum Cost {
+        static let trace: CGFloat = 20
+        static let discArea: CGFloat = 0.6
+        static let rule: CGFloat = 80
+        static let overlapArea: CGFloat = 3
+        /// Each step down a child's own order of preference.
+        static let rank: CGFloat = 8
+    }
+
+    var clutter = Clutter()
+    var choice: Choice?
+    var frozen = false
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         proposal.replacingUnspecifiedDimensions()
     }
@@ -977,23 +1117,94 @@ struct Pinboard: Layout {
     func placeSubviews(
         in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
     ) {
-        for subview in subviews {
-            // The board's width is proposed, so a child that wraps (a tip
-            // capped at some width) is measured wrapped and its plate
-            // holds its text; a child that must not stretch says so with
-            // `fixedSize`.
-            let proposal = ProposedViewSize(width: bounds.width, height: nil)
+        // The board's width is proposed, so a child that wraps (a tip
+        // capped at some width) is measured wrapped and its plate holds its
+        // text; a child that must not stretch says so with `fixedSize`.
+        let proposal = ProposedViewSize(width: bounds.width, height: nil)
+        let local = CGRect(origin: .zero, size: bounds.size)
+        // Every child's spots as rects in the board's space, each slid
+        // inside it: a label that grows past an edge slides in instead of
+        // leaving, its anchored edge still.
+        let spots: [[CGRect]] = subviews.map { subview in
             let size = subview.sizeThatFits(proposal)
-            let wanted = subview[Pin.self](size)
-            let at = CGPoint(
-                x: min(
-                    max(bounds.minX + wanted.x, bounds.minX),
-                    max(bounds.minX, bounds.maxX - size.width)),
-                y: min(
-                    max(bounds.minY + wanted.y, bounds.minY),
-                    max(bounds.minY, bounds.maxY - size.height)))
-            subview.place(at: at, anchor: .topLeading, proposal: proposal)
+            return subview[Pin.self](size).map { wanted in
+                CGRect(
+                    x: min(max(wanted.x, local.minX), max(local.minX, local.maxX - size.width)),
+                    y: min(max(wanted.y, local.minY), max(local.minY, local.maxY - size.height)),
+                    width: size.width, height: size.height)
+            }
         }
+        let picked = pick(spots)
+        choice?.spots = picked
+        for (subview, (options, i)) in zip(subviews, zip(spots, picked)) {
+            let rect = options[i]
+            subview.place(
+                at: CGPoint(x: bounds.minX + rect.minX, y: bounds.minY + rect.minY),
+                anchor: .topLeading, proposal: proposal)
+        }
+    }
+
+    /// The combination of spots that covers the least.
+    private func pick(_ spots: [[CGRect]]) -> [Int] {
+        let kept = choice.map(\.spots) ?? []
+        let valid =
+            kept.count == spots.count && zip(kept, spots).allSatisfy { $0.0 < $0.1.count }
+        if valid, frozen { return kept }
+        guard spots.contains(where: { $0.count > 1 }) else { return spots.map { _ in 0 } }
+        // What a combination hides: the clutter under each label and the
+        // labels under each other.
+        func hidden(_ combo: [Int]) -> CGFloat {
+            var cost = zip(spots, combo).reduce(CGFloat(0)) { $0 + covered($1.0[$1.1]) }
+            for i in combo.indices {
+                for j in combo.indices where j > i {
+                    let both = spots[i][combo[i]].intersection(spots[j][combo[j]])
+                    if !both.isNull { cost += both.width * both.height * Cost.overlapArea }
+                }
+            }
+            return cost
+        }
+        // Labels stay where they are while that hides nothing that
+        // matters: a label that moves because another spot became a little
+        // emptier is a label that never stops moving.
+        if valid, hidden(kept) < Choice.tolerable { return kept }
+        var best: (cost: CGFloat, at: [Int])?
+        var combo = spots.map { _ in 0 }
+        while true {
+            var cost = hidden(combo) + combo.reduce(CGFloat(0)) { $0 + CGFloat($1) * Cost.rank }
+            // Forced to move, as few labels as can: each that leaves its
+            // spot pays for it, so one gives way and the other stays.
+            if valid {
+                cost += CGFloat(zip(combo, kept).filter { $0 != $1 }.count) * Choice.move
+            }
+            if best == nil || cost < best!.cost { best = (cost, combo) }
+            // The next combination, odometer style.
+            var k = combo.count - 1
+            while k >= 0 {
+                combo[k] += 1
+                if combo[k] < spots[k].count { break }
+                combo[k] = 0
+                k -= 1
+            }
+            if k < 0 { break }
+        }
+        return best!.at
+    }
+
+    /// What a label at `rect` would hide, plus a little air around it.
+    private func covered(_ rect: CGRect) -> CGFloat {
+        let r = rect.insetBy(dx: -3, dy: -3)
+        var cost = CGFloat(clutter.traces.filter(r.contains).count) * Cost.trace
+        for disc in clutter.discs {
+            let box = CGRect(
+                x: disc.center.x - disc.radius, y: disc.center.y - disc.radius,
+                width: disc.radius * 2, height: disc.radius * 2
+            ).intersection(r)
+            if !box.isNull { cost += box.width * box.height * Cost.discArea }
+        }
+        cost += CGFloat(clutter.verticals.filter { $0 > r.minX && $0 < r.maxX }.count) * Cost.rule
+        cost +=
+            CGFloat(clutter.horizontals.filter { $0 > r.minY && $0 < r.maxY }.count) * Cost.rule
+        return cost
     }
 }
 
