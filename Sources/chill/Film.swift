@@ -88,7 +88,7 @@ enum Film {
     /// the stage's thermal view (`Scene.hero`) are one simulation.
     nonisolated static let heroChill = 3.5
     /// The last reading, as the stage ends: past it the stage would hold.
-    nonisolated static let heroLength = 10.0
+    nonisolated static let heroLength = 12.0
     /// When the pointer takes the knob: once the stage has gone inside
     /// (Scene.hero), so the push and the fans answering it are seen together
     /// and nothing moves on the popover while the view changes.

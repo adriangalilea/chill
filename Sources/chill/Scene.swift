@@ -166,9 +166,12 @@ enum Scene {
         let at = { (t: Double) in heat[min(heat.count - 1, Int((t * Film.fps).rounded()))] }
         let curve = Film.World.intent(.tuned, push: Film.heroPush(Film.heroChill))
         // The acts' ends, in story seconds: where each caption closes one and
-        // the view changes for the next.
+        // the view changes for the next. Inside, the parts cool for about
+        // four seconds after the push, long enough to watch every one come
+        // down; the case then gets the last two.
         let acts = (
-            heats: 3.0, press: Film.heroChill + 0.75, push: Film.heroPushAt + 1.05, cools: 8.0
+            heats: 3.0, press: Film.heroChill + 0.75, push: Film.heroPushAt + 1.05,
+            cools: Film.heroLength - 2
         )
         // What happens when, in story seconds, and in which order at one
         // instant: a caption closes its act before the next act's change.
