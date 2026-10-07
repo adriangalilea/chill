@@ -17,6 +17,8 @@ final class MenuBar: NSObject, NSPopoverDelegate {
     private var glyph: Glyph?
     /// Watches the button's appearance: the glyph redraws for a light or dark bar.
     private var appearance: NSKeyValueObservation?
+    /// What the button shows now: the glyph and the bar it was drawn for.
+    private var drawn: (glyph: Glyph, bar: NSAppearance.Name?)?
 
     init(model: Model) {
         self.model = model
@@ -50,20 +52,26 @@ final class MenuBar: NSObject, NSPopoverDelegate {
     }
 
     private func render() {
-        let next = Glyph(model.link)
-        if next != glyph {
-            glyph = next
-            draw()
-        }
-        item.button!.toolTip = model.statusLine
+        glyph = Glyph(model.link)
+        draw()
+        // Unchanged, left alone: a tooltip set re-renders the replicants too.
+        let tip = model.statusLine
+        if item.button!.toolTip != tip { item.button!.toolTip = tip }
     }
 
     /// The glyph drawn for the bar the button sits on: chill's own color
     /// resolves per bar, and the bar turns light or dark with the wallpaper
     /// under it, so a change of the button's appearance draws it again.
+    /// Only a change of BAR (light or dark) or of glyph draws: setting the
+    /// image re-renders the item's replicants (one per display), which
+    /// reports `effectiveAppearance` again whether or not it changed, and a
+    /// redraw on every report was a loop at 100% of a core, all day.
     private func draw() {
         guard let glyph else { return }
         let button = item.button!
+        let bar = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+        guard glyph != drawn?.glyph || bar != drawn?.bar else { return }
+        drawn = (glyph, bar)
         button.image = glyph.image(on: button.effectiveAppearance)
         if appearance == nil {
             appearance = button.observe(\.effectiveAppearance) { [weak self] _, _ in
