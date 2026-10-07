@@ -117,7 +117,13 @@ test -n "$sign_id" || { echo "chill: no 'Developer ID Application' identity in t
 mise run build
 prefix="${PREFIX:-$HOME/.local}"
 mkdir -p "$prefix/bin"
-if [ -x "$APPBIN" ]; then "$APPBIN" daemon uninstall; fi
+# The curve running now, so the new build runs it too: `daemon uninstall`
+# hands the fans to Apple and that is the intent the daemon keeps.
+was=""
+if [ -x "$APPBIN" ]; then
+  was=$("$APPBIN" status 2>/dev/null | sed -n '1s/^[^·]*· curve "\([^"]*\)".*/\1/p' || true)
+  "$APPBIN" daemon uninstall
+fi
 rm -rf "$APP"
 scripts/assemble.sh "$APP"
 codesign --force --options runtime --sign "$sign_id" "$APP/Contents/MacOS/chilld"
@@ -128,6 +134,22 @@ echo "installed $APP (+ chill on PATH)"
 # The binary owns the registration (SMAppService + the login item), not this
 # file: the popover's "install chilld" makes the same two for a cask install.
 "$APPBIN" daemon install
+# Installed means running: the app still open is the old image, so it quits
+# and the new one opens, then takes back the curve that ran before.
+old=$(pgrep -f "$APP/Contents/MacOS/chill$" || true)
+if [ -n "$old" ]; then
+  kill $old
+  while kill -0 $old 2>/dev/null; do sleep 0.1; done
+fi
+open "$APP"
+if [ -n "$was" ]; then
+  # `use` needs a watcher, and the new app becomes one at its first pulse.
+  for _ in $(seq 50); do
+    "$APPBIN" curve use "$was" >/dev/null 2>&1 && break
+    sleep 0.2
+  done
+fi
+"$APPBIN" status
 '''
 
 [tasks.uninstall]
