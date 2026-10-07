@@ -151,9 +151,10 @@ enum Scene {
     ///   3. the stage goes inside, the pointer resting on the knob; once in,
     ///      it pushes the knob and the fans answer;
     ///   4. every part cools.
-    /// Then the end is a moment, not an act: the popover closes and the view
-    /// comes back out to the case, still cooling, and the story stops. No
-    /// frame is ever held still. The pointer and the view never move
+    /// It ends inside, the popover open on chill holding the fans: the page
+    /// runs the stage on past the end (`runsOn`), so the fans keep turning
+    /// and the sensors drift, and no frame is ever held still. The pointer
+    /// and the view never move
     /// together: one thing at a time. Each act is a chapter its caption
     /// closes, in words, no figures: the picture carries the numbers. The
     /// glyph flips on the clip's own cut; the poster is act 3.
@@ -168,7 +169,7 @@ enum Scene {
         // The acts' ends, in story seconds: where each caption closes one and
         // the view changes for the next. Inside, the parts cool for about
         // four seconds after the push, long enough to watch every one come
-        // down; the case then gets the last two.
+        // down, and the story ends there, still inside.
         let acts = (
             heats: 3.0, press: Film.heroChill + 0.75, push: Film.heroPushAt + 1.05,
             cools: Film.heroLength - 2
@@ -182,7 +183,6 @@ enum Scene {
                     switch t {
                     case 0.25: 1
                     case acts.press: 2
-                    case acts.cools: 1
                     default: nil
                     }
                 return (
@@ -199,8 +199,6 @@ enum Scene {
             caption(acts.press, "Press chill"),
             caption(acts.push, "The fans spin up"),
             caption(acts.cools, "Everything cools down"),
-            // The end: chill's popover closes as the view comes back out.
-            (acts.cools, 1, Step(kind: "close")),
             (
                 Film.heroChill, 1,
                 Step(
