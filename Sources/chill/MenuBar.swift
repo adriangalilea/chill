@@ -119,11 +119,11 @@ final class MenuBar: NSObject, NSPopoverDelegate {
 
     // MARK: - the app menu (right-click)
 
-    /// What the popover is not for: the app itself. Version and daemon,
-    /// the lab, the one shortcut (shown with its live combo, remapped in
-    /// its panel), start at login, about, quit. Rebuilt on every open
-    /// from the live state. No item for what does not exist yet (an
-    /// update check comes with the appcast).
+    /// What the popover is not for: the app itself. Version and daemon (and
+    /// a newer version when the update check has seen one, a press copying
+    /// the command that upgrades it), the lab, the one shortcut (shown with
+    /// its live combo, remapped in its panel), start at login, the daily
+    /// update check, about, quit. Rebuilt on every open from the live state.
     private func appMenu() -> NSMenu {
         let menu = NSMenu()
         func add(_ title: String, _ selector: Selector?, key: String = "") -> NSMenuItem {
@@ -141,12 +141,17 @@ final class MenuBar: NSObject, NSPopoverDelegate {
             _ = add("chill \(Wire.version)", nil)
             _ = add(model.daemonLine, nil)
         }
+        if let line = model.upgradeLine {
+            _ = add(line, #selector(upgrade))
+        }
         menu.addItem(.separator())
         _ = add(ChillAction.canvas.spec.title, #selector(canvas))
         menu.addItem(.separator())
         _ = add("shortcut · \(model.store.displayPrimary(for: .toggle))", #selector(keys))
         let login = add("start at login", #selector(toggleLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        let updates = add("check for updates daily", #selector(toggleUpdateCheck))
+        updates.state = model.config.updateCheck ? .on : .off
         _ = add("about", #selector(about))
         menu.addItem(.separator())
         _ = add("quit", #selector(quit), key: "q")
@@ -156,6 +161,8 @@ final class MenuBar: NSObject, NSPopoverDelegate {
     @objc private func canvas() { model.perform(.canvas) }
     @objc private func quit() { model.perform(.quit) }
     @objc private func toggleLogin() { model.toggleLogin() }
+    @objc private func toggleUpdateCheck() { model.toggleUpdateCheck() }
+    @objc private func upgrade() { model.upgrade() }
     @objc private func keys() { model.showKeys = true }
     @objc private func about() { model.showAbout = true }
 

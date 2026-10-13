@@ -21,6 +21,16 @@ struct Config: Codable, Equatable {
     /// fans to Apple read as broken. Never again after: from then on what
     /// runs is what the person chose.
     var started: Bool
+    /// The daily update check (UpdateCheck.swift), on until the person turns it
+    /// off in the app menu.
+    var updateCheck = true
+    /// This install's random code, made the first time a check asks for it:
+    /// what the check carries, tied to nothing about the person or the Mac.
+    var installID: String?
+    /// When the next check is due; nil is now.
+    var nextUpdateCheck: Date?
+    /// The newest version the feed has named.
+    var latestVersion: String?
 
     static let defaultPush = 0.0
 
@@ -37,6 +47,10 @@ struct Config: Codable, Equatable {
         keyHintDismissed = try c.decodeIfPresent(Bool.self, forKey: .keyHintDismissed) ?? false
         // A file from before the field is a Mac that already chose.
         started = try c.decodeIfPresent(Bool.self, forKey: .started) ?? true
+        updateCheck = try c.decodeIfPresent(Bool.self, forKey: .updateCheck) ?? true
+        installID = try c.decodeIfPresent(String.self, forKey: .installID)
+        nextUpdateCheck = try c.decodeIfPresent(Date.self, forKey: .nextUpdateCheck)
+        latestVersion = try c.decodeIfPresent(String.self, forKey: .latestVersion)
     }
 
     /// The file, or the first-run value (the demo world starts on its

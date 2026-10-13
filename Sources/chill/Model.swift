@@ -113,6 +113,7 @@ final class Model {
     @ObservationIgnored private var verbs: Task<Void, Never>?
     @ObservationIgnored private var sensors: Result<LocalSensors, Error>?
     @ObservationIgnored private var cloudTimer: Timer?
+    @ObservationIgnored private var updateTimer: Timer?
     @ObservationIgnored private var retuneLanding: Task<Void, Never>?
 
     init(demo: Demo) throws {
@@ -133,6 +134,14 @@ final class Model {
         }
         RunLoop.main.add(timer, forMode: .common)
         cloudTimer = timer
+        // The update check (UpdateCheck.swift): asked hourly whether its day has
+        // come, and once now.
+        let check = Timer(timeInterval: 3600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkForUpdateIfDue() }
+        }
+        RunLoop.main.add(check, forMode: .common)
+        updateTimer = check
+        checkForUpdateIfDue()
     }
 
     // MARK: - reads
@@ -940,7 +949,7 @@ final class Model {
         }
     }
 
-    private func saveConfig() {
+    func saveConfig() {
         guard !forgotten else { return }
         do {
             try config.save(demo)
