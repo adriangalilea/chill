@@ -237,7 +237,7 @@ struct PopoverView: View {
                         Chip(action: { model.perform(.deleteCurve) }) {
                             HStack(spacing: .inkTight) {
                                 Text("trash").font(.system(size: 12))
-                                ShortcutBadge(key(.deleteCurve))
+                                InkKey(key(.deleteCurve))
                             }
                         }
                     }
@@ -468,7 +468,7 @@ struct TipView: View {
     var body: some View {
         HStack(spacing: .inkLane) {
             HStack(spacing: .inkGap) {
-                ShortcutBadge(tip.key)
+                InkKey(tip.key)
                 Text("toggle from any app").font(.meta).foregroundStyle(.secondary)
             }
             Chip(tint: Palette.dune, action: gotIt) {
@@ -802,7 +802,7 @@ struct ActionBar: View {
         return Chip(action: { model.perform(action) }) {
             HStack(spacing: .inkTight) {
                 Text(short).font(.system(size: 12))
-                if !key.isEmpty { ShortcutBadge(key) }
+                if !key.isEmpty { InkKey(key) }
             }
             .fixedSize()
         }

@@ -1,6 +1,15 @@
 {
-  "originHash" : "c0426de81742e46f1842748cde5e714a7232505fa70279f53874385091112c37",
+  "originHash" : "3f5b6ac3753432b237fe483db7fec5c3a8642c4190afb9a458a378530c320ca1",
   "pins" : [
+    {
+      "identity" : "highlightr",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/raspu/Highlightr",
+      "state" : {
+        "revision" : "05e7fcc63b33925cd0c1faaa205cdd5681e7bbef",
+        "version" : "2.3.0"
+      }
+    },
     {
       "identity" : "swift-hw",
       "kind" : "remoteSourceControl",
@@ -15,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/adriangalilea/swift-utils",
       "state" : {
-        "revision" : "711862554780fabdab1d0a28cbf389eb43d3c16b",
-        "version" : "0.13.0"
+        "revision" : "be0fe2697005bd4423edb3dbf06546b5e31acb0b",
+        "version" : "0.26.0"
       }
     }
   ],

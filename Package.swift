@@ -17,7 +17,7 @@ let package = Package(
         // construction; chilld composes its write on the public codec.
         .package(url: "https://github.com/adriangalilea/swift-hw", from: "0.1.0"),
         // Ink + Keymap: the studio's look and the keyboard-first spine.
-        .package(url: "https://github.com/adriangalilea/swift-utils", from: "0.13.0"),
+        .package(url: "https://github.com/adriangalilea/swift-utils", .upToNextMinor(from: "0.26.0")),
     ],
     targets: [
         .target(
