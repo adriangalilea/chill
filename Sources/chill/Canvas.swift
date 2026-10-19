@@ -113,11 +113,11 @@ struct CanvasView: View {
                     Text("demo").font(.meta).foregroundStyle(.tertiary)
                 }
                 Spacer()
+                // A sentence: cut at its end, never in its middle.
                 Text(model.statusLine)
                     .font(.meta)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
             }
             if let aside = model.aside {
                 Text(aside)
