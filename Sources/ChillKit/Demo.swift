@@ -11,8 +11,12 @@ public struct Demo: Sendable, Equatable {
 
     public init(on: Bool) { self.on = on }
 
-    /// A root's name in this world: the base, or its `-demo` sibling.
-    public func name(_ base: String) -> String { on ? base + "-demo" : base }
+    /// A root's name in this world: the base, or its `-demo` sibling; a
+    /// development build's own (`-dev`, Identity.swift) under either.
+    public func name(_ base: String) -> String {
+        let build = Identity.root(base)
+        return on ? build + "-demo" : build
+    }
 
     /// A header in this world: "curves" → "curves · demo".
     public func mark(_ header: String) -> String { on ? header + " · demo" : header }

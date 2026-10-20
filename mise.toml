@@ -8,10 +8,11 @@
 #   check      format + compile everything, debug: the FAST typecheck (0 warnings)
 #   format     swift-format in place · lint: advisory
 #   icon       chill.icon (Icon Composer, SVG layers) → Assets.car + chill.icns + icon.png (swift-utils' mark)
-#   install    /Applications/chill.app, Developer ID signed, chilld registered, `chill` on PATH
-#   uninstall  `chill daemon uninstall` first, then the bundle and the symlink
+#   install    /Applications/chill Dev.app (Apple Development), its chilld registered, `chill` on PATH; stops the release's
+#   install:release  the release from dist/ with its chilld; stops chill Dev's
+#   uninstall  `chill daemon uninstall` for both, then both bundles and the symlink
 #   notes      draft notes/$VERSION.md from the commits (you then rewrite it)
-#   release    `ship release` (swift-utils): signed, notarized dmg → tag → GitHub Release → publish → cask ($TAP)
+#   release    `authz release` (one approval: the notarized dmg of these commits), then `ship publish`: tag → GitHub Release → publish → cask ($TAP)
 #   ship-check what would stop a release right now, each blocked gate with its real answer
 #   publish    dmg → R2 behind chill.untitled.garden/releases (the COUNTED url) + notes → garden ($GARDEN)
 #   clean      remove the build directory and dist
@@ -22,11 +23,17 @@
 # THE VERSION, single source of truth: it stamps Info.plist and names the tag.
 VERSION = "0.1.12"
 # /Applications, never ~/Applications: launchd bootstraps the daemon at boot,
-# before any home directory exists, and the cask lands here too, so a dev
-# build never registers a second root daemon. The CLI is a symlink into the
-# bundle so app, CLI and daemon stay ONE signed bundle.
+# before any home directory exists, and the cask lands here too. The CLI is a
+# symlink into the bundle so app, CLI and daemon stay ONE signed bundle. Two
+# apps to macOS (Sources/ChillKit/Identity.swift): the release, and the
+# development build local installs make ("chill Dev", Apple Development, its
+# own daemon garden.untitled.chilld.dev, policy, log and state). One chilld
+# runs at a time: installing one stops the other's.
 APP = "/Applications/chill.app"
 APPBIN = "/Applications/chill.app/Contents/MacOS/chill"
+DEV_ID = "garden.untitled.chill.dev"
+DEV_APP = "/Applications/chill Dev.app"
+DEV_APPBIN = "/Applications/chill Dev.app/Contents/MacOS/chill"
 DIST = "dist"
 
 [tasks.build]
@@ -101,66 +108,95 @@ sources = ["chill.icon/icon.json", "chill.icon/Assets/*.svg"]
 outputs = ["Resources/Assets.car", "Resources/chill.icns", "Resources/icon.png"]
 run = "mark build chill.icon --out Resources --png Resources/icon.png"
 
-# A Developer ID is REQUIRED, no ad-hoc fallback: SMAppService refuses an
-# unsigned or ad-hoc bundle (kSMErrorInvalidSignature), and the daemon's
-# peer requirement is derived from that signature's Team ID. Inner Mach-Os
-# first (chilld, chill), then the bundle, whose seal covers the LaunchDaemons
-# plist. The old registration goes BEFORE the old bundle: a bundle trashed
-# first leaves a .notFound registration in Login Items.
+# A certificate signature is REQUIRED, no ad-hoc fallback: SMAppService
+# refuses an unsigned or ad-hoc bundle (kSMErrorInvalidSignature), and the
+# daemon's peer requirement is derived from that signature's Team ID. A local
+# install is the development build, "chill Dev", signed with the team's Apple
+# Development identity (`ship identity`; the Developer ID is a release's). Inner
+# Mach-Os first (chilld, chill), then the bundle, whose seal covers the
+# LaunchDaemons plist. Registrations go BEFORE bundles: a bundle trashed first
+# leaves a .notFound registration in Login Items. One chilld at a time: the
+# release's is uninstalled first (its app and policy untouched).
 [tasks.install]
-description = "Build + install /Applications/chill.app (Developer ID), register chilld, `chill` on PATH"
+description = "Build + install /Applications/chill Dev.app (Apple Development), register its chilld, `chill` on PATH; stops the release's"
 depends = ["icon"]
+tools = { "spm:adriangalilea/swift-utils" = { version = "0.29.3", filter_bins = "mark,ship" } }
 run = '''
 set -e
-sign_id=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
-test -n "$sign_id" || { echo "chill: no 'Developer ID Application' identity in the keychain; a LaunchDaemon bundle cannot be ad-hoc signed"; exit 1; }
+sign_id=$(ship identity --team G387QW47LV)
 mise run build
 prefix="${PREFIX:-$HOME/.local}"
 mkdir -p "$prefix/bin"
 # The curve running now, so the new build runs it too: `daemon uninstall`
 # hands the fans to Apple and that is the intent the daemon keeps.
 was=""
-if [ -x "$APPBIN" ]; then
-  was=$("$APPBIN" status 2>/dev/null | sed -n '1s/^[^·]*· curve "\([^"]*\)".*/\1/p' || true)
-  "$APPBIN" daemon uninstall
-fi
-rm -rf "$APP"
-scripts/assemble.sh "$APP"
-codesign --force --options runtime --sign "$sign_id" "$APP/Contents/MacOS/chilld"
-codesign --force --options runtime --sign "$sign_id" "$APP/Contents/MacOS/chill"
-codesign --force --options runtime --sign "$sign_id" "$APP"
-ln -sf "$APPBIN" "$prefix/bin/chill"
-echo "installed $APP (+ chill on PATH)"
+for bin in "$DEV_APPBIN" "$APPBIN"; do
+  [ -x "$bin" ] || continue
+  [ -n "$was" ] || was=$("$bin" status 2>/dev/null | sed -n '1s/^[^·]*· curve "\([^"]*\)".*/\1/p' || true)
+  "$bin" daemon uninstall
+done
+rm -rf "$DEV_APP"
+BUNDLE_ID="$DEV_ID" BUNDLE_NAME="chill Dev" scripts/assemble.sh "$DEV_APP"
+codesign --force --options runtime --sign "$sign_id" "$DEV_APP/Contents/MacOS/chilld"
+codesign --force --options runtime --sign "$sign_id" "$DEV_APP/Contents/MacOS/chill"
+codesign --force --options runtime --sign "$sign_id" "$DEV_APP"
+ln -sf "$DEV_APPBIN" "$prefix/bin/chill"
+echo "installed $DEV_APP (+ chill on PATH)"
 # The binary owns the registration (SMAppService + the login item), not this
 # file: the popover's "install chilld" makes the same two for a cask install.
-"$APPBIN" daemon install
-# Installed means running: the app still open is the old image, so it quits
-# and the new one opens, then takes back the curve that ran before.
-old=$(pgrep -f "$APP/Contents/MacOS/chill$" || true)
-if [ -n "$old" ]; then
+"$DEV_APPBIN" daemon install
+# Installed means running: an app still open is an old image (either build),
+# so it quits and the new one opens, then takes back the curve that ran before.
+for path in "$APP" "$DEV_APP"; do
+  old=$(pgrep -f "$path/Contents/MacOS/chill$" || true)
+  [ -n "$old" ] || continue
   kill $old
   while kill -0 $old 2>/dev/null; do sleep 0.1; done
-fi
-open "$APP"
+done
+open "$DEV_APP"
 if [ -n "$was" ]; then
   # `use` needs a watcher, and the new app becomes one at its first pulse.
   for _ in $(seq 50); do
-    "$APPBIN" curve use "$was" >/dev/null 2>&1 && break
+    "$DEV_APPBIN" curve use "$was" >/dev/null 2>&1 && break
     sleep 0.2
   done
 fi
+"$DEV_APPBIN" status
+'''
+
+# Back to the release (what `mise run release` built into $DIST, of exactly
+# these commits): chill Dev's chilld uninstalled, the release installed with
+# its chilld, `chill` on PATH pointing into it.
+[tasks."install:release"]
+description = "Install the release from dist/ with its chilld; stops chill Dev's"
+tools = { "spm:adriangalilea/swift-utils" = { version = "0.29.3", filter_bins = "mark,ship" } }
+run = '''
+set -e
+ship released
+[ -d "$DIST/chill.app" ] || { echo "no $DIST/chill.app: mise run release"; exit 1; }
+prefix="${PREFIX:-$HOME/.local}"
+for bin in "$DEV_APPBIN" "$APPBIN"; do [ -x "$bin" ] && "$bin" daemon uninstall; done
+for path in "$APP" "$DEV_APP"; do
+  old=$(pgrep -f "$path/Contents/MacOS/chill$" || true)
+  [ -n "$old" ] && kill $old
+done
+rm -rf "$APP"
+ditto "$DIST/chill.app" "$APP"
+ln -sf "$APPBIN" "$prefix/bin/chill"
+"$APPBIN" daemon install
+open "$APP"
 "$APPBIN" status
 '''
 
 [tasks.uninstall]
-description = "chill daemon uninstall, then remove the bundle and the symlink"
+description = "chill daemon uninstall for both builds, then remove both bundles and the symlink"
 run = '''
 set -e
 prefix="${PREFIX:-$HOME/.local}"
-if [ -x "$APPBIN" ]; then "$APPBIN" daemon uninstall; fi
-rm -rf "$APP"
+for bin in "$APPBIN" "$DEV_APPBIN"; do [ -x "$bin" ] && "$bin" daemon uninstall; done
+rm -rf "$APP" "$DEV_APP"
 rm -f "$prefix/bin/chill"
-echo "removed $APP and $prefix/bin/chill"
+echo "removed $APP, $DEV_APP and $prefix/bin/chill"
 '''
 
 [tasks.clean]
@@ -184,28 +220,40 @@ echo "drafted $notes: REWRITE it for humans, then commit it"
 # certificate is in this keychain and the App Store Connect key is named by
 # this machine's environment (APPSTORE_KEY, APPSTORE_KEY_ID, APPSTORE_ISSUER),
 # neither of which belongs in CI. CI's job is the 0-warning gate, nothing more.
+# A release is signed only after a person approves its exact commits: `authz
+# release` (authz.space) builds a fresh clone of them with scripts/release
+# (release.json), the Developer ID and the App Store Connect key reaching that
+# build alone, and leaves the notarized dmg in $DIST; then `ship publish`
+# (swift-utils), from this checkout, refuses unless that dmg is the release of
+# exactly these commits, and tags, pushes and runs the channels. CI's job is
+# the 0-warning gate, nothing more.
 [tasks.release]
-description = "ship release: gates, Developer ID, notarized dmg, tag, GitHub Release, publish, cask (LOCAL: needs the Developer ID + APPSTORE_KEY)"
-depends = ["icon", "check"]
+description = "authz release (one approval: the notarized dmg of these commits), then ship publish: tag, GitHub Release, publish, cask"
+depends = ["check", "ship-check"]
 # swift-utils' `ship`, one release for every app. A task tool, not [tools]: CI
 # (mise check) never releases, so it never builds it.
-tools = { "spm:adriangalilea/swift-utils" = { version = "0.20.0", filter_bins = "mark,ship" } }
+tools = { "spm:adriangalilea/swift-utils" = { version = "0.29.3", filter_bins = "mark,ship" } }
 run = '''
-ship release --name chill --app "$DIST/chill.app" \
-  --assemble "mise run build && scripts/assemble.sh $DIST/chill.app" \
-  --sign Contents/MacOS/chilld --sign Contents/MacOS/chill \
-  --github --after "mise run publish" --cask
+authz release
+ship publish --name chill --app "$DIST/chill.app" --github --after "mise run publish" --cask
 '''
 
-# Every gate the release would hold, each blocked one with its real answer.
+# Inside `authz release` only (scripts/release): its keychain and key are in
+# the environment, and ship build refuses anywhere else.
+[tasks."release:build"]
+description = "ship build, inside authz release: signed, notarized dmg in $DIST"
+tools = { "spm:adriangalilea/swift-utils" = { version = "0.29.3", filter_bins = "mark,ship" } }
+run = '''
+ship build --team G387QW47LV --name chill --app "$DIST/chill.app" \
+  --assemble "mise run build && scripts/assemble.sh $DIST/chill.app" \
+  --sign Contents/MacOS/chilld --sign Contents/MacOS/chill
+'''
+
+# Every gate publishing would hold, each blocked one with its real answer.
 [tasks.ship-check]
 description = "ship check: what would stop a release right now"
-depends = ["icon"]
-tools = { "spm:adriangalilea/swift-utils" = { version = "0.20.0", filter_bins = "mark,ship" } }
-run = '''
-ship check --name chill --app "$DIST/chill.app" --assemble "scripts/assemble.sh $DIST/chill.app" \
-  --github --after "mise run publish" --cask
-'''
+tools = { "spm:adriangalilea/swift-utils" = { version = "0.29.3", filter_bins = "mark,ship" } }
+run = 'ship check --name chill --app "$DIST/chill.app" --github --cask'
 
 # The garden half of a release, ship's --after: the dmg behind the counted
 # download URL, the notes on the surface. It runs BEFORE the cask bump: the

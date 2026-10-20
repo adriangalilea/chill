@@ -8,7 +8,8 @@ import Foundation
 /// the vetoes are never persisted: a fresh daemon has no watcher, so the
 /// persisted intent waits for one.
 enum Policy {
-    static let directory = URL(fileURLWithPath: "/Library/Application Support/chill")
+    static let directory = URL(
+        fileURLWithPath: "/Library/Application Support/\(Identity.root("chill"))")
     static let file = directory.appendingPathComponent("policy.json")
 
     /// No file is the first run, intent system. A file that does not parse

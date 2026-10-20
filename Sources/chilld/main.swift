@@ -4,8 +4,8 @@ import MachSensors
 import Synchronization
 
 // chilld: the root LaunchDaemon and the ONLY SMC writer. launchd starts it
-// at boot and on demand for the mach service in
-// launchd/garden.untitled.chilld.plist; `KeepAlive { Crashed }` restarts a
+// at boot and on demand for the mach service (Identity.daemon) in
+// launchd/daemon.plist.in; `KeepAlive { Crashed }` restarts a
 // signal death within ThrottleInterval 1 s, so a crash loop still writes
 // auto every second, while a deliberate exit (a refusal, the upgrade
 // step-aside) waits for the next client message to respawn it. This file

@@ -1,0 +1,6 @@
+{
+  "app": "chill",
+  "trees": [{ "name": "chill", "path": "." }],
+  "script": "scripts/release",
+  "artifacts": ["dist"]
+}

@@ -7,15 +7,16 @@ public enum Wire {
     /// in `hello` and in every `State` so a mismatch is visible.
     public static let protocolVersion = 6
     /// The launchd label, the mach service and the plist name are ONE
-    /// string: `launchd/garden.untitled.chilld.plist` advertises it and
+    /// string (`Identity.daemon`, the release's or a development build's):
+    /// `launchd/daemon.plist.in`, stamped by the assembly, advertises it and
     /// `SMAppService.daemon(plistName:)` registers it.
-    public static let machService = "garden.untitled.chilld"
-    public static let plistName = "garden.untitled.chilld.plist"
+    public static let machService = Identity.daemon
+    public static let plistName = Identity.daemon + ".plist"
     /// The daemon's log. chilld creates the directory and reopens its
     /// stdout and stderr onto this file as its first act (launchd opens the
     /// plist's StandardOutPath before exec and makes no parent directory,
     /// so it cannot); `chill log` reads it.
-    public static let logFile = "/Library/Logs/chill/chilld.log"
+    public static let logFile = "/Library/Logs/\(Identity.root("chill"))/chilld.log"
     /// Where a LaunchDaemon is approved, as every surface names it.
     public static let approvalPath = "System Settings › General › Login Items & Extensions"
     /// A client that has not spoken within this window is gone; the daemon
