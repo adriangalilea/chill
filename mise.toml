@@ -21,7 +21,7 @@
 
 [env]
 # THE VERSION, single source of truth: it stamps Info.plist and names the tag.
-VERSION = "0.1.12"
+VERSION = "0.1.13"
 # /Applications, never ~/Applications: launchd bootstraps the daemon at boot,
 # before any home directory exists, and the cask lands here too. The CLI is a
 # symlink into the bundle so app, CLI and daemon stay ONE signed bundle. Two
