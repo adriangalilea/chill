@@ -135,6 +135,14 @@ for bin in "$DEV_APPBIN" "$APPBIN"; do
   [ -n "$was" ] || was=$("$bin" status 2>/dev/null | sed -n '1s/^[^·]*· curve "\([^"]*\)".*/\1/p' || true)
   "$bin" daemon uninstall
 done
+# Any chill still open is an old image: it quits before its bundle goes, or
+# its watch would read the rebuild's gap as the app deleted.
+for path in "$APP" "$DEV_APP"; do
+  old=$(pgrep -f "$path/Contents/MacOS/chill$" || true)
+  [ -n "$old" ] || continue
+  kill $old
+  while kill -0 $old 2>/dev/null; do sleep 0.1; done
+done
 rm -rf "$DEV_APP"
 BUNDLE_ID="$DEV_ID" BUNDLE_NAME="chill Dev" scripts/assemble.sh "$DEV_APP"
 codesign --force --options runtime --sign "$sign_id" "$DEV_APP/Contents/MacOS/chilld"

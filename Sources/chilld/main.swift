@@ -1,3 +1,4 @@
+import AppInstallations
 import ChillKit
 import Foundation
 import MachSensors
@@ -205,8 +206,9 @@ final class Daemon: NSObject, NSXPCListenerDelegate {
     private let fans: [Fan]
     private let queue: DispatchQueue
     private var signals: [DispatchSourceSignal] = []
-    /// `watchImage`'s timer, held for the life of the process.
-    private var watch: DispatchSourceTimer?
+    /// The app's whole life seen from chilld (AppInstallations), held for
+    /// the life of the process.
+    private var installation: AppInstallation.ImageWatch?
     /// The session tokens, minted on the listener's queue.
     private var accepted = 0
 
@@ -228,16 +230,6 @@ final class Daemon: NSObject, NSXPCListenerDelegate {
             let source = DispatchSource.makeSignalSource(signal: sig, queue: queue)
             source.setEventHandler { [engine] in
                 blocking { await engine.shutdown("signal \(sig)") }
-                // The app, finding itself deleted, unregisters this job
-                // and launchd's stop arrives here before watchImage sees
-                // the bundle gone: either way out, a deleted app leaves no
-                // file of chilld's.
-                if let image = Bundle.main.executableURL?.path,
-                    !FileManager.default.fileExists(atPath: image)
-                {
-                    Log.notice("chill.app is gone (\(image)): forgetting chilld's files")
-                    Daemon.forgetFiles()
-                }
                 exit(0)
             }
             source.resume()
@@ -249,84 +241,51 @@ final class Daemon: NSObject, NSXPCListenerDelegate {
         dispatchMain()
     }
 
-    /// Deleting chill.app (the Trash, `brew uninstall`) unloads nothing:
-    /// launchd keeps the job and retries a missing binary, and the person
-    /// was told to run `chill daemon uninstall` first. Instead the daemon
-    /// notices its own executable gone, hands every fan to Apple and leaves
-    /// launchd itself. Three misses 5 s apart, because an upgrade replaces
-    /// the bundle and a copy in flight is a moment without one. Not
-    /// `unregister()`: SMAppService resolves the plist through the bundle
-    /// that no longer exists.
+    /// The app's whole life, seen from chilld (swift-utils
+    /// AppInstallations, Foundation-only): chill.app deleted (the Trash,
+    /// `brew uninstall`) unloads nothing, so chilld notices its own
+    /// executable gone, three misses 5 s apart (an upgrade's copy in flight
+    /// is a moment without one). Deleted: every fan to Apple, chilld's own
+    /// files removed, then it leaves launchd itself (`unregister()` cannot:
+    /// SMAppService resolves the plist through the bundle that is gone).
+    /// Moved: the fans to Apple and out of launchd, nothing forgotten, the
+    /// moved app registers it again. Replaced (an upgrade): the fans to
+    /// Apple and exit; the new app registers it afresh.
     private func watchImage() {
-        guard let image = Bundle.main.executableURL?.resolvingSymlinksInPath().path else {
-            Log.error("no executable path: the app's deletion goes unnoticed")
+        guard AppInstallation.bundle != nil else {
+            Log.error("not inside chill.app: the app's deletion goes unnoticed")
             return
         }
-        let missing = Mutex(0)
-        let source = DispatchSource.makeTimerSource(queue: queue)
-        source.schedule(deadline: .now() + 5, repeating: 5)
-        source.setEventHandler { [engine] in
-            let gone =
-                FileManager.default.fileExists(atPath: image)
-                ? missing.withLock {
-                    $0 = 0
-                    return false
-                }
-                : missing.withLock {
-                    $0 += 1
-                    return $0 >= 3
-                }
-            guard gone else { return }
-            Log.notice("chill.app is gone (\(image)): Apple holds the fans, chilld leaves launchd")
-            blocking { await engine.shutdown("app deleted") }
-            Daemon.forgetFiles()
-            // bootout stops this very process inside the call, so it goes last.
-            let out = Process()
-            out.executableURL = URL(filePath: "/bin/launchctl")
-            out.arguments = ["bootout", "system/\(Wire.machService)"]
-            try? out.run()
-            out.waitUntilExit()
-            exit(0)
-        }
-        source.resume()
-        watch = source
+        installation = AppInstallation.ImageWatch.start(
+            keeps: Daemon.files, every: .seconds(5), goneAfter: 3,
+            beforeLeaving: { [engine] in blocking { await engine.shutdown("the app left") } })
     }
 
-    /// What only root can remove, removed by the one root process, so
-    /// deleting the app leaves nothing of chilld behind. This runs as root,
-    /// so it never deletes recursively and never by pattern: each file
-    /// chilld itself creates, by its exact name, then its directory by
-    /// `rmdir`, which refuses unless it is empty, so anything else found
-    /// there survives, directory included. Every name is asserted to sit in
-    /// a directory called `chill`: a wrong constant screams instead of
-    /// deleting. The os_log lines stay the system's.
-    private static func forgetFiles() {
-        let log = Wire.logFile
-        for (directory, files) in [
-            (Policy.directory.path, [Policy.file.path]),
-            ((log as NSString).deletingLastPathComponent, [log, log + ".1"]),
-        ] {
+    /// What only root can remove, removed by the one root process when the
+    /// app is deleted: each file chilld itself creates, by its exact name,
+    /// then its directory, which the module removes only when empty (never
+    /// recursively, never by pattern), so anything else found there
+    /// survives, directory included. Every name is asserted to sit in a
+    /// directory called `chill` under /Library: a wrong constant screams
+    /// instead of deleting. The os_log lines stay the system's.
+    static let files: [URL] = {
+        let log = URL(filePath: Wire.logFile)
+        let groups = [
+            (Policy.directory, [Policy.file]),
+            (log.deletingLastPathComponent(), [log, URL(filePath: Wire.logFile + ".1")]),
+        ]
+        for (directory, files) in groups {
             precondition(
-                (directory as NSString).lastPathComponent == "chill"
-                    && directory.hasPrefix("/Library/"),
-                "forgetFiles: \(directory) is not chill's own directory")
+                directory.lastPathComponent == "chill" && directory.path.hasPrefix("/Library/"),
+                "\(directory.path) is not chill's own directory")
             for file in files {
                 precondition(
-                    (file as NSString).deletingLastPathComponent == directory,
-                    "forgetFiles: \(file) is not in \(directory)")
-                if unlink(file) != 0 && errno != ENOENT {
-                    Log.os.error(
-                        "unlink \(file, privacy: .public): \(String(cString: strerror(errno)), privacy: .public)"
-                    )
-                }
-            }
-            if rmdir(directory) != 0 && errno != ENOENT {
-                Log.os.error(
-                    "rmdir \(directory, privacy: .public): \(String(cString: strerror(errno)), privacy: .public), left in place"
-                )
+                    file.deletingLastPathComponent().path == directory.path,
+                    "\(file.path) is not in \(directory.path)")
             }
         }
-    }
+        return groups.flatMap { $0.1 + [$0.0] }
+    }()
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection)
         -> Bool

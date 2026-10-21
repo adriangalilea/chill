@@ -1,15 +1,12 @@
+import AppInstallations
 import ChillKit
 import Foundation
-import ServiceManagement
 
-/// `chill daemon install|uninstall|status`: the binary owns its
-/// registration (`SMAppService.daemon(plistName:)` + the login item), so
-/// `mise run install`, the cask's postflight and a human land the same
-/// registration for the same image.
+/// `chill daemon install|uninstall|status`: chilld is the app's job
+/// (AppInstallations, `AppInstallation.Job.chilld`), so `mise run install`,
+/// the popover's "install chilld" and a human land the same registration
+/// for the same image.
 enum DaemonControl {
-    /// Status polls at 0.5 s; approval is a human act, so a minute.
-    static let approvalPolls = 120
-
     static func run(_ args: [String], demo: Demo) {
         if demo.on {
             Verbs.die("the demo daemon runs in-process; nothing to \(args.first ?? "do")")
@@ -22,57 +19,42 @@ enum DaemonControl {
         }
     }
 
-    private static var daemon: SMAppService { SMAppService.daemon(plistName: Wire.plistName) }
+    private static let job = AppInstallation.Job.chilld
 
-    /// register, poll to `.enabled` (opening System Settings once when
-    /// approval is needed), reach the daemon, refuse a fanless Mac, then
-    /// the login item so presence returns at login.
+    /// Installed and answering (registered, approved, Login Items opened
+    /// once when the approval is pending, a minute for it), then a fanless
+    /// Mac refused, then the login item so presence returns at login.
     static func install() {
-        if case .misplaced = Placement.current {
+        print("installing chilld; an admin approves it once: \(AppInstallation.Job.approvalSteer)")
+        do {
+            _ = try blocking { try await job.install(approvalWait: .seconds(60)) }
+        } catch AppInstallation.Job.Failure.awaitingApproval {
             Verbs.die(
-                "\(Placement.current.notFound): open chill.app and press \"move to Applications\"")
-        }
-        if Placement.current == .bare { Verbs.die(Placement.current.notFound) }
-        register(daemon, "chilld")
-        var told = false
-        poll: for _ in 0..<approvalPolls {
-            switch daemon.status {
-            case .enabled:
-                break poll
-            case .requiresApproval:
-                if !told {
-                    print("approve chilld under \(Wire.approvalPath) (an admin's act)")
-                    SMAppService.openSystemSettingsLoginItems()
-                    told = true
-                }
-                usleep(500_000)
-            case .notRegistered, .notFound:
-                Verbs.die("chilld registration vanished (\(spell(daemon.status)))")
-            @unknown default:
-                Verbs.die("chilld registration status \(daemon.status.rawValue)")
-            }
-        }
-        guard daemon.status == .enabled else {
-            Verbs.die(
-                "chilld still awaits approval; approve it under \(Wire.approvalPath), then rerun")
+                "chilld still awaits approval: \(AppInstallation.Job.approvalSteer) Then rerun.")
+        } catch {
+            Verbs.die("install chilld: \(error)")
         }
         let client = Verbs.connect(Demo(on: false), role: .cli)
         let hello = greet(client)
         if hello.fans.isEmpty {
-            unregister(daemon, "chilld")
+            try? job.uninstall()
             Verbs.die("this Mac has no fans; chilld unregistered")
         }
-        register(SMAppService.mainApp, "the login item")
+        do {
+            _ = try blocking { try await AppInstallation.Job.loginItem.install() }
+        } catch {
+            Verbs.die("register the login item: \(error)")
+        }
         print(
-            "daemon: enabled · chilld \(hello.daemonVersion) · pid \(hello.pid) · \(hello.fans.count) fans · login item registered"
+            "daemon: running · chilld \(hello.daemonVersion) · pid \(hello.pid) · \(hello.fans.count) fans · login item registered"
         )
     }
 
-    /// Apple's curve first, over XPC and read back, then the
-    /// registrations. unregister kills a running daemon without a
-    /// SIGTERM, which is why `system()` has to land before it.
+    /// Apple's curve first, over XPC and read back, said here; then the
+    /// registrations (the job hands the fans back again on its own way out,
+    /// since unregistering sends no SIGTERM).
     static func uninstall() {
-        if daemon.status == .enabled {
+        if job.state(probing: false) == .running {
             let client = Verbs.connect(Demo(on: false), role: .cli)
             do {
                 let state = try client.system()
@@ -84,18 +66,21 @@ enum DaemonControl {
                 Verbs.note("chill: \(error); unregistering anyway")
             }
         } else {
-            print("daemon: \(spell(daemon.status))")
+            print("daemon: \(job.words)")
         }
-        unregister(SMAppService.mainApp, "the login item")
-        unregister(daemon, "chilld")
+        do {
+            try AppInstallation.Job.loginItem.uninstall()
+            try job.uninstall()
+        } catch {
+            Verbs.die("uninstall: \(error)")
+        }
         print("daemon: unregistered")
     }
 
-    /// Registration, then the round trip that proves the signature check
+    /// The job's state, then the round trip that proves the signature check
     /// passes in both directions.
     static func status() {
-        let registration = daemon.status
-        print("daemon: \(spell(registration))")
+        print("daemon: \(job.words)")
         let requirement: String
         do {
             requirement = try requirementString()
@@ -103,7 +88,7 @@ enum DaemonControl {
             print("signature: \(error)")
             exit(1)
         }
-        guard registration == .enabled else { exit(1) }
+        guard job.state(probing: false) == .running else { exit(1) }
         do {
             let hello = try Client(demo: Demo(on: false), role: .cli).hello()
             print(
@@ -117,32 +102,6 @@ enum DaemonControl {
         }
     }
 
-    // MARK: - helpers
-
-    private static func register(_ service: SMAppService, _ what: String) {
-        do {
-            try service.register()
-        } catch {
-            guard (error as NSError).code == kSMErrorAlreadyRegistered else {
-                Verbs.die("register \(what): \(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// Idempotent: a service that is not registered is already the goal,
-    /// and `unregister()` on one answers EINVAL; one SMAppService cannot
-    /// find (an unsigned bundle left by a failed install) answers EPERM.
-    private static func unregister(_ service: SMAppService, _ what: String) {
-        if service.status == .notRegistered || service.status == .notFound { return }
-        do {
-            try service.unregister()
-        } catch {
-            guard (error as NSError).code == kSMErrorJobNotFound else {
-                Verbs.die("unregister \(what): \(error.localizedDescription)")
-            }
-        }
-    }
-
     /// launchd bootstraps the daemon after approval; give it the window.
     private static func greet(_ client: Client) -> Hello {
         let deadline = ContinuousClock.now + Client.relaunchWindow
@@ -153,16 +112,6 @@ enum DaemonControl {
                 guard ContinuousClock.now < deadline else { Verbs.die("\(error)") }
                 usleep(500_000)
             }
-        }
-    }
-
-    static func spell(_ status: SMAppService.Status) -> String {
-        switch status {
-        case .enabled: return "enabled"
-        case .requiresApproval: return "awaiting approval (\(Wire.approvalPath))"
-        case .notRegistered: return "not installed"
-        case .notFound: return Placement.current.notFound
-        @unknown default: return "status \(status.rawValue)"
         }
     }
 }

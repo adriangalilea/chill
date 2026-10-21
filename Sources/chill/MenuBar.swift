@@ -1,9 +1,9 @@
+import AppInstallations
 import AppKit
 import ChillKit
 import Ink
 import Keymap
 import Observation
-import ServiceManagement
 import SwiftUI
 
 /// The status item: the effect glyph, a left-click popover that IS the
@@ -149,7 +149,7 @@ final class MenuBar: NSObject, NSPopoverDelegate {
         menu.addItem(.separator())
         _ = add("shortcut · \(model.store.displayPrimary(for: .toggle))", #selector(keys))
         let login = add("start at login", #selector(toggleLogin))
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        login.state = AppInstallation.Job.loginItem.state == .running ? .on : .off
         let updates = add("check for updates daily", #selector(toggleUpdateCheck))
         updates.state = model.config.updateCheck ? .on : .off
         _ = add("about", #selector(about))
@@ -166,23 +166,6 @@ final class MenuBar: NSObject, NSPopoverDelegate {
     @objc private func keys() { model.showKeys = true }
     @objc private func about() { model.showAbout = true }
 
-    /// Membership of the `admin` group, the one that can approve a
-    /// LaunchDaemon in System Settings. The group and the current user
-    /// always exist on macOS; a lookup that fails is a broken world, not
-    /// a standard user.
-    static var isAdmin: Bool {
-        guard let admin = getgrnam("admin") else { preconditionFailure("no admin group") }
-        guard let user = getpwuid(getuid()) else { preconditionFailure("no passwd entry for uid") }
-        var count: Int32 = 64
-        var groups = [gid_t](repeating: 0, count: Int(count))
-        let rc = groups.withUnsafeMutableBufferPointer { buffer in
-            buffer.baseAddress!.withMemoryRebound(to: Int32.self, capacity: Int(count)) {
-                getgrouplist(user.pointee.pw_name, Int32(user.pointee.pw_gid), $0, &count)
-            }
-        }
-        precondition(rc >= 0, "getgrouplist overflowed \(groups.count) groups")
-        return groups.prefix(Int(count)).contains(admin.pointee.gr_gid)
-    }
 }
 
 /// The popover. Tabs across the top ARE the intents: `apple`, `chill`
@@ -711,11 +694,8 @@ struct Knob: View {
 
 /// The one action that gets a daemon answering, first. A daemon that
 /// answered and refused this process for good is fixed by a relaunch,
-/// whatever the registration says. `.notFound` is judged against the
-/// bundle (`Placement`): installable gets the install chip, a bundle
-/// outside /Applications the chip that moves it there, a bare build what
-/// installs one.
-/// Renders nothing while the daemon is live.
+/// whatever the registration says; otherwise chilld's job state picks the
+/// act. Renders nothing while the daemon is live.
 struct Fixer: View {
     let model: Model
 
@@ -733,50 +713,44 @@ struct Fixer: View {
         }
     }
 
+    /// chilld's job as AppInstallations reads it, one act per state: the
+    /// place is judged first (a registration lives with the install for
+    /// everyone), so a bundle outside /Applications gets the chip that moves
+    /// it there, never "install".
     @ViewBuilder private var registration: some View {
-        switch model.registration {
-        case .notRegistered:
+        switch model.daemon {
+        case .off:
             Chip(tint: tone, action: { model.installDaemon() }) {
                 Text("install chilld").font(.system(size: 12))
             }
-        case .requiresApproval:
-            if MenuBar.isAdmin {
-                Chip(tint: tone, action: { model.approveDaemon() }) {
-                    Text("approve chilld in \(Wire.approvalPath)").font(.system(size: 12))
-                }
-            } else {
+        case .awaitingApproval(let needsAdmin):
+            if needsAdmin {
                 Text("approval is an admin's act: ask one to allow chilld")
                     .font(.meta).foregroundStyle(.secondary)
-                Chip(tint: tone, action: { model.approveDaemon() }) {
-                    Text("open \(Wire.approvalPath)").font(.system(size: 12))
-                }
             }
-        case .notFound:
-            // Never registered reads the same as no plist at all; the bundle
-            // says which (Placement).
-            switch Placement.current {
-            case .installable:
-                Chip(tint: tone, action: { model.installDaemon() }) {
-                    Text("install chilld").font(.system(size: 12))
-                }
-            case .misplaced:
-                Text(Placement.current.notFound)
-                    .font(.meta).foregroundStyle(.secondary)
-                Chip(tint: tone, action: { model.moveToApplications() }) {
-                    Text(
-                        Placement.move == .copy
-                            ? "move to Applications" : "open chill in Applications"
-                    ).font(.system(size: 12))
-                }
-            case .bare:
-                Text(Placement.current.notFound)
-                    .font(.meta).foregroundStyle(.secondary)
-            }
-        case .enabled:
-            Text("chilld is registered and not answering: chill daemon status")
+            // Where the switch is and what macOS calls its row: a chill
+            // signed by a person is listed under that person's name.
+            Text(AppInstallation.Job.approvalSteer)
                 .font(.meta).foregroundStyle(.secondary)
-        @unknown default:
-            Text("chilld registration status \(model.registration.rawValue)")
+            Chip(tint: tone, action: { model.approveDaemon() }) {
+                Text("open \(Wire.approvalPath)").font(.system(size: 12))
+            }
+        case .misplaced(let home):
+            Text(
+                "chill is running from \(home.words), and it runs its daemon only from Applications"
+            )
+            .font(.meta).foregroundStyle(.secondary)
+            Chip(tint: tone, action: { model.moveToApplications() }) {
+                Text(
+                    AppInstallation.installedCopy(in: [.everyone]) == nil
+                        ? "move to Applications" : "open chill in Applications"
+                ).font(.system(size: 12))
+            }
+        case .bare:
+            Text("no chilld in this bundle (a bare build): mise run install")
+                .font(.meta).foregroundStyle(.secondary)
+        case .silent, .running:
+            Text("chilld is registered and not answering: chill daemon status")
                 .font(.meta).foregroundStyle(.secondary)
         }
     }

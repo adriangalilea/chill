@@ -1,3 +1,4 @@
+import AppInstallations
 import ChillKit
 import Foundation
 
@@ -26,7 +27,7 @@ let usage = """
       chill curve use <name> [--watch] [--take]   intent = this curve
       chill boost [minutes] [--watch] [--take]    max rpm for N minutes (default \(Wire.boostMinutes)), ends by itself
       chill system                   intent = Apple's curve; reclaims a fan someone else forced
-      chill daemon install           register chilld (SMAppService) and the login item
+      chill daemon install           install chilld (approved once) and the login item
       chill daemon uninstall         Apple's curve over XPC, read back, then unregister
       chill daemon status            registration, pid, signature check
       chill log [-f]                 \(Wire.logFile) (-f follows)
@@ -41,8 +42,25 @@ let usage = """
 
 switch args.first {
 case nil:
+    // The app's whole life (AppInstallations), first, before anything is
+    // drawn: chilld turned on as a move asked or registered afresh for this
+    // copy, `chill` on PATH pointed here; then the watch for this bundle
+    // moved, upgraded or deleted (its state to the Trash, the link removed).
+    // A launch that only hands chilld over to this copy ends inside. The demo
+    // world and a bare build have no install to keep.
+    let installation =
+        demo.on || AppInstallation.bundle == nil
+        ? nil
+        : AppInstallation.ImageWatch.start(
+            jobs: [.chilld], keeps: [demo.state],
+            links: [
+                AppInstallation.Link(
+                    FileManager.default.homeDirectoryForCurrentUser.appending(
+                        path: ".local/bin/chill"),
+                    to: "Contents/MacOS/chill")
+            ])
     // The process's own main thread, before any run loop exists.
-    MainActor.assumeIsolated { App.run(demo: demo) }
+    withExtendedLifetime(installation) { MainActor.assumeIsolated { App.run(demo: demo) } }
 case "scene":
     guard demo.on else { Verbs.die("scene: the demo world only (chill --demo scene ...)") }
     MainActor.assumeIsolated { Scene.run(Array(args.dropFirst())) }

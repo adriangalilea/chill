@@ -1,10 +1,10 @@
+import AppInstallations
 import AppKit
 import ChillKit
 import Ink
 import Keymap
 import MachSensors
 import Observation
-import ServiceManagement
 import SwiftUI
 
 /// What the app knows about the daemon right now: its last `State`, why
@@ -579,24 +579,6 @@ final class Model {
         client = nil
         hello = nil
         sampleLocally()
-        reregister(error)
-    }
-
-    /// Registering again has been tried in this launch.
-    private var reregistered = false
-
-    /// Registered, yet nothing answers: macOS keeps the record of a chill
-    /// deleted earlier, so a reinstalled bundle reads `.enabled` with no job
-    /// loaded, and the popover had nothing to press. Registering again
-    /// loads it without a prompt, the approval being on record. Once per
-    /// launch: a daemon that dies again is for its log to explain.
-    private func reregister(_ error: Error) {
-        guard !reregistered, case .unreachable? = error as? ClientError,
-            registration == .enabled, Placement.current == .installable
-        else { return }
-        reregistered = true
-        log.notice("chilld registered but unreachable: registering it again")
-        installDaemon()
     }
 
     private func connect() -> Client? {
@@ -649,16 +631,19 @@ final class Model {
     /// Start at login: the login item `chill daemon install` registers,
     /// switched here; the daemon is untouched either way.
     func toggleLogin() {
-        do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-                log.info("login item: off")
-            } else {
-                try SMAppService.mainApp.register()
-                log.info("login item: on")
+        let login = AppInstallation.Job.loginItem
+        Task {
+            do {
+                if login.state == .running {
+                    try login.uninstall()
+                    log.info("login item: off")
+                } else {
+                    try await login.install()
+                    log.info("login item: on")
+                }
+            } catch {
+                notice = "start at login: \(error)"
             }
-        } catch {
-            notice = "start at login: \(error.localizedDescription)"
         }
     }
 
@@ -737,84 +722,39 @@ final class Model {
 
     // MARK: - the no-daemon menu
 
-    /// The daemon's registration as SMAppService reports it this instant.
-    var registration: SMAppService.Status { Client.registration }
+    /// chilld's job as launchd and the Login Items record say this instant
+    /// (AppInstallations), never its own probe: the pulse already says
+    /// whether it answers.
+    var daemon: AppInstallation.Job.State { AppInstallation.Job.chilld.state(probing: false) }
 
-    /// The same two registrations `chill daemon install` makes, so a cask
-    /// install (whose steps cannot reach SMAppService) resumes at login too.
+    /// chilld and the login item, the same two `chill daemon install`
+    /// makes, so a cask install (whose steps cannot reach SMAppService)
+    /// resumes at login too. Installing waits for the approval in the
+    /// background; a pending one is the popover's state, never a notice.
     func installDaemon() {
-        do {
-            for service in [SMAppService.daemon(plistName: Wire.plistName), .mainApp] {
-                do { try service.register() } catch let error as NSError
-                    where error.code == kSMErrorAlreadyRegistered
-                {}
-            }
-            notice = nil
-        } catch {
-            notice = "install chilld: \(error.localizedDescription)"
-        }
-    }
-
-    func approveDaemon() { SMAppService.openSystemSettingsLoginItems() }
-
-    /// Set by `forget`: the state is in the Trash and nothing writes it back.
-    private(set) var forgotten = false
-
-    /// chill.app was deleted under this process (`Pulse`): leave nothing.
-    /// Both Login Items records (the daemon's and the app's) are this
-    /// process's to remove, the state goes to the Trash (a drawn curve is
-    /// still recoverable there), the preferences go. chilld removes its own
-    /// root files on the same signal. Each step is logged, never assumed.
-    func forget() {
-        // No writer recreates the state from here on (the clouds land on quit).
-        forgotten = true
-        for (what, service) in [
-            ("chilld", SMAppService.daemon(plistName: Wire.plistName)), ("login item", .mainApp),
-        ] {
-            do {
-                try service.unregister()
-                log.notice("forget: \(what, privacy: .public) unregistered")
-            } catch {
-                log.error(
-                    "forget: \(what, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
-            }
-        }
-        if !demo.on, FileManager.default.fileExists(atPath: demo.state.path) {
-            do {
-                try FileManager.default.trashItem(at: demo.state, resultingItemURL: nil)
-                log.notice("forget: \(self.demo.state.path, privacy: .public) moved to the Trash")
-            } catch {
-                log.error("forget: state: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-        if let id = Bundle.main.bundleIdentifier {
-            UserDefaults.standard.removePersistentDomain(forName: id)
-        }
-    }
-
-    /// A misplaced chill puts itself in /Applications (`Placement.move`),
-    /// opens that one and quits; there the popover offers "install chilld".
-    func moveToApplications() {
-        let home = Placement.home
-        do {
-            if Placement.move == .copy {
-                try FileManager.default.copyItem(at: Bundle.main.bundleURL, to: home)
-            }
-        } catch {
-            notice = "move to Applications: \(error.localizedDescription)"
-            return
-        }
-        // Same bundle id as this process: without a new instance, macOS would
-        // only bring this one forward.
-        let open = NSWorkspace.OpenConfiguration()
-        open.createsNewApplicationInstance = true
         Task {
             do {
-                _ = try await NSWorkspace.shared.openApplication(at: home, configuration: open)
-                NSApp.terminate(nil)
+                try await AppInstallation.Job.chilld.install()
+                try await AppInstallation.Job.loginItem.install()
+                notice = nil
+            } catch AppInstallation.Job.Failure.awaitingApproval {
             } catch {
-                notice = "open \(home.path): \(error.localizedDescription)"
+                notice = "install chilld: \(error)"
+            }
+        }
+    }
+
+    func approveDaemon() { AppInstallation.Job.openApprovalSettings() }
+
+    /// A misplaced chill puts itself in /Applications, chilld turned on
+    /// there as the press asked (the new copy installs it at launch), or
+    /// opens the chill already there; this one quits.
+    func moveToApplications() {
+        Task {
+            do {
+                try await AppInstallation.moveHome(to: .everyone, turningOn: [.chilld])
+            } catch {
+                notice = "move to Applications: \(error)"
             }
         }
     }
@@ -951,7 +891,6 @@ final class Model {
     }
 
     func saveConfig() {
-        guard !forgotten else { return }
         do {
             try config.save(demo)
         } catch {
@@ -1093,7 +1032,6 @@ final class Model {
     // MARK: - persistence
 
     func writeClouds() {
-        guard !forgotten else { return }
         do {
             try clouds.write()
         } catch {

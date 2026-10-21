@@ -1,9 +1,11 @@
 // swift-tools-version: 6.2
 // Three targets, one contract. ChillKit is the wire every process links:
-// the protocol, the payloads and the curve model. chilld is the root
-// daemon and the only SMC writer; it links Foundation, IOKit, ChillKit and
-// the read-only sensor package, never AppKit, never swift-utils. chill is
-// the app and the CLI in one binary, argv-dispatched.
+// the protocol, the payloads, the curve model and chilld's declaration as
+// the app's job. chilld is the root daemon and the only SMC writer; it
+// links Foundation, IOKit, ChillKit and the read-only sensor package, and
+// of swift-utils only AppInstallations (and its Log), which are
+// Foundation-only: never AppKit. chill is the app and the CLI in one
+// binary, argv-dispatched.
 import PackageDescription
 
 let package = Package(
@@ -17,11 +19,14 @@ let package = Package(
         // construction; chilld composes its write on the public codec.
         .package(url: "https://github.com/adriangalilea/swift-hw", from: "0.1.0"),
         // Ink + Keymap: the studio's look and the keyboard-first spine.
-        .package(url: "https://github.com/adriangalilea/swift-utils", .upToNextMinor(from: "0.26.0")),
+        // AppInstallations: the app's whole life (chilld as its job, the
+        // move into Applications, upgrade and delete), in every process.
+        .package(url: "https://github.com/adriangalilea/swift-utils", .upToNextMinor(from: "0.35.1")),
     ],
     targets: [
         .target(
             name: "ChillKit",
+            dependencies: [.product(name: "AppInstallations", package: "swift-utils")],
             swiftSettings: [.swiftLanguageMode(.v5), .enableUpcomingFeature("StrictConcurrency")]
         ),
         .executableTarget(
@@ -29,6 +34,7 @@ let package = Package(
             dependencies: [
                 "ChillKit",
                 .product(name: "MachSensors", package: "swift-hw"),
+                .product(name: "AppInstallations", package: "swift-utils"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5), .enableUpcomingFeature("StrictConcurrency")],
             linkerSettings: [.linkedFramework("IOKit")]
@@ -40,6 +46,7 @@ let package = Package(
                 .product(name: "MachSensors", package: "swift-hw"),
                 .product(name: "Ink", package: "swift-utils"),
                 .product(name: "Keymap", package: "swift-utils"),
+                .product(name: "AppInstallations", package: "swift-utils"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5), .enableUpcomingFeature("StrictConcurrency")]
         ),

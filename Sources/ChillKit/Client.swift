@@ -1,8 +1,8 @@
+import AppInstallations
 import Foundation
-import ServiceManagement
 
 /// Why a verb got no answer, in the words `chill status` prints. The
-/// three daemon states are read from `SMAppService` AFTER the connection
+/// three daemon states are read from chilld's job (AppInstallations) AFTER the connection
 /// failed, never guessed from the failure alone: a refused connection to
 /// a registered, approved daemon is `unreachable`; the same failure with
 /// no registration is `notInstalled`.
@@ -56,11 +56,6 @@ public actor Client {
     private nonisolated(unsafe) let connection: NSXPCConnection?
     private let fake: FakeDaemon?
     private var greeted: Hello?
-
-    /// The daemon's registration as SMAppService reports it right now.
-    public static var registration: SMAppService.Status {
-        SMAppService.daemon(plistName: Wire.plistName).status
-    }
 
     /// Throws when this process cannot derive a code-signing requirement
     /// from its own signature (unsigned, ad-hoc): such a client could not
@@ -221,18 +216,20 @@ public actor Client {
         }
     }
 
+    /// The job's state as launchd and the Login Items record say, never its
+    /// own probe: the probe is a hello, and this runs because one failed.
     private static func classify(_ error: Error) -> ClientError {
-        switch registration {
-        case .notRegistered, .notFound: return .notInstalled
-        case .requiresApproval: return .awaitingApproval
-        // Registered and silent: a crash between restarts, or the record of
-        // a chill deleted earlier with no job loaded. Opening the app
-        // registers it again.
-        case .enabled:
+        let job = AppInstallation.Job.chilld
+        switch job.state(probing: false) {
+        case .off, .misplaced, .bare: return .notInstalled
+        case .awaitingApproval: return .awaitingApproval
+        // Registered and not answering: a crash between restarts, or a
+        // registration made for another copy of chill. Opening the app
+        // registers it afresh.
+        case .silent, .running:
             return .unreachable(
-                "registered, not running: open chill.app, or `chill daemon install` (\(error.localizedDescription))"
+                "registered, not answering: open chill.app, or `chill daemon install` (\(error.localizedDescription))"
             )
-        @unknown default: return .unreachable("registration status \(registration.rawValue)")
         }
     }
 }
