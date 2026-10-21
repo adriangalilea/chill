@@ -25,7 +25,9 @@ enum DaemonControl {
     /// once when the approval is pending, a minute for it), then a fanless
     /// Mac refused, then the login item so presence returns at login.
     static func install() {
-        print("installing chilld; an admin approves it once: \(AppInstallation.Job.approvalSteer)")
+        print(
+            "installing chilld; if Login Items opens, an admin approves it once: \(AppInstallation.Job.approvalSteer)"
+        )
         do {
             _ = try blocking { try await job.install(approvalWait: .seconds(60)) }
         } catch AppInstallation.Job.Failure.awaitingApproval {
