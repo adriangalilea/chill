@@ -90,10 +90,19 @@ run = "xcrun swift-format lint --recursive Sources/"
 description = "format + compile everything, debug: the FAST typecheck (must be 0 warnings)"
 run = '''
 mise run format
+mise run lock-in
 out=$(scripts/locked.sh swift build 2>&1) || { echo "$out"; exit 1; }
 if echo "$out" | grep -q "warning:"; then echo "$out"; echo "chill: warnings are errors"; exit 1; fi
 echo "chill: 0 errors, 0 warnings"
 '''
+
+# Permissions and the app's jobs only through swift-utils' AppInstallations
+# (and PermissionGrants): a direct SMAppService call or a permission read
+# fails the gate.
+[tasks.lock-in]
+description = "no hand-rolled install or permission code (grant lint)"
+tools = { "spm:adriangalilea/swift-utils" = { version = "0.34.4", filter_bins = "grant,ship,mark,since" } }
+run = "grant lint Sources"
 
 # One drawing, every icon file: chill.icon (Icon Composer's package, its
 # layers SVG) is the icon; swift-utils' `mark` compiles the glass
