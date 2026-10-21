@@ -733,7 +733,7 @@ struct Fixer: View {
             Text(AppInstallation.Job.approvalSteer)
                 .font(.meta).foregroundStyle(.secondary)
             Chip(tint: tone, action: { model.approveDaemon() }) {
-                Text("open \(Wire.approvalPath)").font(.system(size: 12))
+                Text("open \(AppInstallation.Job.approvalPath)").font(.system(size: 12))
             }
         case .misplaced(let home):
             Text(

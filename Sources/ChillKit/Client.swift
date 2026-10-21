@@ -19,7 +19,8 @@ public enum ClientError: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .notInstalled: return "daemon: not installed"
-        case .awaitingApproval: return "daemon: awaiting approval (\(Wire.approvalPath))"
+        case .awaitingApproval:
+            return "daemon: awaiting approval (\(AppInstallation.Job.approvalPath))"
         case .unreachable(let why): return "daemon: unreachable (\(why))"
         case .refused(let refusal): return refusal.description
         case .malformed(let verb, let error):

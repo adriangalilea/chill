@@ -17,8 +17,6 @@ public enum Wire {
     /// plist's StandardOutPath before exec and makes no parent directory,
     /// so it cannot); `chill log` reads it.
     public static let logFile = "/Library/Logs/\(Identity.root("chill"))/chilld.log"
-    /// Where a LaunchDaemon is approved, as every surface names it.
-    public static let approvalPath = "System Settings › General › Login Items & Extensions"
     /// A client that has not spoken within this window is gone; the daemon
     /// hands the fans back to Apple on the next evaluation.
     public static let presenceWindow: Duration = .seconds(10)
