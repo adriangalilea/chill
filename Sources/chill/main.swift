@@ -8,7 +8,9 @@ import Foundation
 // content-bearing root to a -demo sibling and swaps the daemon for an
 // in-process one.
 
-let rawArgs = Array(CommandLine.arguments.dropFirst())
+// AppInstallations' own launch arguments (a copy opened to turn chilld on,
+// or run from the Trash to forget) are the app's launch, never a verb.
+let rawArgs = AppInstallation.appArguments(Array(CommandLine.arguments.dropFirst()))
 let demo = Demo(on: rawArgs.contains("--demo"))
 let args = rawArgs.filter { $0 != "--demo" }
 

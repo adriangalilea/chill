@@ -21,7 +21,7 @@ let package = Package(
         // Ink + Keymap: the studio's look and the keyboard-first spine.
         // AppInstallations: the app's whole life (chilld as its job, the
         // move into Applications, upgrade and delete), in every process.
-        .package(url: "https://github.com/adriangalilea/swift-utils", .upToNextMinor(from: "0.35.1")),
+        .package(url: "https://github.com/adriangalilea/swift-utils", .upToNextMinor(from: "0.35.2")),
     ],
     targets: [
         .target(
