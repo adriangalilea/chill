@@ -1,3 +1,4 @@
+import AppInstallations
 import Foundation
 
 /// Which chill this process is: the release (`garden.untitled.chill`, Developer
@@ -10,9 +11,15 @@ import Foundation
 /// it (untitled docs/apple.md "Development builds"). A development build has
 /// its own daemon (`garden.untitled.chilld.dev`: label, mach service, plist)
 /// and its own roots: user state, the daemon's policy and its log.
+///
+/// Read from the app around the executable's REAL path, never `Bundle.main`:
+/// the CLI runs through a link (the cask's `/opt/homebrew/bin/chill`,
+/// `~/.local/bin/chill`), and `Bundle.main` seen through one is no bundle,
+/// which would make every release's CLI the development build.
 public enum Identity {
     public static let release = "garden.untitled.chill"
-    public static let bundleID = Bundle.main.bundleIdentifier ?? release + ".dev"
+    public static let app = AppInstallation.bundle.flatMap { Bundle(url: $0) }
+    public static let bundleID = app?.bundleIdentifier ?? release + ".dev"
     public static let dev = bundleID != release
     /// The daemon's launchd label, mach service and plist name, one string.
     public static let daemon = dev ? "garden.untitled.chilld.dev" : "garden.untitled.chilld"

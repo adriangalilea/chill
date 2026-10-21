@@ -34,15 +34,9 @@ public enum Wire {
     public static let boostMinutes = 5
     /// This image's version as the bundle stamps it, "dev" for a bare
     /// build. `hello` carries the client's, the daemon compares its own.
-    /// Resolved from the executable's REAL path, not `Bundle.main`: the
-    /// CLI runs through the `~/.local/bin/chill` symlink, and `Bundle.main`
-    /// seen through a symlink has no Info.plist.
-    public static let version: String = {
-        let executable = Bundle.main.executableURL!.resolvingSymlinksInPath()
-        let contents = executable.deletingLastPathComponent().deletingLastPathComponent()
-        let bundle = Bundle(url: contents.deletingLastPathComponent())
-        return bundle?.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
-    }()
+    /// The app `Identity` reads, through any link to the CLI.
+    public static let version =
+        Identity.app?.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
 
     /// Payloads cross XPC as JSON `Data`, not as `NSSecureCoding` objects:
     /// the payloads are Swift value types, and NSSecureCoding wants an
