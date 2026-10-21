@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/release <clone>: what `authz release` runs (release.json) after a
+# scripts/release <clone>: what `ship release` runs (release.json) after a
 # person approved these exact commits, in a fresh clone of them: the icon,
 # then `ship build` (swift-utils) signs chilld, chill and the bundle with the
 # Developer ID in the release's own keychain, notarizes and makes the dmg in
