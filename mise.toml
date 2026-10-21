@@ -162,14 +162,8 @@ echo "installed $DEV_APP (+ chill on PATH)"
 # The binary owns the registration (SMAppService + the login item), not this
 # file: the popover's "install chilld" makes the same two for a cask install.
 "$DEV_APPBIN" daemon install
-# Installed means running: an app still open is an old image (either build),
-# so it quits and the new one opens, then takes back the curve that ran before.
-for path in "$APP" "$DEV_APP"; do
-  old=$(pgrep -f "$path/Contents/MacOS/chill$" || true)
-  [ -n "$old" ] || continue
-  kill $old
-  while kill -0 $old 2>/dev/null; do sleep 0.1; done
-done
+# Installed means running: the new one opens (the old ones quit before the
+# bundle went), then takes back the curve that ran before.
 open "$DEV_APP"
 if [ -n "$was" ]; then
   # `use` needs a watcher, and the new app becomes one at its first pulse.
