@@ -266,7 +266,8 @@ final class Daemon: NSObject, NSXPCListenerDelegate {
     /// then its directory, which the module removes only when empty (never
     /// recursively, never by pattern), so anything else found there
     /// survives, directory included. Every name is asserted to sit in a
-    /// directory called `chill` under /Library: a wrong constant screams
+    /// directory named for this build (`chill`, `chill-dev`) under
+    /// /Library: a wrong constant screams
     /// instead of deleting. The os_log lines stay the system's.
     static let files: [URL] = {
         let log = URL(filePath: Wire.logFile)
@@ -276,7 +277,8 @@ final class Daemon: NSObject, NSXPCListenerDelegate {
         ]
         for (directory, files) in groups {
             precondition(
-                directory.lastPathComponent == "chill" && directory.path.hasPrefix("/Library/"),
+                directory.lastPathComponent == Identity.root("chill")
+                    && directory.path.hasPrefix("/Library/"),
                 "\(directory.path) is not chill's own directory")
             for file in files {
                 precondition(
