@@ -136,6 +136,10 @@ public actor Client {
         try await verb("system") { $0.system(reply: $1) }
     }
 
+    public func handBack() async throws -> State {
+        try await verb("handBack") { $0.handBack(reply: $1) }
+    }
+
     public func presence() async throws -> State {
         try await verb("presence") { $0.presence(reply: $1) }
     }

@@ -97,6 +97,9 @@ actor Engine {
     private var wokeSinceSleep = false
     /// This process is on its way out: nothing is forced from here on.
     private var halting = false
+    /// Handed back for a stop that AppInstallations is about to make: nothing
+    /// forced until it comes, or, if it never does, until ten seconds pass.
+    private var handedBackAt: ContinuousClock.Instant?
     /// Fans chill wrote, or is writing, mode 1 on and has not handed back:
     /// entered the moment an acquire begins, since its success lands
     /// between passes. What separates "chill holds it" from `foreign` when
@@ -150,6 +153,30 @@ actor Engine {
         Log.notice("\(why): handing the fans back")
         halting = true
         await handBack()
+    }
+
+    /// Asked by AppInstallations before it unregisters chilld (a fresh
+    /// registration for a moved or upgraded copy, `daemon uninstall`), which
+    /// stops this process with no signal: the fans to Apple, the intent kept
+    /// for the chilld that follows. A stop that never comes (the unregister
+    /// failed) must not leave the fans with Apple against the intent: ten
+    /// seconds on, the engine forces again.
+    func handBackForStop() async -> Reply<State> {
+        Log.notice("handing the fans back for a stop, the intent kept")
+        handedBackAt = clock.now
+        await handBack()
+        Task {
+            try? await clock.sleep(for: .seconds(10))
+            await resumeAfterHandBack()
+        }
+        return .ok(render())
+    }
+
+    private func resumeAfterHandBack() async {
+        guard let at = handedBackAt, clock.now - at >= .seconds(10) else { return }
+        Log.notice("still running ten seconds after the hand-back: forcing again")
+        handedBackAt = nil
+        await evaluate()
     }
 
     // MARK: - verbs
@@ -330,7 +357,8 @@ actor Engine {
     /// Whether `plan` is still what the world wants forced, read fresh
     /// after a suspension.
     private func stillForced(_ plan: Intent) -> Bool {
-        !halting && intent == plan && plan != .system && watcher != nil && vetoes.isEmpty
+        !halting && handedBackAt == nil && intent == plan && plan != .system && watcher != nil
+            && vetoes.isEmpty
     }
 
     private func step() async {

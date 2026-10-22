@@ -149,6 +149,10 @@ final class Session: NSObject, ChillDaemonProtocol, Sendable {
         serve(reply) { await $0.system(from: $1) }
     }
 
+    func handBack(reply: @escaping @Sendable (Data) -> Void) {
+        serve(reply) { engine, _ in await engine.handBackForStop() }
+    }
+
     func presence(reply: @escaping @Sendable (Data) -> Void) {
         serve(reply) { await $0.presence(from: $1) }
     }

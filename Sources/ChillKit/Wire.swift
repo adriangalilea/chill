@@ -5,7 +5,7 @@ import Foundation
 public enum Wire {
     /// Bumped on any change to `ChillDaemonProtocol` or a payload; shipped
     /// in `hello` and in every `State` so a mismatch is visible.
-    public static let protocolVersion = 6
+    public static let protocolVersion = 7
     /// The launchd label, the mach service and the plist name are ONE
     /// string (`Identity.daemon`, the release's or a development build's):
     /// `launchd/daemon.plist.in`, stamped by the assembly, advertises it and
@@ -84,6 +84,9 @@ public enum Role: String, Sendable {
     func boost(minutes: Int, reply: @escaping @Sendable (Data) -> Void)
     /// Intent = Apple's curve.
     func system(reply: @escaping @Sendable (Data) -> Void)
+    /// The fans to Apple before AppInstallations stops chilld, the intent
+    /// untouched for the chilld that follows (`Job.chilld`'s hand-back).
+    func handBack(reply: @escaping @Sendable (Data) -> Void)
     /// "I am watching": claims presence, or renews it; refused `heldBy`
     /// while another live client holds it.
     func presence(reply: @escaping @Sendable (Data) -> Void)

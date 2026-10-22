@@ -146,6 +146,11 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
         }
     }
 
+    /// The demo world has no real stop to hand back for: the state as it is.
+    public func handBack(reply: @escaping @Sendable (Data) -> Void) {
+        queue.async { reply(Wire.encode(Reply<State>.ok(self.evaluate()))) }
+    }
+
     public func presence(reply: @escaping @Sendable (Data) -> Void) {
         queue.async {
             self.claim()
