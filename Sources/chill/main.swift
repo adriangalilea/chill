@@ -33,6 +33,7 @@ let usage = """
       chill daemon uninstall         Apple's curve over XPC, read back, then unregister
       chill daemon status            registration, pid, signature check
       chill log [-f]                 \(Wire.logFile) (-f follows)
+      chill sensors [--follow] [--json]   this Mac's parts, ssd, battery and fans, read-only (--follow: a line a second)
       chill --demo ...               the demo world: -demo roots, an in-process daemon, never chilld
       chill --demo scene --cdn <url> --films <dir> --out <dir>...   the @ag/macos stage timelines + art
 
@@ -78,6 +79,8 @@ case "daemon":
     DaemonControl.run(Array(args.dropFirst()), demo: demo)
 case "log":
     Verbs.log(follow: args.contains("-f"), demo: demo)
+case "sensors":
+    MainActor.assumeIsolated { SensorsVerb.run(Array(args.dropFirst()), demo: demo) }
 case "help", "-h", "--help":
     print(usage)
 default:

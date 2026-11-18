@@ -128,16 +128,16 @@ enum Film {
 
     /// One frame of the hero's machine: its heat and the fans' rpm.
     struct Moment {
-        let heat: Heat
+        let heat: StageHeat
         let rpm: [Double]
     }
 
     /// The hero's heat at every frame: an idle Mac, settled, then a long load
-    /// from 0.8 s; the chip stepped by `Heat`, the fans by the demo daemon's
+    /// from 0.8 s; the chip stepped by `StageHeat`, the fans by the demo daemon's
     /// physics under the story's tab, in the order `render` steps them, so
     /// the fans this predicts are the ones the clip draws.
     static let heroHeat: [Moment] = {
-        var heat = Heat()
+        var heat = StageHeat()
         for _ in 0..<600 { heat.step(load: 0, air: 0, seconds: 0.1) }
         var world = World()
         for _ in 0..<Int(10 * fps) {
@@ -152,7 +152,7 @@ enum Film {
                 die: now.cpu, intent: World.intent(heroUI(t).tab, push: heroPush(t)),
                 watching: true, seconds: 1 / fps)
             heat.step(
-                load: t < 0.8 ? 0 : 1, air: Heat.air(world.actual, fans: FakeDaemon.fans),
+                load: t < 0.8 ? 0 : 1, air: StageHeat.air(world.actual, fans: FakeDaemon.fans),
                 seconds: 1 / fps)
             return Moment(heat: now, rpm: world.actual)
         }
@@ -178,7 +178,9 @@ enum Film {
 
     /// The demo daemon's fans and its verdicts, stepped on the film's clock
     /// with the same physics (`FakeDaemon.target`, `slew`, `holder`,
-    /// `reason`), so the film shows what the demo world does.
+    /// `reason`), so the film shows what the demo world does. The stage's
+    /// chip is already heat (`StageHeat` lags its load and has no spikes,
+    /// in story seconds), so a story's die is the heat its curves follow.
     @MainActor struct World {
         var actual = FakeDaemon.fans.map { _ in 0.0 }
 
@@ -196,7 +198,7 @@ enum Film {
         mutating func step(die: Double, intent: Intent, watching: Bool, seconds: Double) {
             for fan in FakeDaemon.fans {
                 let target = FakeDaemon.target(
-                    fan, die: die, intent: intent, forced: intent != .system && watching)
+                    fan, heat: die, intent: intent, forced: intent != .system && watching)
                 actual[fan.index] = FakeDaemon.slew(
                     actual[fan.index], toward: target, seconds: seconds)
             }
@@ -214,12 +216,12 @@ enum Film {
                 fans: FakeDaemon.fans.map { fan in
                     FanState(
                         index: fan.index, actual: actual[fan.index].rounded(),
-                        target: FakeDaemon.target(fan, die: die, intent: intent, forced: forced)
+                        target: FakeDaemon.target(fan, heat: die, intent: intent, forced: forced)
                             .rounded(),
                         mode: forced ? 1 : 3)
                 },
-                die: die, dieSensors: FakeDaemon.dieSensors, dieSource: "cpu",
-                lastReason: FakeDaemon.reason(intent, forced: forced).description, clouds: [])
+                die: die, heat: die, dieSensors: FakeDaemon.dieSensors, dieSource: "cpu",
+                lastReason: FakeDaemon.reason(intent, forced: forced).description)
         }
     }
 

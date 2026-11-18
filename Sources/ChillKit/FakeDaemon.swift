@@ -2,11 +2,10 @@ import Foundation
 
 /// The demo world's daemon: the same `ChillDaemonProtocol` the XPC proxy
 /// speaks, in-process, never chilld and never the SMC. Two fans with the
-/// envelope shape of a real Apple Silicon Mac, a scripted die trace, an
-/// Apple curve it plays when it holds the fans, the contract's presence
-/// rule, a boost that ends by itself, and a reference cloud it records
-/// exactly as chilld does: every sample taken while it holds the fans as
-/// Apple. No vetoes fire: there is no sleep and no thermal
+/// envelope shape of a real Apple Silicon Mac, a scripted die trace that
+/// its curves follow as heat (`Heat.follow`, as chilld does), an Apple
+/// curve it plays when it holds the fans, the contract's presence rule and
+/// a boost that ends by itself. No vetoes fire: there is no sleep and no thermal
 /// pressure to read. One serial queue is the actor: every verb evaluates
 /// on it and replies from it, so the reply reflects the state after the
 /// intent change. `@unchecked Sendable` because `queue` is the
@@ -37,13 +36,13 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
     // The demo's physics, one set for every clock that steps it: this
     // daemon on the wall clock, the app's film on its own.
 
-    /// Where a fan heads: the curve's rpm while chill holds the fans (the
-    /// maximum for a boost), Apple's curve otherwise.
-    public static func target(_ fan: Fan, die: Double, intent: Intent, forced: Bool) -> Double {
+    /// Where a fan heads at this heat: the curve's rpm while chill holds the
+    /// fans (the maximum for a boost), Apple's curve otherwise.
+    public static func target(_ fan: Fan, heat: Double, intent: Intent, forced: Bool) -> Double {
         switch intent {
-        case .curve(let curve) where forced: return curve.target(at: die, for: fan)
+        case .curve(let curve) where forced: return curve.target(at: heat, for: fan)
         case .boost where forced: return fan.max
-        default: return apple(at: die, for: fan)
+        default: return apple(at: heat, for: fan)
         }
     }
 
@@ -69,11 +68,6 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
         }
     }
 
-    private struct Bin: Hashable {
-        let c: Int
-        let rpm: Int
-    }
-
     private let queue = DispatchQueue(label: "garden.untitled.chill.demo")
     private let clock = ContinuousClock()
     private let started: ContinuousClock.Instant
@@ -84,14 +78,12 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
     private var watcher: (name: String, deadline: ContinuousClock.Instant)?
     private var actual: [Double]
     private var reason: Reason = .apple
-    /// Per fan, the samples taken while Apple held it, since start.
-    private var clouds: [[Bin: Int]]
+    private var heat: Double?
 
     public override init() {
         started = clock.now
         ticked = started
         actual = FakeDaemon.fans.map { FakeDaemon.apple(at: FakeDaemon.trace(at: 0), for: $0) }
-        clouds = FakeDaemon.fans.map { _ in [:] }
         super.init()
     }
 
@@ -180,20 +172,16 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
         let elapsed = (now - ticked).seconds
         ticked = now
         let die = FakeDaemon.trace(at: (now - started).seconds)
+        let heat = Heat.follow(self.heat, die: die, seconds: elapsed)
+        self.heat = heat
         if case .boost(let until) = intent, until <= Date.now { intent = .system }
         if let current = watcher, current.deadline <= now { watcher = nil }
         let forced = intent != .system && watcher != nil
         var fans: [FanState] = []
         for fan in FakeDaemon.fans {
-            let target = FakeDaemon.target(fan, die: die, intent: intent, forced: forced)
+            let target = FakeDaemon.target(fan, heat: heat, intent: intent, forced: forced)
             actual[fan.index] = FakeDaemon.slew(
                 actual[fan.index], toward: target, seconds: elapsed)
-            if !forced {
-                let bin = Bin(
-                    c: Int(die.rounded(.down)),
-                    rpm: Int(actual[fan.index]) / Cloud.rpmBin * Cloud.rpmBin)
-                clouds[fan.index][bin, default: 0] += 1
-            }
             fans.append(
                 FanState(
                     index: fan.index, actual: actual[fan.index].rounded(), target: target.rounded(),
@@ -207,14 +195,7 @@ public final class FakeDaemon: NSObject, ChillDaemonProtocol, @unchecked Sendabl
                 Presence(
                     pid: getpid(), name: $0.name, secondsLeft: max(0, ($0.deadline - now).seconds))
             },
-            fans: fans, die: die, dieSensors: FakeDaemon.dieSensors, dieSource: "cpu",
-            lastReason: reason.description,
-            clouds: FakeDaemon.fans.map { fan in
-                Cloud(
-                    fan: fan.index,
-                    bins: clouds[fan.index]
-                        .map { [$0.key.c, $0.key.rpm, $0.value] }
-                        .sorted { ($0[0], $0[1]) < ($1[0], $1[1]) })
-            })
+            fans: fans, die: die, heat: heat, dieSensors: FakeDaemon.dieSensors,
+            dieSource: "cpu", lastReason: reason.description)
     }
 }

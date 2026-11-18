@@ -24,7 +24,6 @@ final class Delegate: NSObject, NSApplicationDelegate {
     private var model: Model!
     private var menuBar: MenuBar!
     private var pulse: Pulse!
-    private var signals: [DispatchSourceSignal] = []
 
     init(demo: Demo) { self.demo = demo }
 
@@ -45,19 +44,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         menuBar = MenuBar(model: model)
         pulse = Pulse(model: model)
         model.startKeys()
-        // A signal is a quit like any other: the clouds land first.
-        for sig in [SIGTERM, SIGINT] {
-            signal(sig, SIG_IGN)
-            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
-            source.setEventHandler { NSApp.terminate(nil) }
-            source.resume()
-            signals.append(source)
-        }
         if demo.on { model.openCanvas() }
-    }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        model.quit()
     }
 
     /// A Finder double-click on the running app means "show me the canvas".

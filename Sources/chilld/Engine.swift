@@ -50,6 +50,7 @@ actor Engine {
     private struct Sample {
         var fans: [FanState] = []
         var die: Double?
+        var heat: Double?
         var dieSensors = 0
         var dieSource = "die"
         var holder: Holder = .apple
@@ -107,7 +108,11 @@ actor Engine {
     /// fan reads 0 or 3, no one is forcing it, and the next non-forced
     /// pass removes it.
     private var held: Set<Int> = []
-    private var clouds: [Int: Histogram]
+    private var clouds: Clouds
+    private var cloudsSaved: ContinuousClock.Instant
+    /// What the curves follow (`Heat.follow`) and when it last moved; nil
+    /// while no die reads, so a gap starts it again at the next reading.
+    private var heat: (celsius: Double, at: ContinuousClock.Instant)?
     private var sample = Sample()
     private var reason: Reason = .apple
     private var inFlight: Task<Void, Never>?
@@ -121,8 +126,8 @@ actor Engine {
         // Read before observing: the notification only arrives for a
         // process that has read the state once (the documented contract).
         thermal = ProcessInfo.processInfo.thermalState
-        clouds = Dictionary(
-            uniqueKeysWithValues: writer.fans.map { ($0.index, Histogram(fan: $0.index)) })
+        clouds = Clouds.load(fans: writer.fans)
+        cloudsSaved = clock.now
         if case .failure(let error) = hid {
             Log.error("hid: \(error); no die temperature, the noReading veto will hold")
         }
@@ -153,6 +158,7 @@ actor Engine {
         Log.notice("\(why): handing the fans back")
         halting = true
         await handBack()
+        clouds.save()
     }
 
     /// Asked by AppInstallations before it unregisters chilld (a fresh
@@ -165,6 +171,7 @@ actor Engine {
         Log.notice("handing the fans back for a stop, the intent kept")
         handedBackAt = clock.now
         await handBack()
+        clouds.save()
         Task {
             try? await clock.sleep(for: .seconds(10))
             await resumeAfterHandBack()
@@ -364,7 +371,18 @@ actor Engine {
     private func step() async {
         let now = clock.now
         let (die, dieSensors, dieSource) = readDie()
+        heat = die.map { die in
+            (
+                Heat.follow(
+                    heat?.celsius, die: die, seconds: heat.map { (now - $0.at).seconds } ?? 0), now
+            )
+        }
+        let heat = self.heat?.celsius
         misses = die == nil ? misses + 1 : 0
+        if now - cloudsSaved >= Clouds.writePeriod {
+            clouds.save()
+            cloudsSaved = now
+        }
         set(.noReading, misses >= Engine.missesBeforeVeto)
         applyThermal(now)
         if case .boost(let until) = intent, until <= Date.now {
@@ -387,13 +405,13 @@ actor Engine {
         var refused: [(fan: Int, result: UInt8)] = []
         for fan in writer.fans {
             do {
-                let verdict = try await govern(fan, plan: plan, forced: forced, die: die)
+                let verdict = try await govern(fan, plan: plan, forced: forced, heat: heat)
                 fans.append(verdict.state)
                 holders.append(verdict.holder)
                 atFloor.append(verdict.atFloor)
                 if let result = verdict.refused { refused.append((fan.index, result)) }
-                if let die, verdict.holder == .apple {
-                    clouds[fan.index]!.add(celsius: die, rpm: verdict.state.actual)
+                if let heat, verdict.holder == .apple {
+                    clouds.add(fan: fan.index, celsius: heat, rpm: verdict.state.actual)
                 }
             } catch is Moved {
                 Log.notice("pass abandoned: the world moved under it")
@@ -427,7 +445,7 @@ actor Engine {
         }
         settle(
             Sample(
-                fans: fans, die: die, dieSensors: dieSensors, dieSource: dieSource,
+                fans: fans, die: die, heat: heat, dieSensors: dieSensors, dieSource: dieSource,
                 holder: Engine.aggregate(holders),
                 atFloor: !atFloor.isEmpty && atFloor.allSatisfy { $0 }, unread: unread,
                 refused: refused),
@@ -448,7 +466,7 @@ actor Engine {
     /// One fan: read it back, then act on what it says. Under `forced`,
     /// the world is re-read after every suspension and a move abandons
     /// the pass before any write.
-    private func govern(_ fan: Fan, plan: Intent, forced: Bool, die: Double?) async throws
+    private func govern(_ fan: Fan, plan: Intent, forced: Bool, heat: Double?) async throws
         -> Governed
     {
         let n = fan.index
@@ -458,7 +476,7 @@ actor Engine {
         // Apple keeps (or gets back) the fan; chill takes it once the
         // curve rises past the writer's hysteresis, and lets go once it
         // is back at the floor. In between, whatever it was.
-        let asked = plan == .system ? nil : die.map { wanted(fan, die: $0, under: plan) }
+        let asked = plan == .system ? nil : heat.map { wanted(fan, heat: $0, under: plan) }
         let engaged: Bool = {
             guard forced else { return false }
             guard let asked else { return held.contains(n) }
@@ -480,9 +498,9 @@ actor Engine {
             }
             held.insert(n)
             var verdict = Governed(state: state, holder: .chill(curve: intentName(of: plan)))
-            if let die {
+            if let asked {
                 do {
-                    try await writer.target(fan: n, rpm: wanted(fan, die: die, under: plan))
+                    try await writer.target(fan: n, rpm: asked)
                 } catch WriterError.targetRejected(_, let result, _, _) {
                     // The fan is chill's, read back in mode 1; only the
                     // number was refused. A failed READ is the other catch,
@@ -508,9 +526,9 @@ actor Engine {
         return Governed(state: state, holder: forcedByAnyone ? .foreign : .apple, atFloor: atFloor)
     }
 
-    private func wanted(_ fan: Fan, die: Double, under plan: Intent) -> Double {
+    private func wanted(_ fan: Fan, heat: Double, under plan: Intent) -> Double {
         switch plan {
-        case .curve(let curve): return curve.target(at: die, for: fan)
+        case .curve(let curve): return curve.target(at: heat, for: fan)
         case .boost: return fan.max
         case .system: preconditionFailure("wanted() under intent system")
         }
@@ -601,10 +619,10 @@ actor Engine {
             },
             fans: sample.fans,
             die: sample.die,
+            heat: sample.heat,
             dieSensors: sample.dieSensors,
             dieSource: sample.dieSource,
-            lastReason: reason.description,
-            clouds: clouds.keys.sorted().map { clouds[$0]!.render() })
+            lastReason: reason.description)
     }
 }
 

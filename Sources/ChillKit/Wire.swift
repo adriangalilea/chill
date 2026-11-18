@@ -5,7 +5,7 @@ import Foundation
 public enum Wire {
     /// Bumped on any change to `ChillDaemonProtocol` or a payload; shipped
     /// in `hello` and in every `State` so a mismatch is visible.
-    public static let protocolVersion = 7
+    public static let protocolVersion = 8
     /// The launchd label, the mach service and the plist name are ONE
     /// string (`Identity.daemon`, the release's or a development build's):
     /// `launchd/daemon.plist.in`, stamped by the assembly, advertises it and
@@ -182,25 +182,6 @@ public enum Intent: Codable, Sendable, Hashable, CustomStringConvertible {
     }
 }
 
-/// Apple's curve, observed: every (celsius, rpm) sample taken while Apple
-/// held a fan (mode 0 or 3), binned 1 C x `rpmBin` rpm. Each entry is
-/// `[celsius, rpm, count]` with celsius and rpm the bin floors. The daemon
-/// accumulates it in memory and ships it in every `State`; the app is the
-/// one that persists it (`~/.local/state/chill/cloud/<fan>.json`), so
-/// nothing running as root ever writes into a home directory.
-public struct Cloud: Codable, Sendable, Hashable {
-    public static let rpmBin = 50
-    public static let maxBins = 5000
-
-    public let fan: Int
-    public let bins: [[Int]]
-
-    public init(fan: Int, bins: [[Int]]) {
-        self.fan = fan
-        self.bins = bins
-    }
-}
-
 /// Who holds a fan, READ BACK from the mode key, never inferred from the
 /// last write: mode 0 or 3 = apple; mode 1 with chill's intent = chill;
 /// mode 1 without it = foreign; acquire in flight = acquiring.
@@ -262,8 +243,11 @@ public struct State: Codable, Sendable {
     public let vetoes: [Veto]
     public let presence: Presence?
     public let fans: [FanState]
-    /// The temperature the curve follows, nil while no sensor answers.
+    /// The hottest die right now, nil while no sensor answers.
     public let die: Double?
+    /// The temperature a curve follows: the die as heat follows it
+    /// (`Heat.follow`), nil while no sensor answers.
+    public let heat: Double?
     /// How many sensors answered this sample; `die` is their max.
     public let dieSensors: Int
     /// What `die` is the max of: `cpu` or `gpu` from the SMC's named keys,
@@ -271,13 +255,11 @@ public struct State: Codable, Sendable {
     public let dieSource: String
     /// Why the last transition happened, as the log recorded it.
     public let lastReason: String
-    /// The reference clouds, one per fan, in fan order.
-    public let clouds: [Cloud]
     public let protocolVersion: Int
 
     public init(
         intent: Intent, holder: Holder, vetoes: [Veto], presence: Presence?, fans: [FanState],
-        die: Double?, dieSensors: Int, dieSource: String, lastReason: String, clouds: [Cloud]
+        die: Double?, heat: Double?, dieSensors: Int, dieSource: String, lastReason: String
     ) {
         self.intent = intent
         self.holder = holder
@@ -285,10 +267,10 @@ public struct State: Codable, Sendable {
         self.presence = presence
         self.fans = fans
         self.die = die
+        self.heat = heat
         self.dieSensors = dieSensors
         self.dieSource = dieSource
         self.lastReason = lastReason
-        self.clouds = clouds
         self.protocolVersion = Wire.protocolVersion
     }
 }

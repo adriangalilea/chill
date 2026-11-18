@@ -10,6 +10,11 @@ struct Frame {
     let envelope: ClosedRange<Double>?
     let curve: Curve?
     let point: Int
+    /// What the curve follows (`Heat.follow`): the live point, its line, the
+    /// afterglow and the lit heatmap stand here.
+    let heat: Double?
+    /// The hottest die right now, a faint hairline: how far the moment's
+    /// reading runs ahead of the heat, never what the fans answer to.
     let die: Double?
     let actuals: [Double]
     let targets: [Double]
@@ -252,14 +257,14 @@ struct Plot: View {
         let v = glide.value(at: date).v
         guard v.count == LiveLayer.encode(f).v.count else {
             return Frame(
-                envelope: f.envelope, curve: f.curve, point: f.point, die: f.die,
+                envelope: f.envelope, curve: f.curve, point: f.point, heat: f.heat, die: f.die,
                 actuals: f.actuals, targets: f.targets, trail: f.trail, now: date)
         }
         let n = f.actuals.count
         return Frame(
             envelope: f.envelope, curve: f.curve, point: f.point,
-            die: v[0] < 0 ? nil : v[0], actuals: Array(v[1..<1 + n]),
-            targets: f.targets.isEmpty ? [] : Array(v[1 + n..<1 + 2 * n]), trail: f.trail,
+            heat: v[0] < 0 ? nil : v[0], die: v[1] < 0 ? nil : v[1], actuals: Array(v[2..<2 + n]),
+            targets: f.targets.isEmpty ? [] : Array(v[2 + n..<2 + 2 * n]), trail: f.trail,
             now: date)
     }
     @SwiftUI.State private var rightClicks: Any?
@@ -337,7 +342,7 @@ struct Plot: View {
             }
         }
         let rpms = LiveLayer.marks(f.actuals).map(\.1)
-        if let die = f.die {
+        if let die = f.heat {
             c.verticals = [g.x(die)]
             c.discs += rpms.map { (CGPoint(x: g.x(die), y: g.y($0)), 14) }
         }
@@ -360,7 +365,7 @@ struct Plot: View {
                 if boxes[held.on]?.contains(p) == true { return held.on }
             }
         }
-        if let die = f.die, abs(p.x - g.x(die)) < hoverReach || boxes[.die]?.contains(p) == true {
+        if let die = f.heat, abs(p.x - g.x(die)) < hoverReach || boxes[.die]?.contains(p) == true {
             return .die
         }
         for rpm in LiveLayer.marks(f.actuals).map(\.1)
@@ -400,7 +405,7 @@ struct Plot: View {
     /// Where a lit card's line was when the pointer reached it.
     private func hold(_ on: Hovered?, _ f: Frame) -> Held? {
         switch on {
-        case .die: return f.die.map { Held(on: .die, at: $0) }
+        case .die: return f.heat.map { Held(on: .die, at: $0) }
         case .fans: return LiveLayer.marks(f.actuals).first.map { Held(on: .fans, at: $0.1) }
         case nil: return nil
         }
@@ -423,7 +428,8 @@ struct Plot: View {
     var body: some View {
         let frame = Frame(
             envelope: model.envelope, curve: curve,
-            point: editable ? model.point : -1, die: model.die, actuals: model.actuals,
+            point: editable ? model.point : -1, heat: model.heat, die: model.die,
+            actuals: model.actuals,
             targets: model.targets, trail: model.trail, now: model.now(.now))
         GeometryReader { proxy in
             let geometry = PlotGeometry(size: proxy.size, envelope: frame.envelope)
@@ -474,7 +480,7 @@ struct Plot: View {
                             // appear or vanish: the layer is born at the truth
                             // and fades in, never swept in from nothing.
                             LiveLayer(frame: live, geometry: geometry, lit: lit)
-                                .id(frame.die != nil && !frame.actuals.isEmpty)
+                                .id(frame.heat != nil && !frame.actuals.isEmpty)
                                 .transition(.opacity)
                                 .zIndex(2)
                             // The labels are badges: one view each on the
@@ -491,7 +497,7 @@ struct Plot: View {
                                 clutter: Plot.clutter(live, geometry),
                                 choice: spots, frozen: held != nil
                             ) {
-                                if let live = live.die {
+                                if let live = live.heat {
                                     let die = held?.on == .die ? held!.at : live
                                     let right = LiveLayer.dieLabelRight(die, geometry)
                                     let x = geometry.x(die)
@@ -558,7 +564,7 @@ struct Plot: View {
                 held = now == held?.on ? held : hold(now, frame)
             }
             .animation(.inkSettle, value: frame.curve?.name)
-            .animation(.inkSettle, value: frame.die != nil && !frame.actuals.isEmpty)
+            .animation(.inkSettle, value: frame.heat != nil && !frame.actuals.isEmpty)
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let p):
@@ -865,11 +871,11 @@ struct LiveLayer: View {
         g.plot.maxX - g.x(die) > 90
     }
 
-    /// [die or -1000] + actuals + one target per fan (the actual itself
-    /// while chill holds nothing, so the length never changes with the
-    /// intent and every switch glides). What the glide interpolates.
+    /// [heat or -1000, die or -1000] + actuals + one target per fan (the
+    /// actual itself while chill holds nothing, so the length never changes
+    /// with the intent and every switch glides). What the glide interpolates.
     static func encode(_ f: Frame) -> Vec {
-        var v = [f.die ?? -1000]
+        var v = [f.heat ?? -1000, f.die ?? -1000]
         v += f.actuals
         v += f.targets.isEmpty ? f.actuals : f.targets
         return Vec(v: v)
@@ -885,11 +891,20 @@ struct LiveLayer: View {
         let plot = g.plot
         // Nothing live is drawn outside the plot, whatever a value does.
         context.clip(to: Path(plot))
-        let die = frame.die
+        let die = frame.heat
         let actuals = frame.actuals
         let targets = frame.targets
 
-        // The heatmap, revealed up to the die.
+        // The moment's reading, a faint hairline in its own heat: where the
+        // die is now, ahead of the heat during a burst, behind it after.
+        if let now = frame.die {
+            var line = Path()
+            line.move(to: CGPoint(x: g.x(now), y: plot.minY))
+            line.addLine(to: CGPoint(x: g.x(now), y: plot.maxY))
+            context.stroke(line, with: .color(Palette.heat(now).opacity(0.3)), lineWidth: 1)
+        }
+
+        // The heatmap, revealed up to the heat.
         if let die {
             let lit = CGRect(
                 x: plot.minX, y: plot.minY, width: max(0, g.x(die) - plot.minX), height: plot.height
@@ -1225,7 +1240,7 @@ struct Badge: View {
         let celsius: Double
     }
 
-    static func named(_ sensors: [Sensor]) -> [Named] {
+    nonisolated static func named(_ sensors: [Sensor]) -> [Named] {
         // The HID path lists each sensor several times: one row per
         // name, its hottest.
         var hottest: [String: Double] = [:]
@@ -1249,14 +1264,18 @@ struct Badge: View {
         VStack(alignment: .leading, spacing: 3) {
             switch on {
             case .die:
-                if let die = frame.die {
-                    let source = model.state?.dieSource ?? "die"
+                if let heat = frame.heat {
                     Text(
                         expanded
-                            ? "\(source) \(String(format: "%.1f", die)) °C · what the curve follows"
-                            : "\(source) \(Status.degrees(die))"
+                            ? "heat \(String(format: "%.1f", heat)) °C · what the curve follows"
+                            : "heat \(Status.degrees(heat))"
                     )
-                    .foregroundStyle(Palette.heat(die))
+                    .foregroundStyle(Palette.heat(heat))
+                }
+                if expanded, let now = frame.die {
+                    let source = model.state?.dieSource ?? "die"
+                    Text("\(source) \(String(format: "%.1f", now)) °C now, the faint line")
+                        .foregroundStyle(Palette.heat(now).opacity(0.7))
                 }
                 if expanded {
                     // The parts by name: cpu, gpu, memory from their SMC

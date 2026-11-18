@@ -276,7 +276,7 @@ final class Daemon: NSObject, NSXPCListenerDelegate {
     static let files: [URL] = {
         let log = URL(filePath: Wire.logFile)
         let groups = [
-            (Policy.directory, [Policy.file]),
+            (Policy.directory, [Policy.file, Clouds.file]),
             (log.deletingLastPathComponent(), [log, URL(filePath: Wire.logFile + ".1")]),
         ]
         for (directory, files) in groups {

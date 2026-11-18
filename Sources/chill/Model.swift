@@ -99,7 +99,6 @@ final class Model {
     var local: LocalSample?
 
     let curveStore: CurveStore
-    let clouds: CloudStore
     @ObservationIgnored private var client: Client?
     @ObservationIgnored private var busy = false
     /// Set once the process has opened its upgraded bundle and is leaving.
@@ -113,14 +112,12 @@ final class Model {
     /// last.
     @ObservationIgnored private var verbs: Task<Void, Never>?
     @ObservationIgnored private var sensors: Result<LocalSensors, Error>?
-    @ObservationIgnored private var cloudTimer: Timer?
     @ObservationIgnored private var updateTimer: Timer?
     @ObservationIgnored private var retuneLanding: Task<Void, Never>?
 
     init(demo: Demo) throws {
         self.demo = demo
         curveStore = try CurveStore(demo: demo)
-        clouds = try CloudStore(demo: demo)
         config = try Config.load(demo)
         curves = try curveStore.list()
         cursor = config.lastCurve.flatMap { name in curves.first { $0.name == name }?.name }
@@ -128,15 +125,9 @@ final class Model {
         // daemon-less plot samples it, and the probe logs which catalogue
         // keys this Mac answers while there is still time to read it.
         sensors = Result { try LocalSensors() }
-        // Common modes: a timer on the default mode alone stalls while a
-        // menu is open or a window resizes.
-        let timer = Timer(timeInterval: CloudStore.writePeriod, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.writeClouds() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        cloudTimer = timer
         // The update check (UpdateCheck.swift): asked hourly whether its day has
-        // come, and once now.
+        // come, and once now. Common modes: a timer on the default mode alone
+        // stalls while a menu is open or a window resizes.
         let check = Timer(timeInterval: 3600, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkForUpdateIfDue() }
         }
@@ -169,7 +160,9 @@ final class Model {
         return nil
     }
 
+    /// The hottest die right now, and the heat a curve follows from it.
     var die: Double? { state?.die ?? local?.die }
+    var heat: Double? { state?.heat ?? local?.heat }
 
     /// What the status line cannot say: another watcher holds the fans
     /// (the take-over button sits beside it), else the last verb's
@@ -381,7 +374,6 @@ final class Model {
         }
         link = Link.live(state)
         local = nil
-        if let hello { clouds.absorb(state.clouds, from: hello.pid) }
         start(state)
     }
 
@@ -598,10 +590,10 @@ final class Model {
         if sensors == nil { sensors = Result { try LocalSensors() } }
         switch sensors! {
         case .success(let sensors):
-            local = sensors.sample()
+            local = sensors.sample(after: local)
         case .failure(let error):
             if local == nil { Verbs.note("chill: \(error); no local telemetry") }
-            local = LocalSample(die: nil, fans: [])
+            local = LocalSample(die: nil, heat: nil, fans: [], at: .now)
         }
     }
 
@@ -1027,21 +1019,5 @@ final class Model {
                 .glassEffect(.regular, in: .rect(cornerRadius: InkRadii.system.panel)),
             size: AboutPanel.size, on: NSApp.keyWindow?.screen,
             dismissOnAppSwitch: false)
-    }
-
-    // MARK: - persistence
-
-    func writeClouds() {
-        do {
-            try clouds.write()
-        } catch {
-            Verbs.note("chill: cloud write: \(error)")
-        }
-    }
-
-    /// Quit is a transition: the clouds land, the connection dies with the
-    /// process and the daemon drops this presence on invalidation.
-    func quit() {
-        writeClouds()
     }
 }

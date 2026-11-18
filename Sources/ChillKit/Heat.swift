@@ -1,47 +1,39 @@
 import Foundation
 
-/// The demo world's heat, the stage's thermal story: a chip under load, the
-/// parts around it and the case's skin, cooled only as fast as the fans move
-/// air. Dramatized for the stage, every time constant in story seconds where
-/// a real Mac takes minutes, so a scene tells in twenty seconds what a palm
-/// feels over ten minutes; the ORDER is real: the chip in a moment, the gpu
-/// and ssd after it, the battery under the palm rest slower, the skin last.
-/// The fans' rpm comes from the demo daemon's physics (`FakeDaemon.target`,
-/// `slew`), so Apple's curve here is the one the demo plays everywhere.
-public struct Heat: Sendable, Equatable {
-    public var cpu = 48.0
-    public var gpu = 45.0
-    public var ssd = 37.0
-    public var battery = 31.0
-    /// The case's skin, what a palm feels: no sensor reports it, so it is
-    /// modelled from the chip and the battery under it, held down by air.
-    public var skin = 30.0
+/// What a curve follows: the heat in the chip's cooler, not its spikes.
+///
+/// A die sensor answers two things at once. Power first: the moment work
+/// starts the chip reads several degrees over its cooler, within a second
+/// or two, and drops back the moment it stops (an M5 Max under every core:
+/// 45 to 57 °C in 4 s, 73 to 65 °C in 4 s). Heat second: the cooler and the
+/// chassis warming under that power and cooling after it, which the fans
+/// move, a time constant of about 45 s at Apple's idle fans (the same M5
+/// Max's unloaded gpu, which reads the shared cooler, cooling 65 to 47 °C).
+/// A curve fed the raw reading turns every burst of work into a fan that
+/// spins up for the burst and down after it, the square a person hears.
+///
+/// So the curve's input follows the die the way heat does: up with the
+/// geometric mean of the two time scales (`rise`, slow enough that a burst
+/// barely moves it, quick enough to meet a real load in seconds), down at
+/// the cooler's own pace (`fall`: the reading drops at once, the heat leaves
+/// the chassis no faster than the cooler sheds it, and the fans follow the
+/// heat). One function for the daemon that writes the fans, the demo's
+/// daemon, the app reading the sensors itself, and the replay that proves
+/// it; a step longer than both constants simply lands.
+public enum Heat {
+    /// How fast the chip's own jump over its cooler settles.
+    public static let chipSettles = 1.5
+    /// The cooler's time constant at Apple's idle fans.
+    public static let coolerSheds = 45.0
+    public static let rise = (chipSettles * coolerSheds).squareRoot()
+    public static let fall = coolerSheds
 
-    public init() {}
-
-    /// Seconds for each part to go most of the way to where it is heading.
-    static let tau = (cpu: 0.6, gpu: 0.8, ssd: 1.8, battery: 2.5, skin: 3.0)
-
-    /// One step: `load` 0 (idle) to 1 (a long render), `air` how hard the
-    /// fans blow, 0 (off) to 1 (both at their ceiling). Air carries heat away
-    /// with the square of its speed: a fan at its floor barely moves the
-    /// chip, one at its ceiling pulls everything down, the case included.
-    public mutating func step(load: Double, air: Double, seconds: Double) {
-        func toward(_ v: Double, _ target: Double, _ tau: Double) -> Double {
-            v + (target - v) * (1 - exp(-seconds / tau))
-        }
-        let flow = air * air
-        cpu = toward(cpu, 46 + 55 * load - 48 * flow, Heat.tau.cpu)
-        gpu = toward(gpu, 44 + 40 * load - 35 * flow, Heat.tau.gpu)
-        ssd = toward(ssd, 36 + 12 * load - 8 * flow, Heat.tau.ssd)
-        battery = toward(battery, 31 + 0.3 * (cpu - 46) - 4 * flow, Heat.tau.battery)
-        skin = toward(
-            skin, 30 + 0.2 * (cpu - 46) + 0.45 * (battery - 31) - 8 * flow, Heat.tau.skin)
-    }
-
-    /// How hard the fans blow at these rpm: each one's share of its ceiling
-    /// (off is 0), the mean of them.
-    public static func air(_ rpm: [Double], fans: [Fan]) -> Double {
-        zip(rpm, fans).map { $0 / $1.max }.reduce(0, +) / Double(max(1, fans.count))
+    /// The heat after `seconds` more of a die reading `die`, from `heat`
+    /// (nil: the first reading, which is taken as it is).
+    public static func follow(_ heat: Double?, die: Double, seconds: Double) -> Double {
+        precondition(seconds >= 0, "heat: \(seconds) s since the last reading")
+        guard let heat else { return die }
+        let tau = die > heat ? rise : fall
+        return heat + (die - heat) * (1 - exp(-seconds / tau))
     }
 }

@@ -19,7 +19,10 @@ enum LocalSensorsError: Error, CustomStringConvertible {
 /// daemon answers; with one, `State` is the single source.
 struct LocalSample {
     let die: Double?
+    /// The die as a curve follows it (`Heat.follow`), as chilld would.
+    let heat: Double?
     let fans: [FanReading]
+    let at: ContinuousClock.Instant
 }
 
 final class LocalSensors {
@@ -66,12 +69,17 @@ final class LocalSensors {
         }
     }
 
-    /// The same number chilld follows: the named parts' hottest where the
-    /// catalogue knows the chip, the HID die otherwise.
-    func sample() -> LocalSample {
-        LocalSample(
-            die: parts.hottest()?.celsius ?? hid?.hottest()?.celsius,
-            fans: (try? smc.fans()) ?? [])
+    /// The same numbers chilld reads: the named parts' hottest where the
+    /// catalogue knows the chip, the HID die otherwise, and the heat it
+    /// leads to from the sample before.
+    func sample(after previous: LocalSample?) -> LocalSample {
+        let now = ContinuousClock.now
+        let die = parts.hottest()?.celsius ?? hid?.hottest()?.celsius
+        let heat = die.map { die in
+            Heat.follow(
+                previous?.heat, die: die, seconds: previous.map { (now - $0.at).seconds } ?? 0)
+        }
+        return LocalSample(die: die, heat: heat, fans: (try? smc.fans()) ?? [], at: now)
     }
 
     /// Every thermal sensor the HID path names (the die's spots, ssd,

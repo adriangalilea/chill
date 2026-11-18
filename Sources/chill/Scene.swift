@@ -44,7 +44,7 @@ enum Scene {
         let surface: Double
         let fans: [Double]
 
-        init(_ heat: Heat, rpm: [Double]) {
+        init(_ heat: StageHeat, rpm: [Double]) {
             let round = { (c: Double) in (c * 10).rounded() / 10 }
             parts = [
                 "cpu": round(heat.cpu), "gpu": round(heat.gpu), "ssd": round(heat.ssd),

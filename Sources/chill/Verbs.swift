@@ -282,8 +282,8 @@ enum Status {
             }
             parts.append(rpm(s.fans))
         case (.curve(let curve), .chill):
-            if let die = s.die {
-                parts.append("\(degrees(die)) → \(Int(curve.rpm(at: die).rounded())) rpm")
+            if let heat = s.heat {
+                parts.append("heat \(degrees(heat)) → \(Int(curve.rpm(at: heat).rounded())) rpm")
             }
             if let presence = s.presence { parts.append("via \(presence.name)") }
             parts.append(rpm(s.fans))
