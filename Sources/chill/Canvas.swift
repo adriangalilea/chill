@@ -106,7 +106,7 @@ struct CanvasView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: .inkBlock) {
-            HStack(alignment: .firstTextBaseline, spacing: .inkLane) {
+            HStack(alignment: .firstTextBaseline, spacing: .inkGap) {
                 Text(model.editing?.name ?? "system")
                     .font(.system(size: 20, weight: .semibold))
                 if model.demo.on {
@@ -155,7 +155,7 @@ struct CurveList: View {
     let model: Model
 
     var body: some View {
-        CursorScrollView(cursor: model.cursor) {
+        InkCursorScroll(cursor: model.cursor) {
             VStack(spacing: 2) {
                 ForEach(model.curves, id: \.name) { curve in
                     row(curve).id(curve.name)
@@ -187,17 +187,8 @@ struct CurveList: View {
                 Text("active").font(.meta).foregroundStyle(tone.opacity(0.7))
             }
         }
-        .padding(.horizontal, .inkLane)
         .padding(.vertical, .inkGap)
-        .background(
-            selected ? Color.inkSelection : .clear,
-            in: RoundedRectangle(cornerRadius: .inkRow)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: .inkRow)
-                .strokeBorder(selected ? Color.inkEdge : .clear, lineWidth: 1)
-        )
-        .contentShape(Rectangle())
+        .inkCursorRow(on: selected, keys: true)
         .onTapGesture(count: 2) {
             model.cursor = curve.name
             model.use(curve)

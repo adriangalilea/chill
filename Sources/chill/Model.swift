@@ -55,7 +55,7 @@ final class Model {
     let store = KeymapStore<ChillAction>()
     @ObservationIgnored var router: LocalKeyRouter<ChillAction>?
     @ObservationIgnored var hotkeys: GlobalHotkeys<ChillAction>?
-    @ObservationIgnored let float = FloatingPanel()
+    @ObservationIgnored let float = InkFloatingPanel()
     @ObservationIgnored var canvas: CanvasWindow?
     /// The status item's popover, the surface the local keys land on.
     @ObservationIgnored weak var popover: NSPopover?
@@ -1008,7 +1008,7 @@ final class Model {
         // escape monitors still close it.
         float.show(
             KeysPanel(store: store, close: { [weak self] in self?.showKeys = false })
-                .glassEffect(.regular, in: .rect(cornerRadius: .inkPanel)),
+                .glassEffect(.regular, in: .rect(cornerRadius: InkRadii.system.panel)),
             size: KeysPanel.size, on: NSApp.keyWindow?.screen,
             dismissOnAppSwitch: false)
     }
@@ -1024,7 +1024,7 @@ final class Model {
         float.onDismissRequest = { [weak self] in self?.showAbout = false }
         float.show(
             AboutPanel(close: { [weak self] in self?.showAbout = false })
-                .glassEffect(.regular, in: .rect(cornerRadius: .inkPanel)),
+                .glassEffect(.regular, in: .rect(cornerRadius: InkRadii.system.panel)),
             size: AboutPanel.size, on: NSApp.keyWindow?.screen,
             dismissOnAppSwitch: false)
     }

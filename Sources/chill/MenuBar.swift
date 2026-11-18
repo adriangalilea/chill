@@ -180,7 +180,7 @@ struct PopoverView: View {
     let model: Model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: .inkLane) {
+        VStack(alignment: .leading, spacing: .inkBlock) {
             Tabs(model: model)
             Fixer(model: model)
             // The plot only while the popover is up (`popoverShown`):
@@ -210,7 +210,7 @@ struct PopoverView: View {
                 case .tuned:
                     Knobs(model: model).transition(.opacity)
                 case .custom:
-                    HStack(spacing: .inkLane) {
+                    HStack(spacing: .inkGap) {
                         AsideOr(
                             model: model,
                             fallback:
@@ -298,7 +298,7 @@ struct AsideOr: View {
     var body: some View {
         Group {
             if let aside = model.aside {
-                HStack(spacing: .inkLane) {
+                HStack(spacing: .inkGap) {
                     // A long notice truncates here; the whole of it is the
                     // tooltip.
                     Text(aside).foregroundStyle(tone.opacity(0.8)).help(aside)
@@ -327,6 +327,7 @@ struct Tabs: View {
     /// The one tip: the shortcut, under the key mark of the tab the
     /// toggle would press. Nothing else on the rail says anything.
     @SwiftUI.State private var tip: Tip?
+    @Environment(\.inkRadii) private var radii
 
     var body: some View {
         HStack(spacing: .inkGap) {
@@ -344,9 +345,11 @@ struct Tabs: View {
                 }
             }
             .padding(Tabs.railPadding)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: .inkField))
+            .background(
+                Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: radii.field)
+            )
             .overlay(
-                RoundedRectangle(cornerRadius: .inkField)
+                RoundedRectangle(cornerRadius: radii.field)
                     .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
             // `+` beside the rail, not in it: the rail holds what runs,
             // this makes a new one. The rail's height, so the two align.
@@ -447,9 +450,10 @@ struct TipView: View {
     let tip: Tip
     let hover: (Bool) -> Void
     let gotIt: () -> Void
+    @Environment(\.inkRadii) private var radii
 
     var body: some View {
-        HStack(spacing: .inkLane) {
+        HStack(spacing: .inkGap) {
             HStack(spacing: .inkGap) {
                 InkKey(tip.key)
                 Text("toggle from any app").font(.meta).foregroundStyle(.secondary)
@@ -462,15 +466,15 @@ struct TipView: View {
             }
         }
         .fixedSize()
-        .padding(.inkLane)
+        .padding(.inkGap)
         .contentShape(Rectangle())
         .onHover(perform: hover)
         .background(
             Color(nsColor: .windowBackgroundColor).opacity(0.95),
-            in: RoundedRectangle(cornerRadius: .inkRow)
+            in: RoundedRectangle(cornerRadius: radii.row)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: .inkRow)
+            RoundedRectangle(cornerRadius: radii.row)
                 .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1))
     }
 }
@@ -492,6 +496,7 @@ struct TabCell: View {
     let hover: (Bool, CGRect) -> Void
     @SwiftUI.State private var hovering = false
     @SwiftUI.State private var frame = CGRect.zero
+    @Environment(\.inkRadii) private var radii
 
     var body: some View {
         let selected = model.tab == tab
@@ -503,7 +508,7 @@ struct TabCell: View {
                 Text(name)
             }
             .font(.system(size: 13, weight: selected ? .semibold : .regular))
-            .padding(.horizontal, .inkLane)
+            .padding(.horizontal, .inkGap)
             .frame(height: Tabs.cellHeight)
             .overlay(alignment: .topTrailing) {
                 if mark {
@@ -520,11 +525,11 @@ struct TabCell: View {
             }
             .background {
                 if selected {
-                    RoundedRectangle(cornerRadius: .inkRow)
+                    RoundedRectangle(cornerRadius: radii.row)
                         .fill(Palette.dune.opacity(0.22))
                         .matchedGeometryEffect(id: "plate", in: rail)
                 } else if hovering {
-                    RoundedRectangle(cornerRadius: .inkRow)
+                    RoundedRectangle(cornerRadius: radii.row)
                         .fill(Color.primary.opacity(0.07))
                 }
             }
@@ -549,6 +554,7 @@ struct RailButton<Label: View>: View {
     let action: () -> Void
     @ViewBuilder let label: Label
     @SwiftUI.State private var hovering = false
+    @Environment(\.inkRadii) private var radii
 
     var body: some View {
         Button(action: action) {
@@ -556,10 +562,10 @@ struct RailButton<Label: View>: View {
                 .frame(width: Tabs.railHeight, height: Tabs.railHeight)
                 .background(
                     Color.primary.opacity(hovering ? 0.12 : 0.06),
-                    in: RoundedRectangle(cornerRadius: .inkField)
+                    in: RoundedRectangle(cornerRadius: radii.field)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: .inkField)
+                    RoundedRectangle(cornerRadius: radii.field)
                         .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
                 )
                 .contentShape(Rectangle())
@@ -579,6 +585,7 @@ struct Chip<Label: View>: View {
     let action: () -> Void
     @ViewBuilder let label: Label
     @SwiftUI.State private var hovering = false
+    @Environment(\.inkRadii) private var radii
 
     var body: some View {
         Button(action: action) {
@@ -587,10 +594,10 @@ struct Chip<Label: View>: View {
                 .padding(.vertical, .inkTight)
                 .background(
                     Color.primary.opacity(hovering ? 0.12 : 0.06),
-                    in: RoundedRectangle(cornerRadius: .inkRow)
+                    in: RoundedRectangle(cornerRadius: radii.row)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: .inkRow)
+                    RoundedRectangle(cornerRadius: radii.row)
                         .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
                 )
                 .contentShape(Rectangle())
@@ -658,7 +665,7 @@ struct Knob: View {
     let reading: String
 
     var body: some View {
-        HStack(spacing: .inkLane) {
+        HStack(spacing: .inkGap) {
             Text(label).font(.meta).foregroundStyle(.secondary)
                 .fixedSize()
             GeometryReader { proxy in
@@ -794,7 +801,7 @@ struct KeysPanel: View {
     let close: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: .inkLane) {
+        VStack(alignment: .leading, spacing: .inkGap) {
             Text("shortcut")
                 .font(.system(size: 16, weight: .semibold))
             Text("from any app: Apple's curve if yours runs, yours if Apple's does")
@@ -829,7 +836,7 @@ struct CloseButton: View {
         .foregroundStyle(hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
         .onHover { hovering = $0 }
         .animation(.inkSettle, value: hovering)
-        .padding(.inkLane)
+        .padding(.inkGap)
     }
 }
 
@@ -842,7 +849,7 @@ struct AboutPanel: View {
     let close: () -> Void
 
     var body: some View {
-        VStack(spacing: .inkLane) {
+        VStack(spacing: .inkGap) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 96, height: 96)
@@ -859,7 +866,7 @@ struct AboutPanel: View {
             Spacer(minLength: 0)
         }
         .padding(.inkBlock)
-        .padding(.top, .inkLane)
+        .padding(.top, .inkGap)
         .frame(width: AboutPanel.size.width, height: AboutPanel.size.height)
         .overlay(alignment: .topTrailing) {
             CloseButton(close: close)

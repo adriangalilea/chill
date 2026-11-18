@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.4
 // Three targets, one contract. ChillKit is the wire every process links:
 // the protocol, the payloads, the curve model and chilld's declaration as
 // the app's job. chilld is the root daemon and the only SMC writer; it
@@ -10,7 +10,7 @@ import PackageDescription
 
 let package = Package(
     name: "chill",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS(.v27)],
     products: [
         .library(name: "ChillKit", targets: ["ChillKit"])
     ],
@@ -21,7 +21,7 @@ let package = Package(
         // Ink + Keymap: the studio's look and the keyboard-first spine.
         // AppInstallations: the app's whole life (chilld as its job, the
         // move into Applications, upgrade and delete), in every process.
-        .package(url: "https://github.com/adriangalilea/swift-utils", .upToNextMinor(from: "0.38.6")),
+        .package(url: "https://github.com/adriangalilea/swift-utils", .upToNextMinor(from: "0.102.20")),
     ],
     targets: [
         .target(

@@ -20,30 +20,30 @@ enum ChillAction: String, CaseIterable, ActionSet {
     case system, takeOver
     case canvas, back, quit
 
-    var spec: Spec {
+    var spec: ActionSpec {
         switch self {
         case .toggle:
-            return Spec(
+            return ActionSpec(
                 title: "apple or your curve", symbol: "fan",
                 global: [KeyCombo("c", [.control, .option, .command])])
         case .newCurve:
-            return Spec(
+            return ActionSpec(
                 title: "new curve", symbol: "plus.square", local: [KeyCombo("n", .command)])
         case .deleteCurve:
-            return Spec(
+            return ActionSpec(
                 title: "trash this curve", symbol: "trash", local: [KeyCombo("delete", .command)])
         case .useCurve:
-            return Spec(title: "use this curve", symbol: "checkmark")
+            return ActionSpec(title: "use this curve", symbol: "checkmark")
         case .system:
-            return Spec(title: "system: Apple's curve", symbol: "apple.logo")
+            return ActionSpec(title: "system: Apple's curve", symbol: "apple.logo")
         case .takeOver:
-            return Spec(title: "take the fans over", symbol: "hand.raised")
+            return ActionSpec(title: "take the fans over", symbol: "hand.raised")
         case .canvas:
-            return Spec(title: "lab", symbol: "flask")
+            return ActionSpec(title: "lab", symbol: "flask")
         case .back:
-            return Spec(title: "close", symbol: "xmark", local: [KeyCombo("escape")])
+            return ActionSpec(title: "close", symbol: "xmark", local: [KeyCombo("escape")])
         case .quit:
-            return Spec(title: "quit", symbol: "power", local: [KeyCombo("q", .command)])
+            return ActionSpec(title: "quit", symbol: "power", local: [KeyCombo("q", .command)])
         }
     }
 

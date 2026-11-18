@@ -1,4 +1,5 @@
 import ChillKit
+import Ink
 import MachSensors
 import SwiftUI
 
@@ -231,6 +232,7 @@ struct Plot: View {
     let model: Model
     let curve: Curve?
     let editable: Bool
+    @Environment(\.inkRadii) private var radii
     @SwiftUI.State private var dragging: Int?
     @SwiftUI.State private var hover: CGPoint?
     /// Where each badge really is, reported by the pinboard after it
@@ -648,7 +650,7 @@ struct Plot: View {
             )
         }
         .background(
-            RoundedRectangle(cornerRadius: .inkField).fill(Color.inkRest.opacity(0.4))
+            RoundedRectangle(cornerRadius: radii.field).fill(Color.inkRest.opacity(0.4))
         )
     }
 
@@ -1213,6 +1215,7 @@ struct Badge: View {
     let frame: Frame
     let on: Plot.Hovered
     let expanded: Bool
+    @Environment(\.inkRadii) private var radii
 
     /// The sensors whose name means something, said plainly. `PMU tcal`
     /// is a calibration reference, not a part; the die's spots are the
@@ -1262,7 +1265,7 @@ struct Badge: View {
                     // order, a grid, so nothing trades places.
                     let parts = model.parts()
                     let named = Badge.named(model.temperatures())
-                    Grid(alignment: .leading, horizontalSpacing: .inkLane, verticalSpacing: 3) {
+                    Grid(alignment: .leading, horizontalSpacing: .inkGap, verticalSpacing: 3) {
                         ForEach(parts, id: \.group) { part in
                             let hottest = part.celsius.max()!
                             GridRow {
@@ -1296,11 +1299,11 @@ struct Badge: View {
             }
         }
         .font(.meta)
-        .padding(.horizontal, expanded ? .inkLane : 5)
+        .padding(.horizontal, expanded ? .inkGap : 5)
         .padding(.vertical, expanded ? .inkGap : 2)
         .background(
             Color(nsColor: .windowBackgroundColor).opacity(expanded ? 0.94 : 0.82),
-            in: RoundedRectangle(cornerRadius: expanded ? .inkRow : 4)
+            in: RoundedRectangle(cornerRadius: expanded ? radii.row : radii.chip)
         )
         .animation(.inkSettle, value: expanded)
     }

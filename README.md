@@ -1,6 +1,6 @@
 # chill
 
-Keep your Mac cool to the touch: the `chill` curve spins the fans up earlier than Apple does, and the moment you're away, or the Mac sleeps, or it runs hot, Apple is back in charge. Fan control for the Mac, macOS 26, Apple Silicon.
+Keep your Mac cool to the touch: the `chill` curve spins the fans up earlier than Apple does, and the moment you're away, or the Mac sleeps, or it runs hot, Apple is back in charge. Fan control for the Mac, macOS 27, Apple Silicon.
 
 A fan runs a curve: temperature in, rpm out. `apple` is macOS's own curve. `chill` is the built-in one, a floor until it kicks in and then one clean S to the fan's maximum, shaped by a single knob. A custom curve is yours, drawn on the plot point by point. chill forces a fan only while all of these hold: an intent (a curve, or a timed boost from the CLI), presence (the app or `chill ... --watch` spoke within the last 10 s), no veto (sleep, thermal pressure, no reading), and the curve asking more than the fan's floor; at the floor Apple keeps the fan. `chill status` says who holds the fans and why, in one line, always.
 
