@@ -16,7 +16,8 @@
 #   ship-check what would stop a release right now, each blocked gate with its real answer
 #   publish    dmg → R2 behind chill.untitled.garden/releases (the COUNTED url) + notes → garden ($GARDEN)
 #   clean      remove the build directory and dist
-# Every compiling task runs under scripts/locked.sh (the build mutex);
+# Every compiling task is a build step (scripts/build-steps.sh: `build run`
+# where the household's build door exists, the bare command elsewhere);
 # scripts/assemble.sh builds the .app for install AND release, one implementation.
 
 [env]
@@ -38,12 +39,14 @@ DIST = "dist"
 
 [tasks.build]
 description = "Build chill and chilld (release)"
-run = "scripts/locked.sh swift build -c release"
+tags = ["build-steps"]
+run = ". scripts/build-steps.sh && build_step chill-release swift build -c release"
 
 [tasks.dev]
 description = "The app from source (debug): no daemon reachable from a bare build, local sensors only; `mise run install` for the real daemon"
+tags = ["build-steps"]
 run = '''
-scripts/locked.sh swift build
+. scripts/build-steps.sh && build_step chill swift build
 .build/debug/chill
 '''
 
@@ -51,8 +54,9 @@ scripts/locked.sh swift build
 # a -demo sibling, sensors scripted, the daemon in-process. Safe to show.
 [tasks.demo]
 description = "The app in the demo world: forked roots, scripted sensors, no chilld"
+tags = ["build-steps"]
 run = '''
-scripts/locked.sh swift build
+. scripts/build-steps.sh && build_step chill swift build
 .build/debug/chill --demo
 '''
 
@@ -64,11 +68,12 @@ scripts/locked.sh swift build
 description = "The stage scenes: timelines + art into the garden (and the ui studio when UI is set), the popover clips onto the CDN (needs ffmpeg, the garden checkout)"
 # art.json carries the app icon, Resources/icon.png.
 depends = ["icon"]
+tags = ["build-steps"]
 run = '''
 set -e
 garden="${GARDEN:?the scenes are written into the garden checkout: set GARDEN to it}"
 test -d "$garden/tools/release" || { echo "GARDEN=$garden is not the garden checkout"; exit 1; }
-scripts/locked.sh swift build
+. scripts/build-steps.sh && build_step chill swift build
 mkdir -p "$DIST/scenes"
 set -- --out "$garden/apps/garden/components/scenes/chill"
 if [ -n "$UI" ]; then set -- "$@" --out "$UI/public/macos/chill"; fi
@@ -88,10 +93,12 @@ run = "xcrun swift-format lint --recursive Sources/"
 # Diagnostics are read, not hidden: a build that prints `warning:` fails.
 [tasks.check]
 description = "format + compile everything, debug: the FAST typecheck (must be 0 warnings)"
+tags = ["build-steps"]
 run = '''
 mise run format
 mise run lock-in
-out=$(scripts/locked.sh swift build 2>&1) || { echo "$out"; exit 1; }
+. scripts/build-steps.sh
+out=$(build_step chill swift build 2>&1) || { echo "$out"; exit 1; }
 if echo "$out" | grep -q "warning:"; then echo "$out"; echo "chill: warnings are errors"; exit 1; fi
 echo "chill: 0 errors, 0 warnings"
 '''
