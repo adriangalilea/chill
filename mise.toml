@@ -168,10 +168,19 @@ ln -sf "$DEV_APPBIN" "$prefix/bin/chill"
 echo "installed $DEV_APP (+ chill on PATH)"
 # The binary owns the registration (SMAppService + the login item), not this
 # file: the popover's "install chilld" makes the same two for a cask install.
-"$DEV_APPBIN" daemon install
+# A first registration of this build waits for a person's approval: the
+# install is done all the same, and the app opens to lead them through it
+# (its popover names the switch and opens Login Items), never a terminal
+# message alone with no app on screen.
+approved=yes
+"$DEV_APPBIN" daemon install || approved=""
 # Installed means running: the new one opens (the old ones quit before the
 # bundle went), then takes back the curve that ran before.
 open "$DEV_APP"
+if [ -z "$approved" ]; then
+  echo "chill Dev is open: its popover leads the approval; rerun once chilld is on"
+  exit 0
+fi
 if [ -n "$was" ]; then
   # `use` needs a watcher, and the new app becomes one at its first pulse.
   for _ in $(seq 50); do
