@@ -16,6 +16,6 @@ permissions: {}
 
 jobs:
   check:
-    uses: adriangalilea/ci/.github/workflows/mise.yml@c2ba9058dbad2cc8589da7419f2bd8b30ad9334a # v1.2.0
+    uses: adriangalilea/ci/.github/workflows/mise.yml@badac2986df2893b941df9d924f0b22bcb4e1a76 # v2.0.0
     permissions:
       contents: read
